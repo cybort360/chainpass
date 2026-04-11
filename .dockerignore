@@ -1,0 +1,12 @@
+# Keep build context small and avoid leaking local secrets into the image layer cache.
+.git
+**/.git
+**/node_modules
+**/.vite
+**/dist
+contracts/out
+contracts/cache
+**/.env
+!**/.env.example
+keys.txt
+*.log

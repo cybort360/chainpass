@@ -1,0 +1,23 @@
+{
+  "workbench.sideBar.location": "right",
+  "workbench.colorTheme": "Monokai Pro (Filter Spectrum)",
+  "workbench.iconTheme": "material-icon-theme",
+
+  "editor.fontSize": 10,
+  "editor.semanticHighlighting.enabled": true,
+  "editor.bracketPairColorization.enabled": true,
+
+  "editor.cursorBlinking": "expand",
+  "editor.cursorSmoothCaretAnimation": "on",
+  "liveServer.settings.AdvanceCustomBrowserCmdLine": "chrome",
+  "liveServer.settings.donotShowInfoMsg": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "git.suggestSmartCommit": false,
+  "gitlens.ai.model": "gitkraken",
+  "gitlens.ai.gitkraken.model": "gemini:gemini-2.0-flash",
+  "prettier.singleQuote": true,
+  "files.autoSave": "onFocusChange",
+
+  "typescript.tsdk": "node_modules/typescript/lib"
+}
