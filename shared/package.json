@@ -1,0 +1,26 @@
+{
+  "name": "@chainpass/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch"
+  },
+  "devDependencies": {
+    "@types/uuid": "^11.0.0",
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "uuid": "^13.0.0",
+    "viem": "^2.43.3"
+  }
+}
