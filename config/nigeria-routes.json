@@ -1,0 +1,118 @@
+{
+  "description": "Demo transit routes. priceWei = MON × 10¹⁸; fares span ~0.005 (short loops) to 0.2 (long inter-city). Sync on-chain with setRouteMintPrice(routeId, priceWei).",
+  "network": "monad-testnet",
+  "routes": [
+    {
+      "routeId": "105028041030242869159142767990570359337444458887537467262589772936966047894055",
+      "category": "Lagos",
+      "name": "Lagos BRT — CMS ↔ TBS",
+      "detail": "Island corridor (demo)",
+      "priceMon": 0.018,
+      "priceWei": "18000000000000000"
+    },
+    {
+      "routeId": "91042002938660981709187386902711335470516170112484682638589312675860006516364",
+      "category": "Lagos",
+      "name": "Lagos BRT — Oshodi ↔ Mile 2",
+      "detail": "Mainland express link (demo)",
+      "priceMon": 0.012,
+      "priceWei": "12000000000000000"
+    },
+    {
+      "routeId": "111806015872239280145744941149394733565960184105007568931743318413105630256060",
+      "category": "Lagos",
+      "name": "Lagos — Ajah ↔ Epe express",
+      "detail": "Lekki corridor (demo)",
+      "priceMon": 0.04,
+      "priceWei": "40000000000000000"
+    },
+    {
+      "routeId": "84232018740815816982668185546108156165313916914612643526538447248120599153772",
+      "category": "Abuja & FCT",
+      "name": "Abuja BRT — Central ↔ Area 1",
+      "detail": "FCT shuttle (demo)",
+      "priceMon": 0.075,
+      "priceWei": "75000000000000000"
+    },
+    {
+      "routeId": "112428727589899409531737375674688979840471583276206849485301966483349907742935",
+      "category": "South West",
+      "name": "Ibadan — Challenge ↔ Dugbe",
+      "detail": "City hop (demo)",
+      "priceMon": 0.016,
+      "priceWei": "16000000000000000"
+    },
+    {
+      "routeId": "40265596436912617279794196816579426086824126596336570747435046823508862749557",
+      "category": "South South",
+      "name": "Port Harcourt — Town ↔ Mile 3",
+      "detail": "Urban ring segment (demo)",
+      "priceMon": 0.11,
+      "priceWei": "110000000000000000"
+    },
+    {
+      "routeId": "22392412609825015859343455882847395012335314740031444967167410193966308318643",
+      "category": "South South",
+      "name": "Benin City — Ring Road loop",
+      "detail": "Short loop (demo)",
+      "priceMon": 0.005,
+      "priceWei": "5000000000000000"
+    },
+    {
+      "routeId": "2685628278048022319201694813949717611817568532656814159536885083441004187024",
+      "category": "South South",
+      "name": "Calabar — Marina ↔ Airport road",
+      "detail": "Coastal link (demo)",
+      "priceMon": 0.09,
+      "priceWei": "90000000000000000"
+    },
+    {
+      "routeId": "96612371553169890465125378101826402436244436652252642168351438324540579847950",
+      "category": "North",
+      "name": "Kano — Sabon Gari ↔ City centre",
+      "detail": "Northern hub (demo)",
+      "priceMon": 0.035,
+      "priceWei": "35000000000000000"
+    },
+    {
+      "routeId": "59191765545714000932697128999204585058454351878945283629584565671172972947510",
+      "category": "North",
+      "name": "Kaduna — Rigasa ↔ Central market",
+      "detail": "Express segment (demo)",
+      "priceMon": 0.03,
+      "priceWei": "30000000000000000"
+    },
+    {
+      "routeId": "106479858610859599564759905702129640255751277759992375209974583334224105296284",
+      "category": "South East",
+      "name": "Enugu — Okpara Square ↔ Market",
+      "detail": "Hill city shuttle (demo)",
+      "priceMon": 0.022,
+      "priceWei": "22000000000000000"
+    },
+    {
+      "routeId": "89244399795883829404142513985087395507737677368297782415474668632882033151009",
+      "category": "Inter-city",
+      "name": "Lagos ↔ Ibadan (inter-city)",
+      "detail": "Long-distance shuttle (demo)",
+      "priceMon": 0.2,
+      "priceWei": "200000000000000000"
+    },
+    {
+      "routeId": "100117691994595296214947647598850068850149128431911886994225193089691819382204",
+      "category": "test",
+      "name": "test route 1",
+      "detail": "",
+      "priceMon": 0,
+      "priceWei": "0"
+    },
+    {
+      "routeId": "81430949885094015719575142425951651758698091069191086609219460519024341452158",
+      "category": "test",
+      "name": "test route 2",
+      "detail": "",
+      "priceMon": 0.001,
+      "priceWei": "1000000000000000"
+    }
+  ]
+}
