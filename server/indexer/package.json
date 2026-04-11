@@ -1,0 +1,27 @@
+{
+  "name": "@chainpass/indexer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:clear-ticket-events": "tsx scripts/clear-ticket-events.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@chainpass/shared": "workspace:*",
+    "dotenv": "^16.6.1",
+    "pg": "^8.16.3",
+    "viem": "^2.43.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "@types/pg": "^8.15.5",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.2"
+  }
+}
