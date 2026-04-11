@@ -1,0 +1,8 @@
+{
+  "framework": null,
+  "installCommand": "cd \"$(git rev-parse --show-toplevel)\" && node scripts/vercel-normalize-lockfile.mjs && P=$(node -p \"require('./package.json').packageManager.replace(/^pnpm@/,'')\") && npx --yes pnpm@${P} install --frozen-lockfile",
+  "buildCommand": "cd \"$(git rev-parse --show-toplevel)\" && node scripts/vercel-build.mjs",
+  "outputDirectory": "dist",
+  "trailingSlash": false,
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}

@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+/* Monad brand: #6E54FF primary, #391B97 deep (from public brand kit SVGs) */
+@theme {
+  --color-background: #0e0e13;
+  --color-surface: #0e0e13;
+  --color-surface-dim: #0e0e13;
+  --color-surface-bright: #2c2b33;
+  --color-surface-variant: #25252c;
+  --color-surface-container-lowest: #000000;
+  --color-surface-container-low: #131318;
+  --color-surface-container: #19191f;
+  --color-surface-container-high: #1f1f26;
+  --color-surface-container-highest: #25252c;
+  --color-surface-tint: #6e54ff;
+  --color-primary: #6e54ff;
+  --color-primary-dim: #5a42cc;
+  --color-primary-container: #8f7dff;
+  --color-primary-fixed: #8f7dff;
+  --color-primary-fixed-dim: #7a6ae6;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #1e1040;
+  --color-on-primary-fixed: #000000;
+  --color-on-primary-fixed-variant: #2d1a5c;
+  --color-inverse-primary: #4e3db5;
+  --color-monad-deep: #391b97;
+  --color-secondary: #e3e1ef;
+  --color-secondary-dim: #d5d3e1;
+  --color-secondary-container: #464651;
+  --color-secondary-fixed: #e3e1ef;
+  --color-secondary-fixed-dim: #d5d3e1;
+  --color-on-secondary: #51515c;
+  --color-on-secondary-container: #d1cfdd;
+  --color-on-secondary-fixed: #3e3e4a;
+  --color-on-secondary-fixed-variant: #5b5a66;
+  --color-tertiary: #a1faff;
+  --color-tertiary-dim: #00e5ee;
+  --color-tertiary-container: #00f4fe;
+  --color-tertiary-fixed: #00f4fe;
+  --color-tertiary-fixed-dim: #00e5ee;
+  --color-on-tertiary: #006165;
+  --color-on-tertiary-container: #00575b;
+  --color-on-tertiary-fixed: #004346;
+  --color-on-tertiary-fixed-variant: #006266;
+  --color-error: #ff6e84;
+  --color-error-dim: #d73357;
+  --color-error-container: #a70138;
+  --color-on-error: #490013;
+  --color-on-error-container: #ffb2b9;
+  --color-on-background: #f8f5fd;
+  --color-on-surface: #f8f5fd;
+  --color-on-surface-variant: #acaab1;
+  --color-inverse-surface: #fbf8ff;
+  --color-inverse-on-surface: #55545a;
+  --color-outline: #76747b;
+  --color-outline-variant: #48474d;
+  --font-headline: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    @apply antialiased scroll-smooth;
+    /* Clip horizontal bleed without forcing overflow-y:auto on descendants (avoids double scrollbars). */
+    overflow-x: clip;
+    /* Keep layout stable when modals (e.g. Privy) set body overflow:hidden — scrollbar width stays reserved. */
+    scrollbar-gutter: stable;
+  }
+  body {
+    @apply bg-surface text-on-surface font-body selection:bg-primary/30;
+  }
+  .material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  }
+  .glass-card {
+    background: rgba(37, 37, 44, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  .text-glow {
+    text-shadow: 0 0 20px rgba(110, 84, 255, 0.45);
+  }
+  .btn-primary-gradient {
+    background: linear-gradient(135deg, var(--color-primary-dim), var(--color-primary));
+  }
+
+  /* Landing: depth without heavy JS */
+  .landing-mesh {
+    background:
+      radial-gradient(ellipse 80% 50% at 20% -10%, rgba(110, 84, 255, 0.18), transparent 55%),
+      radial-gradient(ellipse 60% 45% at 85% 15%, rgba(57, 27, 151, 0.22), transparent 50%),
+      radial-gradient(ellipse 70% 40% at 50% 100%, rgba(161, 250, 255, 0.06), transparent 45%);
+  }
+
+  .landing-grain {
+    opacity: 0.045;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+  }
+
+  .landing-grid {
+    opacity: 0.035;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 85% 70% at 50% 40%, black 20%, transparent 70%);
+  }
+}
