@@ -1,0 +1,28 @@
+{
+  "name": "chainpass",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.6.5",
+  "scripts": {
+    "dev": "pnpm --parallel --filter client --filter @chainpass/api --filter @chainpass/shared run dev",
+    "build": "pnpm -r run build",
+    "dev:client": "pnpm --filter client dev",
+    "dev:api": "pnpm --filter @chainpass/api dev",
+    "dev:indexer": "pnpm --filter @chainpass/indexer dev",
+    "test": "pnpm --filter @chainpass/api test && pnpm --filter @chainpass/indexer test",
+    "sync-route-prices": "tsx scripts/sync-nigeria-route-prices.ts",
+    "sync-nigeria-route-ids": "tsx scripts/sync-nigeria-route-ids.ts",
+    "keep-alive:render": "node scripts/keep-alive-render.mjs"
+  },
+  "dependencies": {
+    "@chainpass/shared": "workspace:*",
+    "viem": "^2.43.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "tsx": "^4.19.2",
+    "typescript": "~5.9.3"
+  }
+}
