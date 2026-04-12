@@ -126,13 +126,6 @@ export function PassPage() {
 
   useEffect(() => { void refreshPayload() }, [refreshPayload])
 
-  // Snapshot route info while the ticket is live so it's available after burn
-  useEffect(() => {
-    if (routeName && owner) {
-      burnedInfoRef.current = { routeName, usedAt: new Date() }
-    }
-  }, [routeName, owner])
-
   // Pre-populate from cache for instant display on re-visit
   useEffect(() => {
     const cached = recall()
@@ -171,6 +164,12 @@ export function PassPage() {
   const routeIdStr = routeId !== undefined ? String(routeId) : undefined
   const routeMeta = routeIdStr ? routeMetaForRouteId(routeIdStr) : undefined
   const routeName = routeMeta?.name ?? (routeIdStr ? `Route ${shortenNumericId(routeIdStr)}` : undefined)
+
+  // Snapshot while ticket is live so it shows on the scan-complete screen after burn
+  if (routeName && owner && !burnedInfoRef.current) {
+    burnedInfoRef.current = { routeName, usedAt: new Date() }
+  }
+
   const { from: fromCity, to: toCity } = routeName ? splitRouteName(routeName) : { from: "—", to: "—" }
   const fromCode = toRouteCode(fromCity)
   const toCode = toRouteCode(toCity)
