@@ -37,7 +37,7 @@ export async function fetchActivePassesFromChain(
       })
 
       const tid = tokenId as bigint
-      const [routeId, validUntil] = await Promise.all([
+      const [routeId, validUntil, seatClassRaw] = await Promise.all([
         client.readContract({
           address: contract,
           abi: chainPassTicketAbi,
@@ -48,6 +48,12 @@ export async function fetchActivePassesFromChain(
           address: contract,
           abi: chainPassTicketAbi,
           functionName: "validUntil",
+          args: [tid],
+        }),
+        client.readContract({
+          address: contract,
+          abi: chainPassTicketAbi,
+          functionName: "seatClassOf",
           args: [tid],
         }),
       ])
@@ -61,6 +67,7 @@ export async function fetchActivePassesFromChain(
         block_number: "",
         valid_until_epoch: String(validUntil as bigint),
         created_at: new Date().toISOString(),
+        seat_class: (seatClassRaw as number) === 1 ? "Business" : "Economy",
       })
     }
 

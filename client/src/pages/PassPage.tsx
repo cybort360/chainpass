@@ -154,8 +154,19 @@ export function PassPage() {
     query: { enabled: !!contractAddress && !!tokenIdStr },
   })
 
+  const { data: seatClassRaw } = useReadContract({
+    address: contractAddress,
+    abi: chainPassTicketAbi,
+    functionName: "seatClassOf",
+    args: [tokenId],
+    query: { enabled: !!contractAddress && !!tokenIdStr },
+  })
+  const seatClass = (seatClassRaw as number | undefined) === 1 ? "Business" : "Economy"
+
   // Persist route/time info so we can show it on the "Trip complete" screen after burn
   const burnedInfoRef = useRef<{ routeName: string; usedAt: Date } | null>(null)
+
+  const [shareCopied, setShareCopied] = useState(false)
 
   const [payload, setPayload] = useState<QrPayload | null>(null)
   const [qrError, setQrError] = useState<string | null>(null)
@@ -415,8 +426,8 @@ export function PassPage() {
                   <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
                     Class
                   </p>
-                  <p className="mt-1 font-headline text-xs font-semibold text-white">
-                    {routeMeta?.category ?? "Economy"}
+                  <p className={`mt-1 font-headline text-xs font-semibold ${seatClass === "Business" ? "text-amber-300" : "text-white"}`}>
+                    {seatClass === "Business" ? "✦ Business" : "Economy"}
                   </p>
                 </div>
                 <div className="border-x border-outline-variant/15">
@@ -531,12 +542,32 @@ export function PassPage() {
             </div>
           </div>
 
-          {/* Explorer link */}
-          <a className="block text-center font-headline text-xs text-on-surface-variant hover:text-primary transition-colors"
-            href={`${explorerBase}/token/${contractAddress}?a=${tokenIdStr}`}
-            rel="noopener noreferrer" target="_blank">
-            View on MonadVision ↗
-          </a>
+          {/* Footer: explorer + share */}
+          <div className="flex items-center justify-center gap-5">
+            <a className="font-headline text-xs text-on-surface-variant hover:text-primary transition-colors"
+              href={`${explorerBase}/token/${contractAddress}?a=${tokenIdStr}`}
+              rel="noopener noreferrer" target="_blank">
+              View on MonadVision ↗
+            </a>
+            <span className="text-outline-variant/30">·</span>
+            <button
+              type="button"
+              onClick={() => {
+                void navigator.clipboard.writeText(window.location.href)
+                setShareCopied(true)
+                window.setTimeout(() => setShareCopied(false), 2000)
+              }}
+              className="inline-flex items-center gap-1.5 font-headline text-xs text-on-surface-variant hover:text-primary transition-colors"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+              {shareCopied ? "Copied!" : "Share pass"}
+            </button>
+          </div>
         </div>
       )}
     </div>

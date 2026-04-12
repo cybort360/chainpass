@@ -182,6 +182,7 @@ export type RiderPassEventRow = {
   block_number: string
   valid_until_epoch: string | null
   created_at: string
+  seat_class?: "Economy" | "Business" | null
 }
 
 export type MyPassesResponse = {

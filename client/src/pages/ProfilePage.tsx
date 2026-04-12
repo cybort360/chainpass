@@ -20,7 +20,7 @@ import { DEMO_ROUTES } from "../constants/demoRoutes"
 const REFETCH_MS = 8000
 const explorerTxBase = `${monadTestnet.blockExplorers.default.url}/tx`
 
-type TabId = "active" | "used"
+type TabId = "active" | "used" | "history"
 
 function formatEpoch(epoch: string | number | null | undefined): string {
   if (!epoch) return "—"
@@ -53,6 +53,7 @@ export function ProfilePage() {
   const navigate = useNavigate()
   const contractAddress = getContractAddress()
   const [data, setData] = useState<MyPassesResponse | null>(null)
+  const [expiredPasses, setExpiredPasses] = useState<NonNullable<MyPassesResponse["active"]>>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -161,9 +162,18 @@ export function ProfilePage() {
         if (chainActive === null) {
           setErr("Could not read NFTs from the chain (RPC error). Check your connection.")
           setData({ holder: address, active: [], used })
+          setExpiredPasses([])
         } else {
+          const now = Math.floor(Date.now() / 1000)
+          const activeOnly = chainActive.filter(
+            (p) => !p.valid_until_epoch || Number(p.valid_until_epoch) > now
+          )
+          const expired = chainActive.filter(
+            (p) => p.valid_until_epoch !== null && Number(p.valid_until_epoch) <= now
+          )
           setErr(null)
-          setData({ holder: address, active: chainActive, used })
+          setData({ holder: address, active: activeOnly, used })
+          setExpiredPasses(expired)
         }
       } else {
         const active = api?.active ?? []
@@ -219,6 +229,7 @@ export function ProfilePage() {
 
   const activeCount = data?.active.length ?? 0
   const usedCount = data?.used.length ?? 0
+  const historyCount = expiredPasses.length + usedCount
 
   return (
     <div className="mx-auto max-w-lg">
@@ -390,8 +401,9 @@ export function ProfilePage() {
       {/* Tabs */}
       <div className="mb-5 flex gap-1 rounded-xl bg-surface-container p-1">
         {([
-          { id: "active" as TabId, label: "Active", count: activeCount },
-          { id: "used" as TabId, label: "Used", count: usedCount },
+          { id: "active" as TabId,  label: "Active",  count: activeCount  },
+          { id: "history" as TabId, label: "History", count: historyCount },
+          { id: "used" as TabId,    label: "Burned",  count: usedCount    },
         ] as const).map((t) => (
           <button key={t.id} type="button" onClick={() => setTab(t.id)}
             className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2 font-headline text-sm font-semibold transition-all ${
@@ -510,6 +522,129 @@ export function ProfilePage() {
                 )
               })}
             </ul>
+          )}
+        </>
+      )}
+
+      {/* History tab — expired (still held) + burned */}
+      {!loading && tab === "history" && (
+        <>
+          {historyCount === 0 ? (
+            <div className="rounded-2xl border border-outline-variant/15 bg-surface-container py-12 text-center">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-surface-container-high">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                  className="text-on-surface-variant" aria-hidden>
+                  <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                </svg>
+              </div>
+              <p className="font-headline text-sm font-medium text-on-surface-variant">No travel history yet</p>
+              <p className="mt-1 text-xs text-on-surface-variant/60">Expired and burned tickets will appear here.</p>
+            </div>
+          ) : (
+            <div className="relative">
+              {/* Vertical timeline line */}
+              <div className="absolute left-[19px] top-3 bottom-3 w-px bg-outline-variant/20" aria-hidden />
+              <ul className="space-y-3 pl-0">
+                {/* Expired-but-still-held passes */}
+                {expiredPasses.map((row) => {
+                  const meta = routeMetaForRouteId(row.route_id ?? undefined)
+                  const routeName = meta?.name ?? (row.route_id ? `Route ${shortenNumericId(row.route_id)}` : "Transit pass")
+                  const expiredDate = row.valid_until_epoch
+                    ? new Date(Number(row.valid_until_epoch) * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                    : null
+                  return (
+                    <li key={`exp-${row.token_id}`} className="relative flex gap-4">
+                      <div className="relative z-10 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-outline-variant/20 bg-surface-container">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                          className="text-error/70" aria-hidden>
+                          <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-low/50 pb-3">
+                        <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2">
+                          <p className="truncate font-headline text-sm font-semibold text-on-surface-variant">{routeName}</p>
+                          <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-error/25 bg-error/8 px-2.5 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-error/80">
+                            Expired
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 divide-x divide-outline-variant/10 border-t border-outline-variant/10 px-1 text-center">
+                          <div className="px-3 py-2">
+                            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Class</p>
+                            <p className={`mt-0.5 font-headline text-xs font-semibold ${row.seat_class === "Business" ? "text-amber-400/80" : "text-on-surface-variant/70"}`}>
+                              {row.seat_class ?? "Economy"}
+                            </p>
+                          </div>
+                          <div className="px-3 py-2">
+                            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Expired</p>
+                            <p className="mt-0.5 font-headline text-xs font-semibold text-on-surface-variant/70">{expiredDate ?? "—"}</p>
+                          </div>
+                          <div className="px-3 py-2">
+                            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Token</p>
+                            <p className="mt-0.5 font-mono text-xs text-on-surface-variant/70">#{shortenNumericId(row.token_id)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+
+                {/* Burned passes */}
+                {(data?.used ?? []).map((row) => {
+                  const meta = routeMetaForRouteId(row.route_id ?? undefined)
+                  const routeName = meta?.name ?? (row.route_id ? `Route ${shortenNumericId(row.route_id)}` : "Transit pass")
+                  const burnedDate = row.created_at
+                    ? new Date(row.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                    : null
+                  return (
+                    <li key={`bur-${row.id}-${row.tx_hash}`} className="relative flex gap-4">
+                      <div className="relative z-10 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-tertiary/20 bg-surface-container">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                          className="text-tertiary/70" aria-hidden>
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-low/50 pb-3">
+                        <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2">
+                          <p className="truncate font-headline text-sm font-semibold text-on-surface-variant">{routeName}</p>
+                          <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-outline-variant/20 bg-surface-container px-2.5 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                              <path d="M10 11v6M14 11v6" />
+                            </svg>
+                            Burned
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 divide-x divide-outline-variant/10 border-t border-outline-variant/10 px-1 text-center">
+                          <div className="px-3 py-2">
+                            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Class</p>
+                            <p className={`mt-0.5 font-headline text-xs font-semibold ${row.seat_class === "Business" ? "text-amber-400/80" : "text-on-surface-variant/70"}`}>
+                              {row.seat_class ?? "Economy"}
+                            </p>
+                          </div>
+                          <div className="px-3 py-2">
+                            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Used</p>
+                            <p className="mt-0.5 font-headline text-xs font-semibold text-on-surface-variant/70">{burnedDate ?? "—"}</p>
+                          </div>
+                          <div className="px-3 py-2">
+                            {row.tx_hash ? (
+                              <a href={`${explorerTxBase}/${row.tx_hash}`} target="_blank" rel="noreferrer"
+                                className="font-headline text-xs text-primary/70 hover:text-primary">
+                                Tx ↗
+                              </a>
+                            ) : <span className="font-headline text-xs text-on-surface-variant/50">—</span>}
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
           )}
         </>
       )}

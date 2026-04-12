@@ -212,33 +212,14 @@ export const chainPassTicketAbi = [
     "type": "function",
     "name": "batchPurchaseTicket",
     "inputs": [
-      {
-        "name": "routeId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "validUntilEpoch",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "operatorAddr",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "qty",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
+      { "name": "routeId",         "type": "uint256", "internalType": "uint256" },
+      { "name": "validUntilEpoch", "type": "uint64",  "internalType": "uint64"  },
+      { "name": "operatorAddr",    "type": "address", "internalType": "address" },
+      { "name": "qty",             "type": "uint256", "internalType": "uint256" },
+      { "name": "seatClass",       "type": "uint8",   "internalType": "uint8"   }
     ],
     "outputs": [
-      {
-        "name": "tokenIds",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      }
+      { "name": "tokenIds", "type": "uint256[]", "internalType": "uint256[]" }
     ],
     "stateMutability": "payable"
   },
@@ -246,33 +227,14 @@ export const chainPassTicketAbi = [
     "type": "function",
     "name": "batchPurchaseTicketWithUSDC",
     "inputs": [
-      {
-        "name": "routeId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "validUntilEpoch",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "operatorAddr",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "qty",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
+      { "name": "routeId",         "type": "uint256", "internalType": "uint256" },
+      { "name": "validUntilEpoch", "type": "uint64",  "internalType": "uint64"  },
+      { "name": "operatorAddr",    "type": "address", "internalType": "address" },
+      { "name": "qty",             "type": "uint256", "internalType": "uint256" },
+      { "name": "seatClass",       "type": "uint8",   "internalType": "uint8"   }
     ],
     "outputs": [
-      {
-        "name": "tokenIds",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      }
+      { "name": "tokenIds", "type": "uint256[]", "internalType": "uint256[]" }
     ],
     "stateMutability": "nonpayable"
   },
@@ -518,28 +480,13 @@ export const chainPassTicketAbi = [
     "type": "function",
     "name": "purchaseTicket",
     "inputs": [
-      {
-        "name": "routeId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "validUntilEpoch",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "operatorAddr",
-        "type": "address",
-        "internalType": "address"
-      }
+      { "name": "routeId",         "type": "uint256", "internalType": "uint256" },
+      { "name": "validUntilEpoch", "type": "uint64",  "internalType": "uint64"  },
+      { "name": "operatorAddr",    "type": "address", "internalType": "address" },
+      { "name": "seatClass",       "type": "uint8",   "internalType": "uint8"   }
     ],
     "outputs": [
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
+      { "name": "tokenId", "type": "uint256", "internalType": "uint256" }
     ],
     "stateMutability": "payable"
   },
@@ -547,28 +494,13 @@ export const chainPassTicketAbi = [
     "type": "function",
     "name": "purchaseTicketWithUSDC",
     "inputs": [
-      {
-        "name": "routeId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "validUntilEpoch",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
-        "name": "operatorAddr",
-        "type": "address",
-        "internalType": "address"
-      }
+      { "name": "routeId",         "type": "uint256", "internalType": "uint256" },
+      { "name": "validUntilEpoch", "type": "uint64",  "internalType": "uint64"  },
+      { "name": "operatorAddr",    "type": "address", "internalType": "address" },
+      { "name": "seatClass",       "type": "uint8",   "internalType": "uint8"   }
     ],
     "outputs": [
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
+      { "name": "tokenId", "type": "uint256", "internalType": "uint256" }
     ],
     "stateMutability": "nonpayable"
   },
@@ -1222,36 +1154,30 @@ export const chainPassTicketAbi = [
     "type": "event",
     "name": "TicketMinted",
     "inputs": [
-      {
-        "name": "to",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "tokenId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "routeId",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "validUntilEpoch",
-        "type": "uint64",
-        "indexed": false,
-        "internalType": "uint64"
-      },
-      {
-        "name": "operatorAddr",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
-      }
+      { "name": "to",              "type": "address", "indexed": true,  "internalType": "address" },
+      { "name": "tokenId",         "type": "uint256", "indexed": true,  "internalType": "uint256" },
+      { "name": "routeId",         "type": "uint256", "indexed": false, "internalType": "uint256" },
+      { "name": "validUntilEpoch", "type": "uint64",  "indexed": false, "internalType": "uint64"  },
+      { "name": "operatorAddr",    "type": "address", "indexed": false, "internalType": "address" },
+      { "name": "seatClass",       "type": "uint8",   "indexed": false, "internalType": "uint8"   }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RouteBusinessPriceSet",
+    "inputs": [
+      { "name": "routeId",   "type": "uint256", "indexed": true,  "internalType": "uint256" },
+      { "name": "weiAmount", "type": "uint256", "indexed": false, "internalType": "uint256" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RouteBusinessUsdcPriceSet",
+    "inputs": [
+      { "name": "routeId", "type": "uint256", "indexed": true,  "internalType": "uint256" },
+      { "name": "amount",  "type": "uint256", "indexed": false, "internalType": "uint256" }
     ],
     "anonymous": false
   },
@@ -1570,5 +1496,64 @@ export const chainPassTicketAbi = [
     "type": "error",
     "name": "UsdcTransferFailed",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSeatClass",
+    "inputs": []
+  },
+  {
+    "type": "function",
+    "name": "seatClassOf",
+    "inputs": [{ "name": "tokenId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [{ "name": "", "type": "uint8", "internalType": "uint8" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "routeBusinessPriceWei",
+    "inputs": [{ "name": "routeId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "routeBusinessPriceUsdc",
+    "inputs": [{ "name": "routeId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setRouteBusinessPrice",
+    "inputs": [
+      { "name": "routeId",   "type": "uint256", "internalType": "uint256" },
+      { "name": "weiAmount", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRouteBusinessUsdcPrice",
+    "inputs": [
+      { "name": "routeId", "type": "uint256", "internalType": "uint256" },
+      { "name": "amount",  "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "ticketPrice",
+    "inputs": [
+      { "name": "routeId", "type": "uint256", "internalType": "uint256" },
+      { "name": "cls",     "type": "uint8",   "internalType": "uint8"   }
+    ],
+    "outputs": [
+      { "name": "mon",  "type": "uint256", "internalType": "uint256" },
+      { "name": "usdc", "type": "uint256", "internalType": "uint256" }
+    ],
+    "stateMutability": "view"
   }
 ] as const

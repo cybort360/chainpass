@@ -174,7 +174,7 @@ contract ChainPassTicketTest is Test {
 
         uint256 balBefore = treasury.balance;
         vm.prank(alice);
-        uint256 id = ticket.purchaseTicket{value: PRICE}(ROUTE, VALID_UNTIL, OPERATOR);
+        uint256 id = ticket.purchaseTicket{value: PRICE}(ROUTE, VALID_UNTIL, OPERATOR, ChainPassTicket.SeatClass.Economy);
         assertEq(ticket.ownerOf(id), alice);
         assertEq(treasury.balance - balBefore, PRICE);
     }
@@ -187,7 +187,7 @@ contract ChainPassTicketTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(ChainPassTicket.InsufficientPayment.selector, PRICE - 1, PRICE)
         );
-        ticket.purchaseTicket{value: PRICE - 1}(ROUTE, VALID_UNTIL, OPERATOR);
+        ticket.purchaseTicket{value: PRICE - 1}(ROUTE, VALID_UNTIL, OPERATOR, ChainPassTicket.SeatClass.Economy);
     }
 
     function test_setMintPriceWei_onlyAdmin() public {
@@ -213,10 +213,10 @@ contract ChainPassTicketTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(ChainPassTicket.InsufficientPayment.selector, overridePrice - 1, overridePrice)
         );
-        ticket.purchaseTicket{value: overridePrice - 1}(ROUTE, VALID_UNTIL, OPERATOR);
+        ticket.purchaseTicket{value: overridePrice - 1}(ROUTE, VALID_UNTIL, OPERATOR, ChainPassTicket.SeatClass.Economy);
 
         vm.prank(alice);
-        uint256 id = ticket.purchaseTicket{value: overridePrice}(ROUTE, VALID_UNTIL, OPERATOR);
+        uint256 id = ticket.purchaseTicket{value: overridePrice}(ROUTE, VALID_UNTIL, OPERATOR, ChainPassTicket.SeatClass.Economy);
         assertEq(ticket.ownerOf(id), alice);
     }
 
@@ -227,7 +227,7 @@ contract ChainPassTicketTest is Test {
         assertEq(ticket.routeMintPriceWei(routeUnset), 0);
 
         vm.prank(alice);
-        uint256 id = ticket.purchaseTicket{value: PRICE}(routeUnset, VALID_UNTIL, OPERATOR);
+        uint256 id = ticket.purchaseTicket{value: PRICE}(routeUnset, VALID_UNTIL, OPERATOR, ChainPassTicket.SeatClass.Economy);
         assertEq(ticket.ownerOf(id), alice);
     }
 
@@ -244,9 +244,9 @@ contract ChainPassTicketTest is Test {
         vm.stopPrank();
 
         vm.prank(alice);
-        uint256 idAlice = ticket.purchaseTicket{value: p1}(route1, VALID_UNTIL, OPERATOR);
+        uint256 idAlice = ticket.purchaseTicket{value: p1}(route1, VALID_UNTIL, OPERATOR, ChainPassTicket.SeatClass.Economy);
         vm.prank(bob);
-        uint256 idBob = ticket.purchaseTicket{value: p2}(route2, VALID_UNTIL, OPERATOR);
+        uint256 idBob = ticket.purchaseTicket{value: p2}(route2, VALID_UNTIL, OPERATOR, ChainPassTicket.SeatClass.Economy);
 
         assertEq(ticket.ownerOf(idAlice), alice);
         assertEq(ticket.routeOf(idAlice), route1);

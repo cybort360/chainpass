@@ -54,6 +54,7 @@ export function RoutePurchasePage() {
   const usdcEnabled = Boolean(usdcAddress)
 
   const [payMethod, setPayMethod] = useState<PayMethod>("mon")
+  const [seatClass, setSeatClass] = useState<0 | 1>(0) // 0=Economy, 1=Business
   const [quantity, setQuantity] = useState(1)
   const [mintProgress, setMintProgress] = useState<{ done: number; total: number } | null>(null)
   const [mintedTokenIds, setMintedTokenIds] = useState<bigint[]>([])
@@ -82,6 +83,21 @@ export function RoutePurchasePage() {
     if (r === undefined || m === undefined) return undefined
     return r > 0n ? r : m
   }, [routePriceWei, mintPriceWei])
+
+  // ── Business MON price ────────────────────────────────────────────────────
+  const { data: routeBusinessWei } = useReadContract({
+    address: contractAddress,
+    abi: chainPassTicketAbi,
+    functionName: "routeBusinessPriceWei",
+    args: [routeIdBig ?? 0n],
+    query: { enabled: !!contractAddress && routeIdBig !== undefined },
+  })
+  const businessPriceWei = useMemo(() => {
+    if (priceWei === undefined) return undefined
+    const b = typeof routeBusinessWei === "bigint" ? routeBusinessWei : undefined
+    return b !== undefined && b > 0n ? b : priceWei * 2n
+  }, [priceWei, routeBusinessWei])
+  const effectivePriceWei = seatClass === 1 ? businessPriceWei : priceWei
 
   // ── USDC pricing ───────────────────────────────────────────────────────────
   const { data: onChainUsdcToken } = useReadContract({
@@ -118,6 +134,21 @@ export function RoutePurchasePage() {
     typeof onChainUsdcToken === "string" &&
     onChainUsdcToken !== "0x0000000000000000000000000000000000000000"
 
+  // ── Business USDC price ───────────────────────────────────────────────────
+  const { data: routeBusinessUsdc } = useReadContract({
+    address: contractAddress,
+    abi: chainPassTicketAbi,
+    functionName: "routeBusinessPriceUsdc",
+    args: [routeIdBig ?? 0n],
+    query: { enabled: !!contractAddress && routeIdBig !== undefined && usdcEnabled },
+  })
+  const businessPriceUsdc = useMemo(() => {
+    if (priceUsdc === undefined) return undefined
+    const b = typeof routeBusinessUsdc === "bigint" ? routeBusinessUsdc : undefined
+    return b !== undefined && b > 0n ? b : priceUsdc * 2n
+  }, [priceUsdc, routeBusinessUsdc])
+  const effectivePriceUsdc = seatClass === 1 ? businessPriceUsdc : priceUsdc
+
   // ── USDC allowance ─────────────────────────────────────────────────────────
   const { data: allowanceRaw, refetch: refetchAllowance } = useReadContract({
     address: usdcAddress,
@@ -130,7 +161,7 @@ export function RoutePurchasePage() {
     },
   })
   const allowance = typeof allowanceRaw === "bigint" ? allowanceRaw : 0n
-  const needsApproval = usdcConfigured && priceUsdc !== undefined && allowance < priceUsdc * BigInt(quantity)
+  const needsApproval = usdcConfigured && effectivePriceUsdc !== undefined && allowance < effectivePriceUsdc * BigInt(quantity)
 
   // ── MON purchase ───────────────────────────────────────────────────────────
   const {
@@ -176,21 +207,21 @@ export function RoutePurchasePage() {
   }, [usdcReceipt, usdcSuccess, contractAddress, navigate])
 
   // ── Computed display values ─────────────────────────────────────────────────
-  const monDisplay = priceWei !== undefined ? formatEther(priceWei) : "—"
-  const monNgn = priceWei !== undefined
-    ? formatNgn(ngnForMon(Number(formatEther(priceWei))))
+  const monDisplay = effectivePriceWei !== undefined ? formatEther(effectivePriceWei) : "—"
+  const monNgn = effectivePriceWei !== undefined
+    ? formatNgn(ngnForMon(Number(formatEther(effectivePriceWei))))
     : null
 
-  const usdcDisplay = priceUsdc !== undefined && priceUsdc > 0n
-    ? formatUnits(priceUsdc, USDC_DECIMALS)
+  const usdcDisplay = effectivePriceUsdc !== undefined && effectivePriceUsdc > 0n
+    ? formatUnits(effectivePriceUsdc, USDC_DECIMALS)
     : null
-  const usdcNgn = priceUsdc !== undefined && priceUsdc > 0n
-    ? formatNgn(ngnForUsdc(Number(formatUnits(priceUsdc, USDC_DECIMALS))))
+  const usdcNgn = effectivePriceUsdc !== undefined && effectivePriceUsdc > 0n
+    ? formatNgn(ngnForUsdc(Number(formatUnits(effectivePriceUsdc, USDC_DECIMALS))))
     : null
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const onPayMon = async () => {
-    if (!address || priceWei === undefined || !contractAddress || !publicClient) return
+    if (!address || effectivePriceWei === undefined || !contractAddress || !publicClient) return
     resetMon()
     setMintProgress({ done: 0, total: quantity })
     setMintedTokenIds([])
@@ -201,9 +232,9 @@ export function RoutePurchasePage() {
         abi: chainPassTicketAbi,
         functionName: quantity === 1 ? "purchaseTicket" : "batchPurchaseTicket",
         args: quantity === 1
-          ? [routeIdBig!, validUntil, env.defaultOperator]
-          : [routeIdBig!, validUntil, env.defaultOperator, BigInt(quantity)],
-        value: priceWei * BigInt(quantity),
+          ? [routeIdBig!, validUntil, env.defaultOperator, seatClass]
+          : [routeIdBig!, validUntil, env.defaultOperator, BigInt(quantity), seatClass],
+        value: effectivePriceWei * BigInt(quantity),
       })
       setMintProgress({ done: 1, total: quantity })
       const receipt = await publicClient.waitForTransactionReceipt({ hash })
@@ -221,13 +252,13 @@ export function RoutePurchasePage() {
   }
 
   const onApproveUsdc = () => {
-    if (!usdcAddress || !contractAddress || priceUsdc === undefined) return
+    if (!usdcAddress || !contractAddress || effectivePriceUsdc === undefined) return
     resetApprove()
     writeApprove({
       address: usdcAddress,
       abi: erc20Abi,
       functionName: "approve",
-      args: [contractAddress, priceUsdc * BigInt(quantity)],
+      args: [contractAddress, effectivePriceUsdc * BigInt(quantity)],
     })
   }
 
@@ -240,8 +271,8 @@ export function RoutePurchasePage() {
       abi: chainPassTicketAbi,
       functionName: quantity === 1 ? "purchaseTicketWithUSDC" : "batchPurchaseTicketWithUSDC",
       args: quantity === 1
-        ? [routeIdBig!, validUntil, env.defaultOperator]
-        : [routeIdBig!, validUntil, env.defaultOperator, BigInt(quantity)],
+        ? [routeIdBig!, validUntil, env.defaultOperator, seatClass]
+        : [routeIdBig!, validUntil, env.defaultOperator, BigInt(quantity), seatClass],
     })
   }
 
@@ -343,6 +374,32 @@ export function RoutePurchasePage() {
           </div>
         )}
 
+        {/* Seat class selector */}
+        <div className="border-b border-outline-variant/15 px-4 py-3">
+          <p className="mb-2 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
+            Seat class
+          </p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setSeatClass(0)}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-2.5 font-headline text-sm font-semibold transition-all ${
+                seatClass === 0
+                  ? "border-primary/40 bg-primary/10 text-white"
+                  : "border-outline-variant/20 text-on-surface-variant hover:text-white"
+              }`}>
+              Economy
+            </button>
+            <button type="button" onClick={() => setSeatClass(1)}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-2.5 font-headline text-sm font-semibold transition-all ${
+                seatClass === 1
+                  ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                  : "border-outline-variant/20 text-on-surface-variant hover:text-white"
+              }`}>
+              <span className={seatClass === 1 ? "text-amber-300" : "text-on-surface-variant/50"} aria-hidden>✦</span>
+              Business
+            </button>
+          </div>
+        </div>
+
         {/* Price section */}
         <div className="bg-gradient-to-br from-primary/15 to-transparent p-6 pb-5">
           <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
@@ -357,7 +414,7 @@ export function RoutePurchasePage() {
                 </span>
                 <span className="font-headline text-lg font-semibold text-primary">MON</span>
               </div>
-              {priceWei === 0n && (
+              {effectivePriceWei === 0n && (
                 <p className="mt-1 font-headline text-xs font-semibold text-tertiary">Free (testnet)</p>
               )}
               {monNgn && (
@@ -475,7 +532,7 @@ export function RoutePurchasePage() {
             /* ── MON payment button ── */
             <button
               type="button"
-              disabled={priceWei === undefined || monBusy}
+              disabled={effectivePriceWei === undefined || monBusy}
               onClick={() => void onPayMon()}
               className={`relative w-full overflow-hidden rounded-2xl px-6 py-4 font-headline text-base font-bold text-white transition-all active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 ${
                 monBusy ? "bg-primary/60" : "btn-primary-gradient hover:brightness-110 hover:shadow-[0_0_28px_rgba(110,84,255,0.4)]"

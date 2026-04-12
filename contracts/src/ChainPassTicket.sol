@@ -58,6 +58,19 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     /// @notice Per-route USDC override. If 0, `mintPriceUsdc` applies for that route.
     mapping(uint256 routeId => uint256) public routeMintPriceUsdc;
 
+    // ─── Seat class ───────────────────────────────────────────────────────────
+
+    enum SeatClass { Economy, Business }
+
+    /// @notice Per-token seat class. Defaults to Economy (0) if unset.
+    mapping(uint256 tokenId => SeatClass) public seatClassOf;
+
+    /// @notice Per-route Business price override (MON wei). 0 = 2× economy price.
+    mapping(uint256 routeId => uint256) public routeBusinessPriceWei;
+
+    /// @notice Per-route Business USDC price override. 0 = 2× economy USDC price.
+    mapping(uint256 routeId => uint256) public routeBusinessPriceUsdc;
+
     // ─── Token metadata ───────────────────────────────────────────────────────
 
     mapping(uint256 tokenId => uint256) public routeOf;
@@ -100,12 +113,16 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     error UsdcNotConfigured();
     error UsdcTransferFailed();
     error InvalidQuantity();
+    error InvalidSeatClass();
 
     // ─── Events ───────────────────────────────────────────────────────────────
 
     event TicketMinted(
-        address indexed to, uint256 indexed tokenId, uint256 routeId, uint64 validUntilEpoch, address operatorAddr
+        address indexed to, uint256 indexed tokenId, uint256 routeId, uint64 validUntilEpoch, address operatorAddr,
+        uint8 seatClass
     );
+    event RouteBusinessPriceSet(uint256 indexed routeId, uint256 weiAmount);
+    event RouteBusinessUsdcPriceSet(uint256 indexed routeId, uint256 amount);
     event TicketBurned(address indexed from, uint256 indexed tokenId, uint256 routeId);
     event OperatorApproved(address indexed operator, bool approved);
     event RideCompleted(address indexed rider, uint256 newCount);
@@ -177,6 +194,26 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         emit UsdcRoutePriceSet(routeId, amount);
     }
 
+    // ─── Admin: seat class / business pricing ────────────────────────────────
+
+    /// @notice Set per-route Business MON price (wei). 0 = 2× economy price.
+    function setRouteBusinessPrice(uint256 routeId, uint256 weiAmount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        routeBusinessPriceWei[routeId] = weiAmount;
+        emit RouteBusinessPriceSet(routeId, weiAmount);
+    }
+
+    /// @notice Set per-route Business USDC price. 0 = 2× economy USDC price.
+    function setRouteBusinessUsdcPrice(uint256 routeId, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        routeBusinessPriceUsdc[routeId] = amount;
+        emit RouteBusinessUsdcPriceSet(routeId, amount);
+    }
+
+    /// @notice Returns resolved (mon, usdc) price for a given route + seat class.
+    function ticketPrice(uint256 routeId, SeatClass cls) external view returns (uint256 mon, uint256 usdc) {
+        mon  = _resolveMonPrice(routeId, cls);
+        usdc = _resolveUsdcPrice(routeId, cls);
+    }
+
     // ─── Admin: metadata ─────────────────────────────────────────────────────
 
     function setBaseURI(string memory baseURI_) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -236,33 +273,32 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         if (earned <= claimed) revert NoFreeRideCredits();
 
         unchecked { ++freeRidesClaimed[rider]; }
-        tokenId = _mintTicket(rider, routeId, validUntilEpoch, operatorAddr);
+        tokenId = _mintTicket(rider, routeId, validUntilEpoch, operatorAddr, SeatClass.Economy);
         emit FreeRideClaimed(rider, tokenId);
     }
 
     // ─── Minting ──────────────────────────────────────────────────────────────
 
-    /// @notice Mint a ticket (free / backend / promo). Only `MINTER_ROLE`.
+    /// @notice Mint a ticket (free / backend / promo). Only `MINTER_ROLE`. Always Economy class.
     function mint(address to, uint256 routeId, uint64 validUntilEpoch, address operatorAddr)
         external
         onlyRole(MINTER_ROLE)
         returns (uint256 tokenId)
     {
-        return _mintTicket(to, routeId, validUntilEpoch, operatorAddr);
+        return _mintTicket(to, routeId, validUntilEpoch, operatorAddr, SeatClass.Economy);
     }
 
     /// @notice Buy a ticket with native MON; forwards payment to treasury, refunds any excess.
-    function purchaseTicket(uint256 routeId, uint64 validUntilEpoch, address operatorAddr)
+    function purchaseTicket(uint256 routeId, uint64 validUntilEpoch, address operatorAddr, SeatClass seatClass)
         external
         payable
         returns (uint256 tokenId)
     {
-        uint256 required = routeMintPriceWei[routeId];
-        if (required == 0) required = mintPriceWei;
+        uint256 required = _resolveMonPrice(routeId, seatClass);
 
         if (msg.value < required) revert InsufficientPayment(msg.value, required);
 
-        tokenId = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr);
+        tokenId = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr, seatClass);
 
         (bool ok,) = treasury.call{value: required}("");
         if (!ok) revert TreasuryTransferFailed();
@@ -277,22 +313,20 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
 
     /// @notice Buy multiple tickets at once with native MON; one signature, total price charged.
     /// @param qty Number of tickets (1–20).
-    function batchPurchaseTicket(uint256 routeId, uint64 validUntilEpoch, address operatorAddr, uint256 qty)
+    function batchPurchaseTicket(uint256 routeId, uint64 validUntilEpoch, address operatorAddr, uint256 qty, SeatClass seatClass)
         external
         payable
         returns (uint256[] memory tokenIds)
     {
         if (qty == 0 || qty > 20) revert InvalidQuantity();
 
-        uint256 unitPrice = routeMintPriceWei[routeId];
-        if (unitPrice == 0) unitPrice = mintPriceWei;
-
+        uint256 unitPrice = _resolveMonPrice(routeId, seatClass);
         uint256 totalRequired = unitPrice * qty;
         if (msg.value < totalRequired) revert InsufficientPayment(msg.value, totalRequired);
 
         tokenIds = new uint256[](qty);
         for (uint256 i = 0; i < qty; ++i) {
-            tokenIds[i] = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr);
+            tokenIds[i] = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr, seatClass);
         }
 
         (bool ok,) = treasury.call{value: totalRequired}("");
@@ -307,27 +341,26 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
 
     /// @notice Buy a ticket paying with `usdcToken`. Caller must pre-approve this contract.
     ///         `usdcToken` and a non-zero USDC price must be configured by an admin first.
-    function purchaseTicketWithUSDC(uint256 routeId, uint64 validUntilEpoch, address operatorAddr)
+    function purchaseTicketWithUSDC(uint256 routeId, uint64 validUntilEpoch, address operatorAddr, SeatClass seatClass)
         external
         returns (uint256 tokenId)
     {
         address token = usdcToken;
         if (token == address(0)) revert UsdcNotConfigured();
 
-        uint256 required = routeMintPriceUsdc[routeId];
-        if (required == 0) required = mintPriceUsdc;
+        uint256 required = _resolveUsdcPrice(routeId, seatClass);
         if (required == 0) revert UsdcNotConfigured();
 
         // Pull payment first (revert on failure — no state has changed yet)
         bool ok = IERC20Minimal(token).transferFrom(msg.sender, treasury, required);
         if (!ok) revert UsdcTransferFailed();
 
-        tokenId = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr);
+        tokenId = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr, seatClass);
     }
 
     /// @notice Buy multiple tickets at once with USDC; caller must pre-approve total amount.
     /// @param qty Number of tickets (1–20).
-    function batchPurchaseTicketWithUSDC(uint256 routeId, uint64 validUntilEpoch, address operatorAddr, uint256 qty)
+    function batchPurchaseTicketWithUSDC(uint256 routeId, uint64 validUntilEpoch, address operatorAddr, uint256 qty, SeatClass seatClass)
         external
         returns (uint256[] memory tokenIds)
     {
@@ -336,8 +369,7 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         address token = usdcToken;
         if (token == address(0)) revert UsdcNotConfigured();
 
-        uint256 unitPrice = routeMintPriceUsdc[routeId];
-        if (unitPrice == 0) unitPrice = mintPriceUsdc;
+        uint256 unitPrice = _resolveUsdcPrice(routeId, seatClass);
         if (unitPrice == 0) revert UsdcNotConfigured();
 
         uint256 totalRequired = unitPrice * qty;
@@ -346,11 +378,25 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
 
         tokenIds = new uint256[](qty);
         for (uint256 i = 0; i < qty; ++i) {
-            tokenIds[i] = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr);
+            tokenIds[i] = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr, seatClass);
         }
     }
 
     // ─── Internal helpers ─────────────────────────────────────────────────────
+
+    function _resolveMonPrice(uint256 routeId, SeatClass cls) internal view returns (uint256) {
+        uint256 econ = routeMintPriceWei[routeId] > 0 ? routeMintPriceWei[routeId] : mintPriceWei;
+        if (cls == SeatClass.Economy) return econ;
+        uint256 biz = routeBusinessPriceWei[routeId];
+        return biz > 0 ? biz : econ * 2;
+    }
+
+    function _resolveUsdcPrice(uint256 routeId, SeatClass cls) internal view returns (uint256) {
+        uint256 econ = routeMintPriceUsdc[routeId] > 0 ? routeMintPriceUsdc[routeId] : mintPriceUsdc;
+        if (cls == SeatClass.Economy) return econ;
+        uint256 biz = routeBusinessPriceUsdc[routeId];
+        return biz > 0 ? biz : econ * 2;
+    }
 
     function _allocateTokenId(address to, uint256 routeId, uint64 validUntilEpoch, address operatorAddr)
         internal
@@ -374,18 +420,19 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         revert TokenIdAllocationFailed();
     }
 
-    function _mintTicket(address to, uint256 routeId, uint64 validUntilEpoch, address operatorAddr)
+    function _mintTicket(address to, uint256 routeId, uint64 validUntilEpoch, address operatorAddr, SeatClass seatClass)
         internal
         returns (uint256 tokenId)
     {
         if (!approvedOperators[operatorAddr]) revert OperatorNotApproved(operatorAddr);
         tokenId = _allocateTokenId(to, routeId, validUntilEpoch, operatorAddr);
-        routeOf[tokenId]    = routeId;
-        validUntil[tokenId] = validUntilEpoch;
-        operatorOf[tokenId] = operatorAddr;
+        routeOf[tokenId]       = routeId;
+        validUntil[tokenId]    = validUntilEpoch;
+        operatorOf[tokenId]    = operatorAddr;
+        if (seatClass == SeatClass.Business) seatClassOf[tokenId] = seatClass;
         _safeMint(to, tokenId);
         unchecked { ++totalMinted; }
-        emit TicketMinted(to, tokenId, routeId, validUntilEpoch, operatorAddr);
+        emit TicketMinted(to, tokenId, routeId, validUntilEpoch, operatorAddr, uint8(seatClass));
     }
 
     // ─── Burning ──────────────────────────────────────────────────────────────
@@ -406,6 +453,7 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         delete routeOf[tokenId];
         delete validUntil[tokenId];
         delete operatorOf[tokenId];
+        delete seatClassOf[tokenId];
         _burn(tokenId);
         unchecked { ++totalBurned; }
 
