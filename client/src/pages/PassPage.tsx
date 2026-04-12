@@ -204,7 +204,7 @@ export function PassPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="font-headline text-xs font-bold uppercase tracking-widest text-tertiary">Trip complete</p>
+                  <p className="font-headline text-xs font-bold uppercase tracking-widest text-tertiary">Scan complete</p>
                   <p className="font-headline text-lg font-bold text-white leading-snug">
                     {burnedInfoRef.current.routeName}
                   </p>
@@ -231,7 +231,7 @@ export function PassPage() {
 
               {/* Bottom message */}
               <div className="border-t border-outline-variant/15 bg-tertiary/5 px-5 py-4 text-center">
-                <p className="text-sm text-on-surface-variant">Your ticket has been scanned. <span className="font-semibold text-white">Have a safe trip!</span></p>
+                <p className="text-sm text-on-surface-variant">Ticket scanned successfully. <span className="font-semibold text-white">You're good to board!</span></p>
               </div>
             </div>
 
