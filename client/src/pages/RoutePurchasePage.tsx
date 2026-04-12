@@ -255,7 +255,6 @@ export function RoutePurchasePage() {
   }
 
   const monBusy  = monPending || monConfirming
-  const usdcBusy = approvePending || approveConfirming || usdcPending || usdcConfirming
 
   return (
     <div className="mx-auto max-w-md">

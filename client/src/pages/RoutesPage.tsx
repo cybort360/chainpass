@@ -36,7 +36,7 @@ function RouteCardSkeleton() {
 function WalletBalanceWidget() {
   const { address, isConnected } = useAccount()
   const usdcAddress = env.usdcAddress
-  const { usdToNgn, rateLoading, ngnForMon, ngnForUsdc } = useExchangeRates()
+  const { rateLoading, ngnForMon, ngnForUsdc } = useExchangeRates()
 
   const { data: balanceWei, isPending: monPending } = useQuery({
     queryKey: ["routes-mon-balance", address],

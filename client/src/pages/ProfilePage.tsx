@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 import { useAccount, usePublicClient } from "wagmi"
 import { monadTestnet } from "@chainpass/shared"
-import { Button } from "../components/ui/Button"
+
 import { fetchMyPasses, type MyPassesResponse } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { fetchActivePassesFromChain } from "../lib/onchainPasses"

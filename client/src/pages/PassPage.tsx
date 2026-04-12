@@ -40,10 +40,6 @@ function formatEpoch(vu: bigint | undefined): string {
   })
 }
 
-/** Seconds remaining until expiry, capped at 0 */
-function secondsUntil(vu: bigint): number {
-  return Math.max(0, Number(vu) - Math.floor(Date.now() / 1000))
-}
 
 function QrCountdownRing({ totalSec, elapsedSec }: { totalSec: number; elapsedSec: number }) {
   const r = 10
