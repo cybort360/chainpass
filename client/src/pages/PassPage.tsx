@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { useAccount, useReadContract } from "wagmi"
 import { createPublicClient, webSocket } from "viem"
@@ -70,9 +70,10 @@ export function PassPage() {
   const { address, isConnected } = useAccount()
   const contractAddress = getContractAddress()
 
-  let tokenId: bigint
-  try { tokenId = BigInt(tokenIdStr ?? "0") }
-  catch { tokenId = 0n }
+  const tokenId = useMemo(() => {
+    try { return BigInt(tokenIdStr ?? "0") }
+    catch { return 0n }
+  }, [tokenIdStr])
 
   // HTTP fallback — polls every 5s in case the WS subscription misses something
   const { data: owner, error: ownerError, refetch: refetchOwner } = useReadContract({
@@ -99,7 +100,7 @@ export function PassPage() {
       onError: () => { /* WS error — HTTP polling is the fallback */ },
     })
     return unwatch
-  }, [contractAddress, tokenId, tokenIdStr, refetchOwner])
+  }, [contractAddress, tokenId, refetchOwner])
 
   const burned = wsBurned || !!ownerError
 
