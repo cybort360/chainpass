@@ -17,12 +17,20 @@ export const ROUTE_LABELS_MIGRATE_CATEGORY_SQL = `
 ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'General';
 `;
 
-/** Add CHECK length constraints to existing route_labels rows (Postgres 9.6+, idempotent). */
+/** Add CHECK length constraints to existing route_labels rows (idempotent via exception handler). */
 export const ROUTE_LABELS_MIGRATE_LENGTH_CONSTRAINTS_SQL = `
-ALTER TABLE route_labels
-  ADD CONSTRAINT IF NOT EXISTS route_labels_name_len     CHECK (char_length(name) <= 100),
-  ADD CONSTRAINT IF NOT EXISTS route_labels_detail_len   CHECK (detail IS NULL OR char_length(detail) <= 200),
-  ADD CONSTRAINT IF NOT EXISTS route_labels_category_len CHECK (char_length(category) <= 60);
+DO $$
+BEGIN
+  BEGIN
+    ALTER TABLE route_labels ADD CONSTRAINT route_labels_name_len CHECK (char_length(name) <= 100);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE route_labels ADD CONSTRAINT route_labels_detail_len CHECK (detail IS NULL OR char_length(detail) <= 200);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE route_labels ADD CONSTRAINT route_labels_category_len CHECK (char_length(category) <= 60);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+END $$;
 `;
 
 /** Older DBs used BIGINT for route_id; migrate once to TEXT for full uint256. */
