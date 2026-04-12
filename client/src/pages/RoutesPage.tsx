@@ -448,14 +448,22 @@ export function RoutesPage() {
                 const fav = isFavourite(r.routeId)
                 return (
                   <li key={r.routeId}>
-                    <div className="relative">
+                    {/*
+                      Card layout: outer group div handles hover/border.
+                      Link covers the info area (flex-1).
+                      Right panel (heart + buy) sits outside the Link as a proper flex sibling
+                      — avoids invalid button-inside-anchor HTML and gives clear spacing.
+                    */}
+                    <div className="group flex items-stretch overflow-hidden rounded-2xl border border-outline-variant/15 bg-surface-container transition-all hover:border-primary/25 hover:bg-surface-container-high hover:shadow-[0_4px_24px_rgba(110,84,255,0.1)]">
+
+                      {/* Left accent bar */}
+                      <div className="w-0.5 shrink-0 rounded-r-full bg-primary/0 transition-all group-hover:bg-primary/60" aria-hidden />
+
+                      {/* Main clickable area */}
                       <Link
                         to={`/routes/${r.routeId}`}
-                        className="group relative flex items-center gap-4 overflow-hidden rounded-2xl border border-outline-variant/15 bg-surface-container px-4 py-4 transition-all hover:border-primary/25 hover:bg-surface-container-high hover:shadow-[0_4px_24px_rgba(110,84,255,0.1)]"
+                        className="flex flex-1 items-center gap-4 min-w-0 px-4 py-4"
                       >
-                        {/* Left accent bar */}
-                        <div className="absolute left-0 top-0 h-full w-0.5 rounded-r-full bg-primary/0 transition-all group-hover:bg-primary/60" aria-hidden />
-
                         {/* Bus icon */}
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 transition-colors group-hover:bg-primary/20">
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -469,9 +477,9 @@ export function RoutesPage() {
                           </svg>
                         </div>
 
-                        {/* Info */}
+                        {/* Route info */}
                         <div className="min-w-0 flex-1">
-                          <p className="font-headline text-sm font-semibold leading-snug text-white group-hover:text-white">
+                          <p className="font-headline text-sm font-semibold leading-snug text-white">
                             {r.name}
                           </p>
                           {r.detail && (
@@ -489,26 +497,31 @@ export function RoutesPage() {
                             ID {shortenNumericId(r.routeId, 6, 6)}
                           </p>
                         </div>
+                      </Link>
 
-                        {/* CTA arrow */}
-                        <div className="flex shrink-0 items-center gap-1 text-on-surface-variant transition-colors group-hover:text-primary">
+                      {/* Right action panel — heart + buy, separated by a divider */}
+                      <div className="flex shrink-0 items-center gap-1 border-l border-outline-variant/10 pl-2 pr-3">
+                        <FavouriteButton
+                          routeId={r.routeId}
+                          isFav={fav}
+                          onToggle={toggle}
+                        />
+                        <div className="w-px h-5 bg-outline-variant/20 mx-1" aria-hidden />
+                        <Link
+                          to={`/routes/${r.routeId}`}
+                          tabIndex={-1}
+                          aria-hidden
+                          className="flex items-center gap-1 text-on-surface-variant transition-colors group-hover:text-primary"
+                        >
                           <span className="font-headline text-xs font-semibold">Buy</span>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
                             className="transition-transform group-hover:translate-x-0.5" aria-hidden>
                             <path d="M5 12h14M12 5l7 7-7 7" />
                           </svg>
-                        </div>
-                      </Link>
-
-                      {/* Favourite button — absolutely positioned to avoid nesting buttons inside <a> */}
-                      <div className="absolute right-12 top-1/2 -translate-y-1/2">
-                        <FavouriteButton
-                          routeId={r.routeId}
-                          isFav={fav}
-                          onToggle={toggle}
-                        />
+                        </Link>
                       </div>
+
                     </div>
                   </li>
                 )
