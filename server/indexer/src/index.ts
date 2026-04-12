@@ -29,7 +29,7 @@ if (!cfg.ticketContractAddress) {
 
 const client = createPublicClient({
   chain: monadTestnet,
-  transport: http(cfg.rpcUrl),
+  transport: http(cfg.rpcUrl, { timeout: 10_000, retryCount: 0 }),
 });
 
 const pool = getPool(cfg.databaseUrl);
@@ -197,19 +197,41 @@ async function processRange(fromBlock: bigint, toBlock: bigint): Promise<void> {
   }
 }
 
+async function getBlockNumberWithTimeout(ms = 10_000): Promise<bigint> {
+  const res = await fetch(cfg.rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }),
+    signal: AbortSignal.timeout(ms),
+  });
+  const data = (await res.json()) as { result: string };
+  return BigInt(data.result);
+}
+
 async function catchUpOnce(): Promise<void> {
   let fromBlock = await nextFromBlock();
-  const head = await client.getBlockNumber();
+  const head = await getBlockNumberWithTimeout();
 
   if (fromBlock > head) {
     return;
   }
+
+  const totalBlocks = head - fromBlock;
+  let lastProgressLog = Date.now();
 
   while (fromBlock <= head) {
     const toBlock =
       fromBlock + cfg.blockChunk - 1n < head ? fromBlock + cfg.blockChunk - 1n : head;
     await processRange(fromBlock, toBlock);
     fromBlock = toBlock + 1n;
+
+    const now = Date.now();
+    if (now - lastProgressLog >= 15_000) {
+      lastProgressLog = now;
+      const done = fromBlock - (head - totalBlocks);
+      const pct = totalBlocks > 0n ? Number((done * 100n) / totalBlocks) : 100;
+      console.log(`[chainpass-indexer] scanning… block=${fromBlock} / ${head} (${pct}%)`);
+    }
   }
 }
 
@@ -258,7 +280,7 @@ async function main(): Promise<void> {
       const now = Date.now();
       if (now - lastHeartbeat >= heartbeatMs) {
         lastHeartbeat = now;
-        const head = await client.getBlockNumber();
+        const head = await getBlockNumberWithTimeout();
         const next = await nextFromBlock();
         console.log(
           `[chainpass-indexer] heartbeat chainHead=${head} nextFromBlock=${next} pollMs=${cfg.pollMs}`,

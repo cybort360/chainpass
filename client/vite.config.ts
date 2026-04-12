@@ -4,6 +4,14 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    global: 'globalThis',
+  },
+  resolve: {
+    alias: {
+      buffer: 'buffer',
+    },
+  },
   /** Listen on all interfaces so other devices on the same Wi‑Fi can open the dev server. */
   server: {
     host: true,

@@ -2,8 +2,7 @@ import type { PrivyClientConfig } from "@privy-io/react-auth"
 import { monadTestnet } from "@chainpass/shared"
 
 export const privyClientConfig: PrivyClientConfig = {
-  /** Wallet-only auth; hides email/SMS/social in the Privy modal (must also turn off unused methods in the dashboard). */
-  loginMethods: ["wallet"],
+  loginMethods: ["wallet", "google", "email", "apple", "twitter", "discord"],
   defaultChain: monadTestnet,
   supportedChains: [monadTestnet],
   embeddedWallets: {
