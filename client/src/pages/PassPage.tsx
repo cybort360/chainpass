@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { useAccount, useReadContract } from "wagmi"
+import { createPublicClient, webSocket } from "viem"
 import { QRCodeSVG } from "qrcode.react"
 import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
 import { getContractAddress } from "../lib/contract"
@@ -10,6 +11,11 @@ import { useOfflineQr } from "../hooks/useOfflineQr"
 import { ExpiryWarningBanner } from "../components/ui/ExpiryWarningBanner"
 import { SoulboundBadge } from "../components/ui/SoulboundBadge"
 import { isExpiringSoon } from "../lib/passDisplay"
+
+const wsClient = createPublicClient({
+  chain: monadTestnet,
+  transport: webSocket("wss://testnet-rpc.monad.xyz"),
+})
 
 /** Derive a 3-letter route code from the route name (like airport code). */
 function toRouteCode(name: string | undefined): string {
@@ -68,14 +74,34 @@ export function PassPage() {
   try { tokenId = BigInt(tokenIdStr ?? "0") }
   catch { tokenId = 0n }
 
-  // Poll every 1s — matches Monad's ~1s block time so burn is detected within ~2s
-  const { data: owner, error: ownerError } = useReadContract({
+  // HTTP fallback — polls every 5s in case the WS subscription misses something
+  const { data: owner, error: ownerError, refetch: refetchOwner } = useReadContract({
     address: contractAddress,
     abi: chainPassTicketAbi,
     functionName: "ownerOf",
     args: [tokenId],
-    query: { enabled: !!contractAddress && !!tokenIdStr, refetchInterval: 1_000 },
+    query: { enabled: !!contractAddress && !!tokenIdStr, refetchInterval: 5_000 },
   })
+
+  // WebSocket subscription — fires the instant TicketBurned is emitted on-chain
+  const [wsBurned, setWsBurned] = useState(false)
+  useEffect(() => {
+    if (!contractAddress || !tokenIdStr) return
+    const unwatch = wsClient.watchContractEvent({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      eventName: "TicketBurned",
+      args: { tokenId },
+      onLogs: () => {
+        setWsBurned(true)
+        void refetchOwner()
+      },
+      onError: () => { /* WS error — HTTP polling is the fallback */ },
+    })
+    return unwatch
+  }, [contractAddress, tokenId, tokenIdStr, refetchOwner])
+
+  const burned = wsBurned || !!ownerError
 
   const { data: routeId } = useReadContract({
     address: contractAddress,
@@ -166,7 +192,7 @@ export function PassPage() {
   const routeName = routeMeta?.name ?? (routeIdStr ? `Route ${shortenNumericId(routeIdStr)}` : undefined)
 
   // Snapshot while ticket is live so it shows on the scan-complete screen after burn
-  if (routeName && owner && !burnedInfoRef.current) {
+  if (routeName && !burned && !burnedInfoRef.current) {
     burnedInfoRef.current = { routeName, usedAt: new Date() }
   }
 
@@ -189,7 +215,7 @@ export function PassPage() {
         My passes
       </Link>
 
-      {ownerError ? (
+      {burned ? (
         burnedInfoRef.current ? (
           /* ── Trip complete screen (ticket was burned by conductor) ── */
           <div className="mt-8 space-y-4">
