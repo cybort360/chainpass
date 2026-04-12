@@ -27,6 +27,76 @@ export const chainPassTicketAbi = [
   },
   {
     "type": "function",
+    "name": "claimFreeRide",
+    "inputs": [
+      { "name": "routeId",         "type": "uint256", "internalType": "uint256" },
+      { "name": "validUntilEpoch", "type": "uint64",  "internalType": "uint64"  },
+      { "name": "operatorAddr",    "type": "address", "internalType": "address" }
+    ],
+    "outputs": [{ "name": "tokenId", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "freeRidesClaimed",
+    "inputs": [{ "name": "rider", "type": "address", "internalType": "address" }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "loyaltyInfo",
+    "inputs": [{ "name": "rider", "type": "address", "internalType": "address" }],
+    "outputs": [
+      { "name": "rides",     "type": "uint256", "internalType": "uint256" },
+      { "name": "earned",    "type": "uint256", "internalType": "uint256" },
+      { "name": "claimed",   "type": "uint256", "internalType": "uint256" },
+      { "name": "available", "type": "uint256", "internalType": "uint256" },
+      { "name": "tier",      "type": "string",  "internalType": "string"  }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "rideCount",
+    "inputs": [{ "name": "rider", "type": "address", "internalType": "address" }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "FreeRideClaimed",
+    "inputs": [
+      { "name": "rider",   "type": "address", "indexed": true,  "internalType": "address" },
+      { "name": "tokenId", "type": "uint256", "indexed": true,  "internalType": "uint256" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RideCompleted",
+    "inputs": [
+      { "name": "rider",    "type": "address", "indexed": true,  "internalType": "address" },
+      { "name": "newCount", "type": "uint256", "indexed": false, "internalType": "uint256" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TierReached",
+    "inputs": [
+      { "name": "rider", "type": "address", "indexed": true,  "internalType": "address" },
+      { "name": "tier",  "type": "string",  "indexed": false, "internalType": "string"  }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "NoFreeRideCredits",
+    "inputs": []
+  },
+  {
+    "type": "function",
     "name": "approvedOperators",
     "inputs": [
       { "name": "", "type": "address", "internalType": "address" }

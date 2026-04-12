@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useState } from "react"
-import { Link } from "react-router-dom"
-import { useAccount, usePublicClient } from "wagmi"
-import { monadTestnet } from "@chainpass/shared"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Link, useNavigate } from "react-router-dom"
+import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { monadTestnet, chainPassTicketAbi } from "@chainpass/shared"
 
-import { fetchMyPasses, type MyPassesResponse } from "../lib/api"
+import { fetchMyPasses, fetchRouteLabels, type MyPassesResponse } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
+import { env } from "../lib/env"
 import { fetchActivePassesFromChain } from "../lib/onchainPasses"
 import { routeMetaForRouteId, shortenNumericId } from "../lib/passDisplay"
 import { isExpiringSoon } from "../lib/passDisplay"
+import { extractMintedTokenIdFromReceipt } from "../lib/tx"
+import { formatWriteContractError } from "../lib/walletError"
 import { ExpiryWarningBanner } from "../components/ui/ExpiryWarningBanner"
+import { TierCard } from "../components/ui/TierCard"
+import { useLoyalty } from "../hooks/useLoyalty"
+import { DEMO_ROUTES } from "../constants/demoRoutes"
 
 const REFETCH_MS = 8000
 const explorerTxBase = `${monadTestnet.blockExplorers.default.url}/tx`
@@ -43,12 +49,87 @@ function CardSkeleton() {
 export function ProfilePage() {
   const { address, isConnected } = useAccount()
   const publicClient = usePublicClient()
+  const navigate = useNavigate()
+  const contractAddress = getContractAddress()
   const [data, setData] = useState<MyPassesResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [tab, setTab] = useState<TabId>("active")
+
+  // ── Loyalty ───────────────────────────────────────────────────────────────
+  const { data: loyaltyData, isLoading: loyaltyLoading, refetch: refetchLoyalty } = useLoyalty(address)
+
+  // ── Claim free ride ───────────────────────────────────────────────────────
+  const [claimOpen, setClaimOpen] = useState(false)
+  const [claimRouteId, setClaimRouteId] = useState<string>("")
+  const [apiRouteLabels, setApiRouteLabels] = useState<{ routeId: string; name: string; category: string }[] | undefined>(undefined)
+
+  // Merge API + demo routes for the picker
+  const allRoutes = useMemo(() => {
+    const byId = new Map<string, { routeId: string; name: string; category: string }>()
+    for (const r of apiRouteLabels ?? []) byId.set(r.routeId, r)
+    for (const r of DEMO_ROUTES) if (!byId.has(r.routeId)) byId.set(r.routeId, r)
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }, [apiRouteLabels])
+
+  // Fetch API route labels once on mount
+  useEffect(() => {
+    void fetchRouteLabels().then((labels) => {
+      if (labels) setApiRouteLabels(labels)
+    })
+  }, [])
+
+  // Auto-select first route when list loads
+  useEffect(() => {
+    if (claimRouteId === "" && allRoutes.length > 0) {
+      setClaimRouteId(allRoutes[0].routeId)
+    }
+  }, [allRoutes, claimRouteId])
+
+  const claimValidUntil = useMemo(
+    () => BigInt(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60) as bigint,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [claimOpen], // recompute when modal opens
+  )
+
+  const {
+    data: claimHash,
+    writeContractAsync: writeClaimAsync,
+    isPending: claimPending,
+    error: claimError,
+    reset: resetClaim,
+  } = useWriteContract()
+  const { isLoading: claimConfirming, isSuccess: claimSuccess, data: claimReceipt } =
+    useWaitForTransactionReceipt({ hash: claimHash })
+
+  // Navigate to pass page after successful claim
+  const navigatedRef = useRef(false)
+  useEffect(() => {
+    if (!claimSuccess || !claimReceipt || !contractAddress || navigatedRef.current) return
+    navigatedRef.current = true
+    const tokenId = extractMintedTokenIdFromReceipt(claimReceipt.logs, contractAddress)
+    void refetchLoyalty()
+    if (tokenId !== null) navigate(`/pass/${tokenId.toString()}`)
+    else { setClaimOpen(false); resetClaim() }
+  }, [claimSuccess, claimReceipt, contractAddress, navigate, refetchLoyalty, resetClaim])
+
+  const onClaim = useCallback(async () => {
+    if (!contractAddress || !claimRouteId) return
+    navigatedRef.current = false
+    resetClaim()
+    try {
+      await writeClaimAsync({
+        address: contractAddress,
+        abi: chainPassTicketAbi,
+        functionName: "claimFreeRide",
+        args: [BigInt(claimRouteId), claimValidUntil as bigint, (env.defaultOperator as `0x${string}`) || "0x0000000000000000000000000000000000000000"],
+      })
+    } catch {
+      // error surfaced via claimError
+    }
+  }, [contractAddress, claimRouteId, claimValidUntil, resetClaim, writeClaimAsync])
 
   const load = useCallback(
     async (mode: "initial" | "poll" | "manual") => {
@@ -151,6 +232,115 @@ export function ProfilePage() {
           </button>
         </div>
       </div>
+
+      {/* Tier card */}
+      {isConnected && address && (
+        loyaltyLoading && !loyaltyData ? (
+          <div className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container p-5">
+            <div className="flex items-center gap-3">
+              <div className="skeleton h-10 w-10 rounded-full" />
+              <div className="flex-1 space-y-2">
+                <div className="skeleton h-3 w-24 rounded" />
+                <div className="skeleton h-5 w-16 rounded" />
+              </div>
+              <div className="skeleton h-8 w-12 rounded" />
+            </div>
+            <div className="mt-4 skeleton h-2 w-full rounded-full" />
+          </div>
+        ) : loyaltyData ? (
+          <TierCard
+            data={loyaltyData}
+            onClaim={() => { resetClaim(); setClaimOpen(true) }}
+            claiming={claimPending || claimConfirming}
+          />
+        ) : null
+      )}
+
+      {/* Claim free ride modal */}
+      {claimOpen && loyaltyData && loyaltyData.available > 0 && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+          onClick={(e) => { if (e.target === e.currentTarget && !claimPending && !claimConfirming) { setClaimOpen(false); resetClaim() } }}>
+          <div className="w-full max-w-md overflow-hidden rounded-t-3xl border border-outline-variant/20 bg-surface-container sm:rounded-3xl">
+            {/* Header */}
+            <div className={`border-b ${loyaltyData.tier.border} bg-gradient-to-r from-${loyaltyData.tier.bg}/20 to-transparent px-5 py-4 flex items-center gap-3`}>
+              <span className="text-xl" role="img" aria-label="free ride">{loyaltyData.tier.icon}</span>
+              <div>
+                <p className={`font-headline text-[10px] font-bold uppercase tracking-widest ${loyaltyData.tier.color}`}>
+                  {loyaltyData.available} credit{loyaltyData.available !== 1 ? "s" : ""} available
+                </p>
+                <p className="font-headline text-lg font-bold text-white leading-snug">Claim free ride</p>
+              </div>
+              <button type="button"
+                className="ml-auto rounded-lg p-1.5 text-on-surface-variant hover:text-white transition-colors"
+                onClick={() => { setClaimOpen(false); resetClaim() }}
+                disabled={claimPending || claimConfirming}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <p className="text-sm text-on-surface-variant">
+                Choose a route and your free ticket will be minted on-chain instantly — no payment needed.
+              </p>
+
+              {/* Route picker */}
+              <label className="block">
+                <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                  Select route
+                </span>
+                <select
+                  className="mt-1.5 w-full rounded-xl border border-outline-variant/25 bg-surface-container-high px-3.5 py-2.5 text-sm text-white focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+                  value={claimRouteId}
+                  onChange={(e) => setClaimRouteId(e.target.value)}
+                  disabled={claimPending || claimConfirming}
+                >
+                  {allRoutes.map((r) => (
+                    <option key={r.routeId} value={r.routeId}>
+                      {r.name}{r.category ? ` — ${r.category}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {/* Valid for note */}
+              <p className="text-xs text-on-surface-variant/60">
+                Ticket will be valid for 7 days from the moment of claiming.
+              </p>
+
+              {claimError && (
+                <div className="rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                  <p className="text-xs text-error break-words">{formatWriteContractError(claimError)}</p>
+                </div>
+              )}
+
+              {/* CTA */}
+              <button
+                type="button"
+                disabled={!claimRouteId || claimPending || claimConfirming}
+                onClick={() => void onClaim()}
+                className="w-full rounded-2xl bg-white px-6 py-4 font-headline text-base font-bold text-zinc-900 shadow-lg transition-all hover:bg-white/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {claimPending ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-900" />
+                    Confirm in wallet…
+                  </span>
+                ) : claimConfirming ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-400 border-t-zinc-900" />
+                    Minting on-chain…
+                  </span>
+                ) : (
+                  "Claim free ride →"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {err && (

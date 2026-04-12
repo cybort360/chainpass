@@ -280,4 +280,101 @@ contract ChainPassTicketTest is Test {
     function test_supportsInterface_enumerable() public view {
         assertTrue(ticket.supportsInterface(type(IERC721Enumerable).interfaceId));
     }
+
+    // ── Loyalty / tier tests ───────────────────────────────────────────────────
+
+    event RideCompleted(address indexed rider, uint256 newCount);
+    event TierReached(address indexed rider, string tier);
+    event FreeRideClaimed(address indexed rider, uint256 indexed tokenId);
+
+    /// @dev Mint and burn `n` tickets for `rider` with a validity far in the future.
+    function _doRides(address rider, uint256 n) internal {
+        uint64 until = uint64(block.timestamp + 365 days);
+        for (uint256 i = 0; i < n; ++i) {
+            vm.prank(minter);
+            uint256 id = ticket.mint(rider, ROUTE, until, OPERATOR);
+            vm.prank(burner);
+            ticket.burnTicket(id, ROUTE, rider);
+        }
+    }
+
+    function test_loyalty_rideCountIncrements() public {
+        assertEq(ticket.rideCount(alice), 0);
+        _doRides(alice, 3);
+        assertEq(ticket.rideCount(alice), 3);
+    }
+
+    function test_loyalty_tierNoneBeforeFirstRide() public view {
+        (,,,, string memory tier) = ticket.loyaltyInfo(alice);
+        assertEq(tier, "None");
+    }
+
+    function test_loyalty_bronzeAfterOneRide() public {
+        _doRides(alice, 1);
+        (uint256 rides,,,, string memory tier) = ticket.loyaltyInfo(alice);
+        assertEq(rides, 1);
+        assertEq(tier, "Bronze");
+    }
+
+    function test_loyalty_silverAt10() public {
+        _doRides(alice, 10);
+        (uint256 rides,,,, string memory tier) = ticket.loyaltyInfo(alice);
+        assertEq(rides, 10);
+        assertEq(tier, "Silver");
+    }
+
+    function test_loyalty_goldAt25() public {
+        _doRides(alice, 25);
+        (uint256 rides,,,, string memory tier) = ticket.loyaltyInfo(alice);
+        assertEq(rides, 25);
+        assertEq(tier, "Gold");
+    }
+
+    function test_loyalty_tierEvent_emittedAtBoundary() public {
+        // Mint separately so we can target the exact burn transaction for TierReached
+        uint64 until = uint64(block.timestamp + 365 days);
+        vm.prank(minter);
+        uint256 id = ticket.mint(alice, ROUTE, until, OPERATOR);
+
+        // Expect TierReached(alice, "Bronze") emitted during this specific burn
+        vm.expectEmit(true, false, false, true);
+        emit TierReached(alice, "Bronze");
+        vm.prank(burner);
+        ticket.burnTicket(id, ROUTE, alice);
+    }
+
+    function test_loyalty_freeRideEarnedAt10() public {
+        _doRides(alice, 10);
+        (,uint256 earned,, uint256 available,) = ticket.loyaltyInfo(alice);
+        assertEq(earned, 1);
+        assertEq(available, 1);
+    }
+
+    function test_loyalty_claimFreeRide() public {
+        _doRides(alice, 10);
+
+        uint64 until = uint64(block.timestamp + 7 days);
+        vm.prank(alice);
+        uint256 freeId = ticket.claimFreeRide(ROUTE, until, OPERATOR);
+
+        assertEq(ticket.ownerOf(freeId), alice);
+        (,, uint256 claimed, uint256 available,) = ticket.loyaltyInfo(alice);
+        assertEq(claimed, 1);
+        assertEq(available, 0);
+    }
+
+    function test_loyalty_claimRevertsWithNoCredits() public {
+        _doRides(alice, 5); // only 5 rides — no credit yet
+        uint64 until = uint64(block.timestamp + 7 days);
+        vm.prank(alice);
+        vm.expectRevert(ChainPassTicket.NoFreeRideCredits.selector);
+        ticket.claimFreeRide(ROUTE, until, OPERATOR);
+    }
+
+    function test_loyalty_multipleCreditsAccumulate() public {
+        _doRides(alice, 25); // 2 free rides (floor(25/10))
+        (,uint256 earned,, uint256 available,) = ticket.loyaltyInfo(alice);
+        assertEq(earned, 2);
+        assertEq(available, 2);
+    }
 }

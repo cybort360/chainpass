@@ -68,10 +68,28 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     ///         address(0) is approved by default so existing zero-address sentinel usage works.
     mapping(address => bool) public approvedOperators;
 
+    // ─── Loyalty / reward tiers ───────────────────────────────────────────────
+
+    /// @notice Lifetime completed rides (burned tickets) per rider address.
+    mapping(address rider => uint256) public rideCount;
+
+    /// @notice Free-ride credits already redeemed per rider.
+    mapping(address rider => uint256) public freeRidesClaimed;
+
+    /// @dev Tier thresholds (ride counts at which each tier is first reached).
+    uint256 private constant BRONZE_THRESHOLD   = 1;
+    uint256 private constant SILVER_THRESHOLD   = 10;
+    uint256 private constant GOLD_THRESHOLD     = 25;
+    uint256 private constant PLATINUM_THRESHOLD = 50;
+
+    /// @dev Completed rides required to earn one free-ride credit.
+    uint256 private constant RIDES_PER_FREE_RIDE = 10;
+
     // ─── Errors ───────────────────────────────────────────────────────────────
 
     error SoulboundTransfer();
     error OperatorNotApproved(address operator);
+    error NoFreeRideCredits();
     error TicketExpired(uint256 tokenId, uint64 validUntilEpoch, uint256 nowTimestamp);
     error RouteMismatch(uint256 tokenId, uint256 expectedRouteId, uint256 actualRouteId);
     error HolderMismatch(uint256 tokenId, address expectedHolder, address actualOwner);
@@ -90,6 +108,9 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     );
     event TicketBurned(address indexed from, uint256 indexed tokenId, uint256 routeId);
     event OperatorApproved(address indexed operator, bool approved);
+    event RideCompleted(address indexed rider, uint256 newCount);
+    event TierReached(address indexed rider, string tier);
+    event FreeRideClaimed(address indexed rider, uint256 indexed tokenId);
     event RoutePriceSet(uint256 indexed routeId, uint256 weiAmount);
     event MintPriceSet(uint256 weiAmount);
     event BaseURISet(string baseURI);
@@ -165,6 +186,58 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
 
     function _baseURI() internal view override returns (string memory) {
         return _baseTokenURI;
+    }
+
+    // ─── Loyalty views & claiming ─────────────────────────────────────────────
+
+    /// @notice Returns all loyalty state for `rider` in a single RPC call.
+    /// @return rides     Lifetime completed rides.
+    /// @return earned    Total free-ride credits earned (floor(rides / 10)).
+    /// @return claimed   Free-ride credits already redeemed.
+    /// @return available Credits that can be claimed right now.
+    /// @return tier      Current tier label: "None", "Bronze", "Silver", "Gold", or "Platinum".
+    function loyaltyInfo(address rider)
+        external
+        view
+        returns (
+            uint256 rides,
+            uint256 earned,
+            uint256 claimed,
+            uint256 available,
+            string memory tier
+        )
+    {
+        rides   = rideCount[rider];
+        earned  = rides / RIDES_PER_FREE_RIDE;
+        claimed = freeRidesClaimed[rider];
+        available = earned > claimed ? earned - claimed : 0;
+
+        if      (rides >= PLATINUM_THRESHOLD) tier = "Platinum";
+        else if (rides >= GOLD_THRESHOLD)     tier = "Gold";
+        else if (rides >= SILVER_THRESHOLD)   tier = "Silver";
+        else if (rides >= BRONZE_THRESHOLD)   tier = "Bronze";
+        else                                  tier = "None";
+    }
+
+    /// @notice Spend one free-ride credit and instantly mint a ticket to `msg.sender`.
+    /// @dev Caller must have at least one unredeemed credit (floor(rideCount/10) > freeRidesClaimed).
+    ///      `operatorAddr` must be whitelisted via `setOperatorApproved`.
+    function claimFreeRide(
+        uint256 routeId,
+        uint64  validUntilEpoch,
+        address operatorAddr
+    )
+        external
+        returns (uint256 tokenId)
+    {
+        address rider   = msg.sender;
+        uint256 earned  = rideCount[rider] / RIDES_PER_FREE_RIDE;
+        uint256 claimed = freeRidesClaimed[rider];
+        if (earned <= claimed) revert NoFreeRideCredits();
+
+        unchecked { ++freeRidesClaimed[rider]; }
+        tokenId = _mintTicket(rider, routeId, validUntilEpoch, operatorAddr);
+        emit FreeRideClaimed(rider, tokenId);
     }
 
     // ─── Minting ──────────────────────────────────────────────────────────────
@@ -335,6 +408,16 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         delete operatorOf[tokenId];
         _burn(tokenId);
         unchecked { ++totalBurned; }
+
+        // ── Loyalty accounting ────────────────────────────────────────────────
+        uint256 newCount;
+        unchecked { newCount = ++rideCount[from]; }
+        emit RideCompleted(from, newCount);
+        if      (newCount == BRONZE_THRESHOLD)   emit TierReached(from, "Bronze");
+        else if (newCount == SILVER_THRESHOLD)   emit TierReached(from, "Silver");
+        else if (newCount == GOLD_THRESHOLD)     emit TierReached(from, "Gold");
+        else if (newCount == PLATINUM_THRESHOLD) emit TierReached(from, "Platinum");
+
         emit TicketBurned(from, tokenId, route);
     }
 
