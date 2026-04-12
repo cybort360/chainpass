@@ -12,3 +12,15 @@ export function routeMetaForRouteId(routeId: string | null | undefined) {
   if (routeId == null || routeId === "") return undefined
   return DEMO_ROUTES.find((r) => r.routeId === routeId)
 }
+
+/** Returns true if the ticket expires within the next `windowSec` seconds (default 24h). */
+export function isExpiringSoon(
+  validUntilEpoch: string | number | bigint | null | undefined,
+  windowSec = 86_400,
+): boolean {
+  if (validUntilEpoch == null) return false
+  const exp = Number(validUntilEpoch)
+  if (!Number.isFinite(exp) || exp === 0) return false
+  const now = Math.floor(Date.now() / 1000)
+  return exp > now && exp - now <= windowSec
+}

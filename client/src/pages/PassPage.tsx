@@ -6,6 +6,10 @@ import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
 import { getContractAddress } from "../lib/contract"
 import { routeMetaForRouteId, shortenNumericId } from "../lib/passDisplay"
 import { requestQrPayload, type QrPayload } from "../lib/api"
+import { useOfflineQr } from "../hooks/useOfflineQr"
+import { ExpiryWarningBanner } from "../components/ui/ExpiryWarningBanner"
+import { SoulboundBadge } from "../components/ui/SoulboundBadge"
+import { isExpiringSoon } from "../lib/passDisplay"
 
 /** Derive a 3-letter route code from the route name (like airport code). */
 function toRouteCode(name: string | undefined): string {
@@ -93,15 +97,37 @@ export function PassPage() {
   const [qrRefreshedAt, setQrRefreshedAt] = useState<number>(Date.now())
   const [, setTick] = useState(0)
 
+  const { persist, recall } = useOfflineQr(tokenIdStr)
+
   const refreshPayload = useCallback(async () => {
     if (!address || !tokenIdStr) return
     setQrError(null)
     const p = await requestQrPayload(tokenIdStr, address as `0x${string}`)
-    if (!p) setQrError("Could not load QR. Is the API running with QR_SIGNING_SECRET set?")
-    else { setPayload(p); setQrRefreshedAt(Date.now()) }
-  }, [address, tokenIdStr])
+    if (!p) {
+      const cached = recall()
+      if (cached) {
+        setPayload(cached)
+        setQrRefreshedAt(Date.now())
+        setQrError("Offline — showing cached QR. Reconnect to refresh.")
+      } else {
+        setQrError("Could not load QR. Is the API running with QR_SIGNING_SECRET set?")
+      }
+    } else {
+      setPayload(p)
+      setQrRefreshedAt(Date.now())
+      persist(p)
+      setQrError(null)
+    }
+  }, [address, tokenIdStr, persist, recall])
 
   useEffect(() => { void refreshPayload() }, [refreshPayload])
+
+  // Pre-populate from cache for instant display on re-visit
+  useEffect(() => {
+    const cached = recall()
+    if (cached && !payload) setPayload(cached)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Auto-refresh every 22s
   useEffect(() => {
@@ -165,6 +191,10 @@ export function PassPage() {
         </div>
       ) : (
         <div className="mt-5 min-w-0 space-y-4">
+
+          {isExpiringSoon(vu) && (
+            <ExpiryWarningBanner validUntilEpoch={vu} variant="banner" />
+          )}
 
           {/* ── Boarding pass card ── */}
           <div className="overflow-hidden rounded-3xl border border-outline-variant/20 bg-surface-container shadow-xl shadow-black/30">
@@ -265,6 +295,10 @@ export function PassPage() {
                     {formatEpoch(vu)}
                   </p>
                 </div>
+              </div>
+
+              <div className="mt-4 border-t border-outline-variant/10 pt-3">
+                <SoulboundBadge />
               </div>
             </div>
 

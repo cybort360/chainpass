@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { usePrivy } from "@privy-io/react-auth"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { formatEther, formatUnits } from "viem"
-import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
 import type { DemoRoute } from "../constants/demoRoutes"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
@@ -54,6 +54,10 @@ export function RoutePurchasePage() {
   const usdcEnabled = Boolean(usdcAddress)
 
   const [payMethod, setPayMethod] = useState<PayMethod>("mon")
+  const [quantity, setQuantity] = useState(1)
+  const [mintProgress, setMintProgress] = useState<{ done: number; total: number } | null>(null)
+  const [mintedTokenIds, setMintedTokenIds] = useState<bigint[]>([])
+  const publicClient = usePublicClient()
 
   // ── Exchange rates ──────────────────────────────────────────────────────────
   const { usdToNgn, ngnForMon, ngnForUsdc } = useExchangeRates()
@@ -126,15 +130,13 @@ export function RoutePurchasePage() {
     },
   })
   const allowance = typeof allowanceRaw === "bigint" ? allowanceRaw : 0n
-  const needsApproval = usdcConfigured && priceUsdc !== undefined && allowance < priceUsdc
+  const needsApproval = usdcConfigured && priceUsdc !== undefined && allowance < priceUsdc * BigInt(quantity)
 
   // ── MON purchase ───────────────────────────────────────────────────────────
   const {
-    data: monHash, writeContract: writeMonPurchase,
+    writeContractAsync: writeMonAsync,
     isPending: monPending, error: monError, reset: resetMon,
   } = useWriteContract()
-  const { data: monReceipt, isLoading: monConfirming, isSuccess: monSuccess } =
-    useWaitForTransactionReceipt({ hash: monHash })
 
   // ── USDC approve ───────────────────────────────────────────────────────────
   const {
@@ -156,14 +158,22 @@ export function RoutePurchasePage() {
   const { data: usdcReceipt, isLoading: usdcConfirming, isSuccess: usdcSuccess } =
     useWaitForTransactionReceipt({ hash: usdcHash })
 
-  // Navigate on mint success (either payment method)
+  // Navigate after multi-mint completes (MON path)
   useEffect(() => {
-    const receipt = monReceipt ?? usdcReceipt
-    const success = monSuccess || usdcSuccess
-    if (!receipt || !contractAddress || !success) return
-    const tokenId = extractMintedTokenIdFromReceipt(receipt.logs, contractAddress)
+    if (mintedTokenIds.length === 0) return
+    if (mintedTokenIds.length === 1) {
+      navigate(`/pass/${mintedTokenIds[0].toString()}`)
+    } else {
+      navigate("/profile")
+    }
+  }, [mintedTokenIds, navigate])
+
+  // Navigate on USDC mint success
+  useEffect(() => {
+    if (!usdcReceipt || !contractAddress || !usdcSuccess) return
+    const tokenId = extractMintedTokenIdFromReceipt(usdcReceipt.logs, contractAddress)
     if (tokenId !== null) navigate(`/pass/${tokenId.toString()}`)
-  }, [monReceipt, usdcReceipt, monSuccess, usdcSuccess, contractAddress, navigate])
+  }, [usdcReceipt, usdcSuccess, contractAddress, navigate])
 
   // ── Computed display values ─────────────────────────────────────────────────
   const monDisplay = priceWei !== undefined ? formatEther(priceWei) : "—"
@@ -181,16 +191,30 @@ export function RoutePurchasePage() {
   // ── Handlers ───────────────────────────────────────────────────────────────
   const validUntilEpoch = BigInt(Math.floor(Date.now() / 1000) + 86400 * 7)
 
-  const onPayMon = () => {
-    if (!address || priceWei === undefined || !contractAddress) return
+  const onPayMon = async () => {
+    if (!address || priceWei === undefined || !contractAddress || !publicClient) return
     resetMon()
-    writeMonPurchase({
-      address: contractAddress,
-      abi: chainPassTicketAbi,
-      functionName: "purchaseTicket",
-      args: [routeIdBig!, validUntilEpoch, env.defaultOperator],
-      value: priceWei,
-    })
+    setMintProgress({ done: 0, total: quantity })
+    setMintedTokenIds([])
+    const ids: bigint[] = []
+    try {
+      for (let i = 0; i < quantity; i++) {
+        const hash = await writeMonAsync({
+          address: contractAddress,
+          abi: chainPassTicketAbi,
+          functionName: "purchaseTicket",
+          args: [routeIdBig!, BigInt(Math.floor(Date.now() / 1000) + 86400 * 7), env.defaultOperator],
+          value: priceWei,
+        })
+        const receipt = await publicClient.waitForTransactionReceipt({ hash })
+        const tokenId = extractMintedTokenIdFromReceipt(receipt.logs, contractAddress)
+        if (tokenId !== null) ids.push(tokenId)
+        setMintProgress({ done: i + 1, total: quantity })
+      }
+    } finally {
+      setMintedTokenIds(ids)
+      setMintProgress(null)
+    }
   }
 
   const onApproveUsdc = () => {
@@ -200,7 +224,7 @@ export function RoutePurchasePage() {
       address: usdcAddress,
       abi: erc20Abi,
       functionName: "approve",
-      args: [contractAddress, priceUsdc],
+      args: [contractAddress, priceUsdc * BigInt(quantity)],
     })
   }
 
@@ -254,7 +278,7 @@ export function RoutePurchasePage() {
     )
   }
 
-  const monBusy  = monPending || monConfirming
+  const monBusy = monPending || mintProgress !== null
 
   return (
     <div className="mx-auto max-w-md">
@@ -379,7 +403,40 @@ export function RoutePurchasePage() {
             <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
               Valid for
             </p>
-            <p className="mt-1 font-headline text-sm font-semibold text-white">1 year</p>
+            <p className="mt-1 font-headline text-sm font-semibold text-white">7 days</p>
+          </div>
+        </div>
+
+        {/* Quantity picker */}
+        <div className="flex items-center justify-between border-t border-outline-variant/15 px-5 py-4">
+          <div>
+            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
+              Quantity
+            </p>
+            <p className="mt-0.5 text-xs text-on-surface-variant/60">Max 5 per purchase</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              disabled={quantity <= 1}
+              onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high font-bold text-white disabled:opacity-30 hover:border-primary/40 transition-colors"
+              aria-label="Decrease quantity"
+            >
+              −
+            </button>
+            <span className="w-6 text-center font-headline text-lg font-bold text-white tabular-nums">
+              {quantity}
+            </span>
+            <button
+              type="button"
+              disabled={quantity >= 5}
+              onClick={() => setQuantity((q) => Math.min(5, q + 1))}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high font-bold text-white disabled:opacity-30 hover:border-primary/40 transition-colors"
+              aria-label="Increase quantity"
+            >
+              +
+            </button>
           </div>
         </div>
 
@@ -413,12 +470,21 @@ export function RoutePurchasePage() {
             <button
               type="button"
               disabled={priceWei === undefined || monBusy}
-              onClick={onPayMon}
+              onClick={() => void onPayMon()}
               className={`relative w-full overflow-hidden rounded-2xl px-6 py-4 font-headline text-base font-bold text-white transition-all active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 ${
                 monBusy ? "bg-primary/60" : "btn-primary-gradient hover:brightness-110 hover:shadow-[0_0_28px_rgba(110,84,255,0.4)]"
               }`}
             >
-              {monBusy ? (
+              {mintProgress ? (
+                <span className="flex items-center justify-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Minting {mintProgress.done + 1} of {mintProgress.total}…
+                  <div
+                    className="absolute bottom-0 left-0 h-1 bg-white/30 transition-all"
+                    style={{ width: `${(mintProgress.done / mintProgress.total) * 100}%` }}
+                  />
+                </span>
+              ) : monPending ? (
                 <span className="flex items-center justify-center gap-2">
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                   Confirm in wallet…
@@ -430,7 +496,7 @@ export function RoutePurchasePage() {
                     <path d="M2 9a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z" />
                     <line x1="9" y1="7" x2="9" y2="17" strokeDasharray="2 2" />
                   </svg>
-                  Pay with MON
+                  Pay {quantity > 1 ? `${quantity} tickets` : ""} with MON
                 </span>
               )}
             </button>

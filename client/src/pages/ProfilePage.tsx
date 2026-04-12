@@ -7,6 +7,8 @@ import { fetchMyPasses, type MyPassesResponse } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { fetchActivePassesFromChain } from "../lib/onchainPasses"
 import { routeMetaForRouteId, shortenNumericId } from "../lib/passDisplay"
+import { isExpiringSoon } from "../lib/passDisplay"
+import { ExpiryWarningBanner } from "../components/ui/ExpiryWarningBanner"
 
 const REFETCH_MS = 8000
 const explorerTxBase = `${monadTestnet.blockExplorers.default.url}/tx`
@@ -219,10 +221,15 @@ export function ProfilePage() {
                       <div className="bg-gradient-to-r from-primary/20 to-primary/5 px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
                           <p className="font-headline text-sm font-bold leading-snug text-white">{routeName}</p>
-                          <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-tertiary/30 bg-tertiary/10 px-2.5 py-0.5 font-headline text-[10px] font-bold uppercase tracking-wide text-tertiary">
-                            <span className="h-1.5 w-1.5 rounded-full bg-tertiary" aria-hidden />
-                            Active
-                          </span>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {isExpiringSoon(row.valid_until_epoch) && (
+                              <ExpiryWarningBanner validUntilEpoch={row.valid_until_epoch} variant="badge" />
+                            )}
+                            <span className="inline-flex items-center gap-1 rounded-full border border-tertiary/30 bg-tertiary/10 px-2.5 py-0.5 font-headline text-[10px] font-bold uppercase tracking-wide text-tertiary">
+                              <span className="h-1.5 w-1.5 rounded-full bg-tertiary" aria-hidden />
+                              Active
+                            </span>
+                          </div>
                         </div>
                       </div>
 
