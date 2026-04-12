@@ -223,7 +223,12 @@ async function backfillPaymentWei(): Promise<void> {
   let filled = 0;
   for (const row of rows) {
     try {
-      const tx = await client.getTransaction({ hash: row.tx_hash as `0x${string}` });
+      const txPromise = client.getTransaction({ hash: row.tx_hash as `0x${string}` });
+      const timeoutPromise = new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 5000),
+      );
+      const tx = await Promise.race([txPromise, timeoutPromise]);
+      if (!tx) continue;
       const wei = tx.value > 0n ? tx.value.toString() : "0";
       await pool.query(
         `UPDATE ticket_events SET payment_wei = $1 WHERE tx_hash = $2 AND event_type = 'mint' AND payment_wei IS NULL`,
@@ -242,7 +247,7 @@ async function main(): Promise<void> {
     `[chainpass-indexer] contract=${cfg.ticketContractAddress} initial fromBlock=${cfg.fromBlock} (empty table uses this; else max(block)+1)`,
   );
 
-  await backfillPaymentWei();
+  void backfillPaymentWei().catch(() => {/* non-fatal */});
 
   let lastHeartbeat = 0;
   const heartbeatMs = 45_000;
