@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { useAccount, useReadContract } from "wagmi"
 import { QRCodeSVG } from "qrcode.react"
@@ -68,12 +68,13 @@ export function PassPage() {
   try { tokenId = BigInt(tokenIdStr ?? "0") }
   catch { tokenId = 0n }
 
+  // Poll every 3s so we detect the burn immediately when conductor scans
   const { data: owner, error: ownerError } = useReadContract({
     address: contractAddress,
     abi: chainPassTicketAbi,
     functionName: "ownerOf",
     args: [tokenId],
-    query: { enabled: !!contractAddress && !!tokenIdStr },
+    query: { enabled: !!contractAddress && !!tokenIdStr, refetchInterval: 3_000 },
   })
 
   const { data: routeId } = useReadContract({
@@ -91,6 +92,9 @@ export function PassPage() {
     args: [tokenId],
     query: { enabled: !!contractAddress && !!tokenIdStr },
   })
+
+  // Persist route/time info so we can show it on the "Trip complete" screen after burn
+  const burnedInfoRef = useRef<{ routeName: string; usedAt: Date } | null>(null)
 
   const [payload, setPayload] = useState<QrPayload | null>(null)
   const [qrError, setQrError] = useState<string | null>(null)
@@ -121,6 +125,13 @@ export function PassPage() {
   }, [address, tokenIdStr, persist, recall])
 
   useEffect(() => { void refreshPayload() }, [refreshPayload])
+
+  // Snapshot route info while the ticket is live so it's available after burn
+  useEffect(() => {
+    if (routeName && owner) {
+      burnedInfoRef.current = { routeName, usedAt: new Date() }
+    }
+  }, [routeName, owner])
 
   // Pre-populate from cache for instant display on re-visit
   useEffect(() => {
@@ -164,6 +175,7 @@ export function PassPage() {
   const fromCode = toRouteCode(fromCity)
   const toCode = toRouteCode(toCity)
 
+
   const qrElapsed = Math.floor((Date.now() - qrRefreshedAt) / 1000)
 
   return (
@@ -179,16 +191,72 @@ export function PassPage() {
       </Link>
 
       {ownerError ? (
-        <div className="mt-8 rounded-2xl border border-error/30 bg-error/8 p-8 text-center">
-          <span className="material-symbols-outlined text-3xl text-error mb-3 block" aria-hidden>
-            confirmation_number_off
-          </span>
-          <p className="font-headline font-semibold text-white">Ticket not found</p>
-          <p className="mt-1 text-sm text-on-surface-variant">Burned or invalid token ID.</p>
-          <Link to="/profile" className="mt-4 inline-block font-headline text-sm font-semibold text-primary hover:underline">
-            ← My passes
-          </Link>
-        </div>
+        burnedInfoRef.current ? (
+          /* ── Trip complete screen (ticket was burned by conductor) ── */
+          <div className="mt-8 space-y-4">
+            <div className="overflow-hidden rounded-3xl border border-tertiary/30 bg-surface-container shadow-xl shadow-black/30">
+              {/* Success strip */}
+              <div className="bg-gradient-to-r from-tertiary/25 via-tertiary/10 to-transparent px-5 py-4 flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-tertiary/20">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-tertiary" aria-hidden>
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-headline text-xs font-bold uppercase tracking-widest text-tertiary">Trip complete</p>
+                  <p className="font-headline text-lg font-bold text-white leading-snug">
+                    {burnedInfoRef.current.routeName}
+                  </p>
+                </div>
+              </div>
+
+              {/* Details */}
+              <div className="grid grid-cols-2 divide-x divide-outline-variant/15 border-t border-outline-variant/15">
+                <div className="px-5 py-4">
+                  <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">Boarded at</p>
+                  <p className="mt-1 font-headline text-sm font-semibold text-white">
+                    {burnedInfoRef.current.usedAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                  <p className="mt-0.5 text-xs text-on-surface-variant">
+                    {burnedInfoRef.current.usedAt.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  </p>
+                </div>
+                <div className="px-5 py-4">
+                  <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">Token</p>
+                  <p className="mt-1 font-mono text-sm text-white">#{tokenIdStr ? shortenNumericId(tokenIdStr) : "—"}</p>
+                  <p className="mt-0.5 text-xs text-on-surface-variant">Single-use · burned</p>
+                </div>
+              </div>
+
+              {/* Bottom message */}
+              <div className="border-t border-outline-variant/15 bg-tertiary/5 px-5 py-4 text-center">
+                <p className="text-sm text-on-surface-variant">Your ticket has been scanned. <span className="font-semibold text-white">Have a safe trip!</span></p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-4">
+              <Link to="/routes"
+                className="font-headline text-sm font-semibold text-primary hover:underline">
+                Buy another ticket →
+              </Link>
+              <span className="text-outline-variant/40">·</span>
+              <Link to="/profile"
+                className="font-headline text-sm text-on-surface-variant hover:text-white">
+                My passes
+              </Link>
+            </div>
+          </div>
+        ) : (
+          /* ── Token not found (invalid ID) ── */
+          <div className="mt-8 rounded-2xl border border-error/30 bg-error/8 p-8 text-center">
+            <p className="font-headline font-semibold text-white">Ticket not found</p>
+            <p className="mt-1 text-sm text-on-surface-variant">Invalid token ID.</p>
+            <Link to="/profile" className="mt-4 inline-block font-headline text-sm font-semibold text-primary hover:underline">
+              ← My passes
+            </Link>
+          </div>
+        )
       ) : (
         <div className="mt-5 min-w-0 space-y-4">
 
