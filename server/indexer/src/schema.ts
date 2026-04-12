@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS route_labels (
 
 ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'General';
 
+ALTER TABLE ticket_events ADD COLUMN IF NOT EXISTS payment_wei TEXT;
+CREATE INDEX IF NOT EXISTS ticket_events_created_at_idx ON ticket_events (created_at DESC);
+
 DO $$
 BEGIN
   IF EXISTS (

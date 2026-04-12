@@ -179,7 +179,7 @@ export function RoutePurchasePage() {
     : null
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  const validUntilEpoch = BigInt(Math.floor(Date.now() / 1000) + 86400 * 365)
+  const validUntilEpoch = BigInt(Math.floor(Date.now() / 1000) + 86400 * 7)
 
   const onPayMon = () => {
     if (!address || priceWei === undefined || !contractAddress) return

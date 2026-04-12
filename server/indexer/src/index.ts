@@ -65,12 +65,13 @@ async function insertMint(args: {
   validUntilEpoch: string;
   operatorAddr: string;
   to: string;
+  paymentWei: string | null;
 }): Promise<void> {
   await pool.query(
     `INSERT INTO ticket_events (
       event_type, tx_hash, log_index, block_number, block_hash, contract_address,
-      token_id, route_id, valid_until_epoch, operator_addr, from_address, to_address
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11)
+      token_id, route_id, valid_until_epoch, operator_addr, from_address, to_address, payment_wei
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, $11, $12)
     ON CONFLICT (tx_hash, log_index) DO NOTHING`,
     [
       "mint",
@@ -84,6 +85,7 @@ async function insertMint(args: {
       args.validUntilEpoch,
       args.operatorAddr,
       args.to,
+      args.paymentWei,
     ],
   );
 }
@@ -146,6 +148,13 @@ async function processRange(fromBlock: bigint, toBlock: bigint): Promise<void> {
       validUntilEpoch: bigint;
       operatorAddr: `0x${string}`;
     };
+    let paymentWei: string | null = null;
+    try {
+      const tx = await client.getTransaction({ hash: transactionHash });
+      paymentWei = tx.value > 0n ? tx.value.toString() : null;
+    } catch {
+      // Non-fatal: inflow data will be missing for this mint
+    }
     await insertMint({
       txHash: transactionHash,
       logIndex,
@@ -157,6 +166,7 @@ async function processRange(fromBlock: bigint, toBlock: bigint): Promise<void> {
       validUntilEpoch: String(args.validUntilEpoch),
       operatorAddr: String(args.operatorAddr),
       to: String(args.to),
+      paymentWei,
     });
   }
 

@@ -334,14 +334,14 @@ function HeaderWalletControls() {
 
 /* ─────────── Bottom navigation bar ─────────── */
 const allBottomTabs = [
-  { to: "/routes",    label: "Routes", Icon: RoutesIcon, end: true,  gate: false },
-  { to: "/profile",  label: "Passes", Icon: PassesIcon, end: false, gate: false },
-  { to: "/conductor",label: "Gate",   Icon: GateIcon,   end: false, gate: true  },
-  { to: "/operator", label: "Ops",    Icon: OpsIcon,    end: false, gate: false },
+  { to: "/routes",    label: "Routes", Icon: RoutesIcon, end: true,  gate: false, ops: false },
+  { to: "/profile",  label: "Passes", Icon: PassesIcon, end: false, gate: false, ops: false },
+  { to: "/conductor",label: "Gate",   Icon: GateIcon,   end: false, gate: true,  ops: false },
+  { to: "/operator", label: "Ops",    Icon: OpsIcon,    end: false, gate: false, ops: true  },
 ]
 
-function BottomNav({ showGate }: { showGate: boolean }) {
-  const tabs = allBottomTabs.filter((t) => !t.gate || showGate)
+function BottomNav({ showGate, showOps }: { showGate: boolean; showOps: boolean }) {
+  const tabs = allBottomTabs.filter((t) => (!t.gate || showGate) && (!t.ops || showOps))
   return (
     <nav aria-label="App navigation"
       className="fixed bottom-0 inset-x-0 z-40 md:hidden bg-surface-container-low/95 backdrop-blur-xl border-t border-outline-variant/25">
@@ -377,6 +377,8 @@ export function AppLayout() {
   const { address } = useAccount()
   const restricted = env.gateWallets.size > 0
   const showGate = !restricted || Boolean(address && env.gateWallets.has(address.toLowerCase()))
+  const restrictedOps = env.operatorWallets.size > 0
+  const showOps = !restrictedOps || Boolean(address && env.operatorWallets.has(address.toLowerCase()))
 
   return (
     <div className="flex min-h-screen flex-col bg-surface text-on-surface">
@@ -401,7 +403,7 @@ export function AppLayout() {
             <NavLink to="/routes" className={desktopNavLink} end>Routes</NavLink>
             <NavLink to="/profile" className={desktopNavLink}>My Passes</NavLink>
             {showGate && <NavLink to="/conductor" className={desktopNavLink}>Gate</NavLink>}
-            <NavLink to="/operator" className={desktopNavLink}>Operations</NavLink>
+            {showOps && <NavLink to="/operator" className={desktopNavLink}>Operations</NavLink>}
           </nav>
 
           {/* Wallet */}
@@ -419,7 +421,7 @@ export function AppLayout() {
       </main>
 
       {/* Mobile bottom nav */}
-      <BottomNav showGate={showGate} />
+      <BottomNav showGate={showGate} showOps={showOps} />
     </div>
   )
 }

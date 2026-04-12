@@ -22,6 +22,16 @@ function parseGateWallets(value: string | undefined): Set<string> {
   )
 }
 
+function parseOperatorWallets(value: string | undefined): Set<string> {
+  if (!value) return new Set()
+  return new Set(
+    value.split(",")
+      .map((s) => s.trim())
+      .filter((s) => /^0x[a-fA-F0-9]{40}$/i.test(s))
+      .map((s) => s.toLowerCase()),
+  )
+}
+
 export const env = {
   apiUrl: (raw.VITE_CHAINPASS_API_URL as string | undefined) ?? "http://localhost:3001",
   contractAddress: optionalAddress(raw.VITE_CHAINPASS_CONTRACT_ADDRESS as string | undefined),
@@ -40,4 +50,10 @@ export const env = {
    * Example: VITE_GATE_WALLETS=0xAbc…,0xDef…
    */
   gateWallets: parseGateWallets(raw.VITE_GATE_WALLETS as string | undefined),
+  /**
+   * Comma-separated wallet addresses that may see the Operations tab.
+   * If empty / unset, the Ops tab is visible to everyone.
+   * Example: VITE_OPERATOR_WALLETS=0xAbc…
+   */
+  operatorWallets: parseOperatorWallets(raw.VITE_OPERATOR_WALLETS as string | undefined),
 }

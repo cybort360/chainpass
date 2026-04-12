@@ -81,6 +81,7 @@ export async function registerRouteLabel(payload: {
 export type OperatorStats = {
   totals: { mint: number; burn: number }
   last24h: { mint: number; burn: number }
+  totalInflowWei?: string
 }
 
 export async function fetchOperatorStats(): Promise<OperatorStats | null> {
@@ -88,6 +89,25 @@ export async function fetchOperatorStats(): Promise<OperatorStats | null> {
     const res = await fetch(`${env.apiUrl}/api/v1/operator/stats`)
     if (!res.ok) return null
     return (await res.json()) as OperatorStats
+  } catch {
+    return null
+  }
+}
+
+export type TimeseriesBucket = {
+  bucket: string
+  mints: number
+  burns: number
+  inflow_wei: string
+}
+
+export async function fetchOperatorTimeseries(period: "24h" | "7d" | "30d"): Promise<TimeseriesBucket[] | null> {
+  try {
+    const q = new URLSearchParams({ period })
+    const res = await fetch(`${env.apiUrl}/api/v1/operator/timeseries?${q.toString()}`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { buckets?: TimeseriesBucket[] }
+    return data.buckets ?? []
   } catch {
     return null
   }
