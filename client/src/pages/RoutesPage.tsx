@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import { formatEther, formatUnits } from "viem"
-import { useAccount, useReadContract } from "wagmi"
+import { useAccount, useReadContract, useReadContracts } from "wagmi"
 import { useQuery } from "@tanstack/react-query"
 import { createPublicClient, http } from "viem"
 import { chainPassTicketAbi, erc20Abi, monadTestnet } from "@chainpass/shared"
@@ -221,13 +221,43 @@ export function RoutesPage() {
   const contractAddress = getContractAddress()
   const { ngnForMon, rateLoading } = useExchangeRates()
 
-  // Global mint price from contract
-  const { data: priceWei } = useReadContract({
+  // Global mint price from contract (fallback when no route override)
+  const { data: globalPriceWei } = useReadContract({
     address: contractAddress ?? undefined,
     abi: chainPassTicketAbi,
     functionName: "mintPriceWei",
     query: { enabled: !!contractAddress },
   })
+
+  // Per-route effective Economy price via multicall (ticketPrice resolves override → global)
+  const routePriceCalls = useMemo(
+    () =>
+      rows.map((r) => ({
+        address: contractAddress as `0x${string}`,
+        abi: chainPassTicketAbi,
+        functionName: "ticketPrice" as const,
+        args: [BigInt(r.routeId), 0] as [bigint, number],
+      })),
+    [rows, contractAddress],
+  )
+  const { data: routePriceResults } = useReadContracts({
+    contracts: routePriceCalls,
+    query: { enabled: !!contractAddress && rows.length > 0 },
+  })
+
+  // Map routeId → resolved MON price in wei
+  const routePriceMap = useMemo(() => {
+    const m = new Map<string, bigint>()
+    if (!routePriceResults) return m
+    rows.forEach((r, i) => {
+      const res = routePriceResults[i]
+      if (res?.status === "success" && res.result) {
+        const [mon] = res.result as [bigint, bigint]
+        m.set(r.routeId, mon)
+      }
+    })
+    return m
+  }, [routePriceResults, rows])
 
   useEffect(() => {
     void fetchRouteLabels().then(setApiLabels)
@@ -485,10 +515,10 @@ export function RoutesPage() {
                           {r.detail && (
                             <p className="mt-0.5 text-xs text-on-surface-variant">{r.detail}</p>
                           )}
-                          {/* Fare badge */}
+                          {/* Fare badge — per-route price if set, else global */}
                           {!rateLoading && (
                             <FareBadge
-                              priceWei={typeof priceWei === "bigint" ? priceWei : undefined}
+                              priceWei={routePriceMap.get(r.routeId) ?? (typeof globalPriceWei === "bigint" ? globalPriceWei : undefined)}
                               ngnForMon={ngnForMon}
                             />
                           )}
