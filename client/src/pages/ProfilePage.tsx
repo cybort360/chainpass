@@ -14,6 +14,7 @@ import { formatWriteContractError } from "../lib/walletError"
 import { ExpiryWarningBanner } from "../components/ui/ExpiryWarningBanner"
 import { TierCard } from "../components/ui/TierCard"
 import { useLoyalty } from "../hooks/useLoyalty"
+import { useNotifications } from "../hooks/useNotifications"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
 
 const REFETCH_MS = 8000
@@ -57,6 +58,20 @@ export function ProfilePage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [tab, setTab] = useState<TabId>("active")
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+  const { permission: notifPermission, requestPermission, scheduleExpiryNotification } = useNotifications()
+
+  // Schedule expiry notifications whenever the active pass list changes
+  useEffect(() => {
+    if (!data?.active.length || notifPermission !== "granted") return
+    for (const pass of data.active) {
+      if (!pass.valid_until_epoch || !pass.token_id) continue
+      const routeName = routeMetaForRouteId(pass.route_id ?? "")?.name ??
+        (pass.route_id ? `Route #${pass.route_id.slice(0, 6)}` : "your pass")
+      scheduleExpiryNotification(pass.token_id, routeName, BigInt(pass.valid_until_epoch))
+    }
+  }, [data?.active, notifPermission, scheduleExpiryNotification])
 
   // ── Loyalty ───────────────────────────────────────────────────────────────
   const { data: loyaltyData, isLoading: loyaltyLoading, refetch: refetchLoyalty } = useLoyalty(address)
@@ -339,6 +354,28 @@ export function ProfilePage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Notification permission prompt */}
+      {notifPermission === "default" && data?.active && data.active.length > 0 && (
+        <div className="mb-5 flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            className="shrink-0 text-primary" aria-hidden>
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+          </svg>
+          <p className="flex-1 text-xs text-on-surface-variant">
+            Get notified before your tickets expire.
+          </p>
+          <button
+            type="button"
+            onClick={() => void requestPermission()}
+            className="shrink-0 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 font-headline text-xs font-bold text-primary transition-colors hover:bg-primary/20"
+          >
+            Enable
+          </button>
         </div>
       )}
 

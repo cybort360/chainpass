@@ -8,6 +8,7 @@ import { getContractAddress } from "../lib/contract"
 import { routeMetaForRouteId, shortenNumericId } from "../lib/passDisplay"
 import { requestQrPayload, type QrPayload } from "../lib/api"
 import { useOfflineQr } from "../hooks/useOfflineQr"
+import { useNotifications } from "../hooks/useNotifications"
 import { ExpiryWarningBanner } from "../components/ui/ExpiryWarningBanner"
 import { SoulboundBadge } from "../components/ui/SoulboundBadge"
 import { isExpiringSoon } from "../lib/passDisplay"
@@ -48,6 +49,39 @@ function formatEpoch(vu: bigint | undefined): string {
   return new Date(Number(vu) * 1000).toLocaleDateString(undefined, {
     month: "short", day: "numeric", year: "numeric",
   })
+}
+
+/**
+ * Returns a human countdown string ("3 days 14 hrs", "45 mins", "Expired")
+ * and an urgency level for colour coding.
+ */
+function formatCountdown(vu: bigint | undefined): {
+  text: string
+  urgency: "ok" | "warning" | "critical" | "expired"
+} {
+  if (vu === undefined) return { text: "—", urgency: "ok" }
+  const now = Math.floor(Date.now() / 1000)
+  const secs = Number(vu) - now
+  if (secs <= 0) return { text: "Expired", urgency: "expired" }
+
+  const days  = Math.floor(secs / 86400)
+  const hours = Math.floor((secs % 86400) / 3600)
+  const mins  = Math.floor((secs % 3600)  / 60)
+
+  let text: string
+  if (days >= 1) {
+    text = hours > 0 ? `${days}d ${hours}h left` : `${days}d left`
+  } else if (hours >= 1) {
+    text = mins > 0 ? `${hours}h ${mins}m left` : `${hours}h left`
+  } else {
+    text = `${mins}m left`
+  }
+
+  const urgency =
+    secs < 2 * 3600   ? "critical" :
+    secs < 24 * 3600  ? "warning"  : "ok"
+
+  return { text, urgency }
 }
 
 
@@ -129,6 +163,7 @@ export function PassPage() {
   const [, setTick] = useState(0)
 
   const { persist, recall } = useOfflineQr(tokenIdStr)
+  const { permission: notifPermission, requestPermission, scheduleExpiryNotification } = useNotifications()
 
   const refreshPayload = useCallback(async () => {
     if (!address || !tokenIdStr) return
@@ -174,6 +209,17 @@ export function PassPage() {
   }, [])
 
   const explorerBase = monadTestnet.blockExplorers?.default.url ?? "https://testnet.monadvision.com"
+
+  // Schedule expiry notification — must be before any conditional return (hooks rule)
+  const _vuForNotif = validUntil !== undefined && typeof validUntil === "bigint" ? validUntil : undefined
+  const _routeIdStrForNotif = routeId !== undefined ? String(routeId) : undefined
+  const _routeNameForNotif = _routeIdStrForNotif
+    ? (routeMetaForRouteId(_routeIdStrForNotif)?.name ?? `Route #${shortenNumericId(_routeIdStrForNotif)}`)
+    : undefined
+  useEffect(() => {
+    if (!_vuForNotif || !tokenIdStr || !_routeNameForNotif || burned || notifPermission !== "granted") return
+    scheduleExpiryNotification(tokenIdStr, _routeNameForNotif, _vuForNotif)
+  }, [_vuForNotif, tokenIdStr, _routeNameForNotif, burned, notifPermission, scheduleExpiryNotification])
 
   if (!contractAddress) {
     return (
@@ -385,9 +431,21 @@ export function PassPage() {
                   <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
                     Valid until
                   </p>
-                  <p className="mt-1 font-headline text-xs font-semibold text-white">
-                    {formatEpoch(vu)}
+                  <p className="mt-1 font-headline text-xs font-semibold text-white" title={formatEpoch(vu)}>
+                    {(() => {
+                      const { text, urgency } = formatCountdown(vu)
+                      return (
+                        <span className={
+                          urgency === "expired"  ? "text-error" :
+                          urgency === "critical" ? "text-error" :
+                          urgency === "warning"  ? "text-amber-400" : "text-white"
+                        }>
+                          {text}
+                        </span>
+                      )
+                    })()}
                   </p>
+                  <p className="mt-0.5 font-mono text-[9px] text-on-surface-variant/50">{formatEpoch(vu)}</p>
                 </div>
               </div>
 
@@ -435,6 +493,24 @@ export function PassPage() {
                   </div>
 
                   {qrError && <p className="text-center text-xs text-error">{qrError}</p>}
+
+                  {/* Notification opt-in (only shown once, only while active) */}
+                  {notifPermission === "default" && !expired && (
+                    <button
+                      type="button"
+                      onClick={() => void requestPermission()}
+                      className="flex w-full items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-left text-xs text-on-surface-variant transition-colors hover:bg-primary/10"
+                    >
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                        className="shrink-0 text-primary" aria-hidden>
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                      </svg>
+                      <span className="flex-1">Get notified before this ticket expires</span>
+                      <span className="font-semibold text-primary">Enable →</span>
+                    </button>
+                  )}
 
                   <div className="text-center space-y-1">
                     <p className="text-[10px] text-on-surface-variant">
