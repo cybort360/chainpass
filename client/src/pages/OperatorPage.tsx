@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { formatEther } from "viem"
-import { usePublicClient } from "wagmi"
-import { monadTestnet } from "@chainpass/shared"
+import { useReadContract } from "wagmi"
+import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
 import { fetchOperatorStats, fetchOperatorTimeseries, type OperatorStats, type TimeseriesBucket } from "../lib/api"
-import { fetchTicketLifecycleTotals } from "../lib/chainTicketCounters"
 import { env } from "../lib/env"
 
 type Period = "24h" | "7d" | "30d"
@@ -236,9 +235,8 @@ function StatCardSkeleton() {
 const REFETCH_MS = 8000
 
 export function OperatorPage() {
-  const publicClient = usePublicClient()
+  const contract = env.contractAddress
   const [stats, setStats] = useState<OperatorStats | null>(null)
-  const [chainTotals, setChainTotals] = useState<{ mint: bigint; burn: bigint } | null>(null)
   const [timeseries, setTimeseries] = useState<TimeseriesBucket[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -247,25 +245,33 @@ export function OperatorPage() {
   const [period, setPeriod] = useState<Period>("7d")
   const [chartTab, setChartTab] = useState<ChartTab>("activity")
 
+  // Chain counters via wagmi — auto-refresh every 6s
+  const { data: totalMintedRaw } = useReadContract({
+    address: contract ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "totalMinted",
+    query: { enabled: !!contract, refetchInterval: 6_000 },
+  })
+  const { data: totalBurnedRaw } = useReadContract({
+    address: contract ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "totalBurned",
+    query: { enabled: !!contract, refetchInterval: 6_000 },
+  })
+  const totalMinted = typeof totalMintedRaw === "bigint" ? totalMintedRaw : null
+  const totalBurned = typeof totalBurnedRaw === "bigint" ? totalBurnedRaw : null
+
   const load = useCallback(async (mode: "initial" | "poll" | "manual", p?: Period) => {
     const activePeriod = p ?? period
     if (mode === "manual") setRefreshing(true)
     if (mode === "initial") setLoading(true)
 
-    const contract = env.contractAddress
-    const chainPromise =
-      contract && publicClient
-        ? fetchTicketLifecycleTotals(publicClient, contract)
-        : Promise.resolve(null)
-
-    const [s, ts, ct] = await Promise.all([
+    const [s, ts] = await Promise.all([
       fetchOperatorStats(),
       fetchOperatorTimeseries(activePeriod),
-      chainPromise,
     ])
 
-    setChainTotals(ct ? { mint: ct.totalMinted, burn: ct.totalBurned } : null)
-    if (!s && !ct) {
+    if (!s && !contract) {
       setErr("Set VITE_CHAINPASS_CONTRACT_ADDRESS for on-chain totals, or run the API with DATABASE_URL + indexer.")
     } else {
       setErr(null)
@@ -276,7 +282,7 @@ export function OperatorPage() {
     setLastUpdated(new Date())
     setLoading(false)
     setRefreshing(false)
-  }, [publicClient, period])
+  }, [period, contract])
 
   useEffect(() => {
     const id = window.setTimeout(() => { void load("initial") }, 0)
@@ -293,9 +299,9 @@ export function OperatorPage() {
     void load("manual", p)
   }
 
-  const outstanding = chainTotals !== null ? chainTotals.mint - chainTotals.burn : null
-  const totalMintLabel = chainTotals ? fmtBigint(chainTotals.mint) : stats ? stats.totals.mint.toLocaleString() : "—"
-  const totalBurnLabel = chainTotals ? fmtBigint(chainTotals.burn) : stats ? stats.totals.burn.toLocaleString() : "—"
+  const outstanding = totalMinted !== null && totalBurned !== null ? totalMinted - totalBurned : null
+  const totalMintLabel = totalMinted !== null ? fmtBigint(totalMinted) : stats ? stats.totals.mint.toLocaleString() : "—"
+  const totalBurnLabel = totalBurned !== null ? fmtBigint(totalBurned) : stats ? stats.totals.burn.toLocaleString() : "—"
   const activeLabel = outstanding !== null ? fmtBigint(outstanding) : "—"
   const inflowLabel = fmtMon(stats?.totalInflowWei)
 
