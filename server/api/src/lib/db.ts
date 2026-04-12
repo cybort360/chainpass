@@ -3,6 +3,7 @@ import {
   ROUTE_LABELS_INIT_SQL,
   ROUTE_LABELS_MIGRATE_CATEGORY_SQL,
   ROUTE_LABELS_MIGRATE_ROUTE_ID_TO_TEXT_SQL,
+  ROUTE_LABELS_MIGRATE_LENGTH_CONSTRAINTS_SQL,
 } from "../schema.js";
 
 let pool: pg.Pool | null = null;
@@ -35,5 +36,6 @@ export async function ensureRouteLabelsTable(): Promise<void> {
   await pool.query(ROUTE_LABELS_INIT_SQL);
   await pool.query(ROUTE_LABELS_MIGRATE_CATEGORY_SQL);
   await pool.query(ROUTE_LABELS_MIGRATE_ROUTE_ID_TO_TEXT_SQL);
+  await pool.query(ROUTE_LABELS_MIGRATE_LENGTH_CONSTRAINTS_SQL);
 }
 

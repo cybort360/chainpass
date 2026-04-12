@@ -5,9 +5,9 @@
 export const ROUTE_LABELS_INIT_SQL = `
 CREATE TABLE IF NOT EXISTS route_labels (
   route_id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  detail TEXT,
-  category TEXT NOT NULL DEFAULT 'General',
+  name TEXT NOT NULL CHECK (char_length(name) <= 100),
+  detail TEXT CHECK (detail IS NULL OR char_length(detail) <= 200),
+  category TEXT NOT NULL DEFAULT 'General' CHECK (char_length(category) <= 60),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 `;
@@ -15,6 +15,14 @@ CREATE TABLE IF NOT EXISTS route_labels (
 /** For DBs created before `category` existed — safe to run every seed / startup. */
 export const ROUTE_LABELS_MIGRATE_CATEGORY_SQL = `
 ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'General';
+`;
+
+/** Add CHECK length constraints to existing route_labels rows (Postgres 9.6+, idempotent). */
+export const ROUTE_LABELS_MIGRATE_LENGTH_CONSTRAINTS_SQL = `
+ALTER TABLE route_labels
+  ADD CONSTRAINT IF NOT EXISTS route_labels_name_len     CHECK (char_length(name) <= 100),
+  ADD CONSTRAINT IF NOT EXISTS route_labels_detail_len   CHECK (detail IS NULL OR char_length(detail) <= 200),
+  ADD CONSTRAINT IF NOT EXISTS route_labels_category_len CHECK (char_length(category) <= 60);
 `;
 
 /** Older DBs used BIGINT for route_id; migrate once to TEXT for full uint256. */

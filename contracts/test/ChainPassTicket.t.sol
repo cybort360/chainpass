@@ -34,6 +34,8 @@ contract ChainPassTicketTest is Test {
         ticket = new ChainPassTicket(admin, BASE_URI, treasury, 0);
         ticket.grantRole(ticket.MINTER_ROLE(), minter);
         ticket.grantRole(ticket.BURNER_ROLE(), burner);
+        // Whitelist the test operator address used in all mint calls.
+        ticket.setOperatorApproved(OPERATOR, true);
         vm.stopPrank();
     }
 

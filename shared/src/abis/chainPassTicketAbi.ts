@@ -27,6 +27,43 @@ export const chainPassTicketAbi = [
   },
   {
     "type": "function",
+    "name": "approvedOperators",
+    "inputs": [
+      { "name": "", "type": "address", "internalType": "address" }
+    ],
+    "outputs": [
+      { "name": "", "type": "bool", "internalType": "bool" }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setOperatorApproved",
+    "inputs": [
+      { "name": "operator", "type": "address", "internalType": "address" },
+      { "name": "approved", "type": "bool", "internalType": "bool" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "OperatorApproved",
+    "inputs": [
+      { "name": "operator", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "approved", "type": "bool", "indexed": false, "internalType": "bool" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "OperatorNotApproved",
+    "inputs": [
+      { "name": "operator", "type": "address", "internalType": "address" }
+    ]
+  },
+  {
+    "type": "function",
     "name": "BURNER_ROLE",
     "inputs": [],
     "outputs": [

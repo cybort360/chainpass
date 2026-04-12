@@ -532,6 +532,47 @@ export function ConductorPage() {
     })
   }
 
+  // ── Operator whitelist ────────────────────────────────────────────────────
+  const [operatorInput, setOperatorInput] = useState("")
+  const [operatorFormErr, setOperatorFormErr] = useState<string | null>(null)
+
+  const operatorInputTrimmed = operatorInput.trim()
+  const operatorInputValid = isAddress(operatorInputTrimmed)
+
+  const { data: isOperatorApproved, refetch: refetchOperatorApproved } = useReadContract({
+    address: contractAddress ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "approvedOperators",
+    args: operatorInputValid ? [operatorInputTrimmed as `0x${string}`] : undefined,
+    query: { enabled: !!contractAddress && operatorInputValid },
+  })
+
+  const {
+    data: setOperatorHash, writeContract: writeSetOperator,
+    isPending: setOperatorPending, error: setOperatorError, reset: resetSetOperator,
+  } = useWriteContract()
+  const { isLoading: setOperatorConfirming, isSuccess: setOperatorSuccess } =
+    useWaitForTransactionReceipt({ hash: setOperatorHash })
+
+  useEffect(() => { if (setOperatorSuccess) void refetchOperatorApproved() },
+    [setOperatorSuccess, refetchOperatorApproved])
+
+  const onSetOperator = useCallback((approve: boolean) => {
+    if (!contractAddress) return
+    setOperatorFormErr(null)
+    resetSetOperator()
+    if (!operatorInputValid) {
+      setOperatorFormErr("Enter a valid 0x address.")
+      return
+    }
+    writeSetOperator({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "setOperatorApproved",
+      args: [operatorInputTrimmed as `0x${string}`, approve],
+    })
+  }, [contractAddress, operatorInputValid, operatorInputTrimmed, resetSetOperator, writeSetOperator])
+
   const ownerStr = chainOwner && typeof chainOwner === "string" ? chainOwner : undefined
   const holderMatches = ownerStr && parsed && ownerStr.toLowerCase() === parsed.holder.toLowerCase()
   const notExpired =
@@ -733,7 +774,7 @@ export function ConductorPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block">
                     <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Category</span>
-                    <input type="text" className={inputClass} value={regCategory}
+                    <input type="text" className={inputClass} value={regCategory} maxLength={60}
                       onChange={(e) => setRegCategory(e.target.value)} placeholder="e.g. Abuja & FCT" />
                   </label>
                   <label className="block">
@@ -744,12 +785,12 @@ export function ConductorPage() {
                 </div>
                 <label className="block">
                   <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Route name</span>
-                  <input type="text" className={inputClass} value={regName}
+                  <input type="text" className={inputClass} value={regName} maxLength={100}
                     onChange={(e) => setRegName(e.target.value)} placeholder="Route display name" />
                 </label>
                 <label className="block">
                   <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Detail (optional)</span>
-                  <input type="text" className={inputClass} value={regDetail}
+                  <input type="text" className={inputClass} value={regDetail} maxLength={200}
                     onChange={(e) => setRegDetail(e.target.value)} placeholder="Short description" />
                 </label>
                 <button type="button"
@@ -1107,6 +1148,109 @@ export function ConductorPage() {
                   </div>
                 )}
               </>
+            )}
+          </div>
+        </details>
+
+        {/* Operator whitelist (admin) */}
+        <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+          <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors">
+            Manage operator whitelist
+            <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+              Admin only
+            </span>
+          </summary>
+          <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4 space-y-4">
+            <p className="text-xs leading-relaxed text-on-surface-variant">
+              Only whitelisted operator addresses can be recorded on tickets.{" "}
+              <code className="font-mono text-tertiary">address(0)</code> is approved by default (zero-operator sentinel).
+            </p>
+
+            {isAdmin !== true ? (
+              <p className="text-sm text-on-surface-variant">
+                {checkingAdminAccess ? "Checking wallet role…" : "Connect the admin wallet to manage operators."}
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {/* Address input */}
+                <label className="block">
+                  <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                    Operator address
+                  </span>
+                  <input
+                    type="text"
+                    className={`${inputClass} mt-1.5 font-mono text-xs`}
+                    placeholder="0x…"
+                    value={operatorInput}
+                    onChange={(e) => { setOperatorInput(e.target.value); resetSetOperator(); setOperatorFormErr(null) }}
+                  />
+                </label>
+
+                {/* Live approval status */}
+                {operatorInputValid && (
+                  <div className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold ${
+                    isOperatorApproved === undefined
+                      ? "bg-surface-container-high text-on-surface-variant"
+                      : isOperatorApproved
+                        ? "border border-tertiary/30 bg-tertiary/8 text-tertiary"
+                        : "border border-error/30 bg-error/8 text-error"
+                  }`}>
+                    {isOperatorApproved === undefined ? (
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-outline-variant border-t-primary" />
+                    ) : isOperatorApproved ? (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    ) : (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    )}
+                    {isOperatorApproved === undefined ? "Checking…" : isOperatorApproved ? "Approved" : "Not approved"}
+                  </div>
+                )}
+
+                {/* Approve / Revoke buttons */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={!operatorInputValid || setOperatorPending || setOperatorConfirming}
+                    onClick={() => onSetOperator(true)}
+                    className="flex-1 rounded-xl border border-tertiary/40 bg-tertiary/15 px-4 py-2.5 font-headline text-sm font-semibold text-tertiary transition-colors hover:bg-tertiary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {setOperatorPending ? (
+                      <span className="flex items-center justify-center gap-1.5">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-tertiary/30 border-t-tertiary" />
+                        Confirm…
+                      </span>
+                    ) : setOperatorConfirming ? (
+                      <span className="flex items-center justify-center gap-1.5">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-tertiary/30 border-t-tertiary" />
+                        Saving…
+                      </span>
+                    ) : setOperatorSuccess ? "✓ Saved" : "Approve"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!operatorInputValid || setOperatorPending || setOperatorConfirming}
+                    onClick={() => onSetOperator(false)}
+                    className="flex-1 rounded-xl border border-error/30 bg-error/8 px-4 py-2.5 font-headline text-sm font-semibold text-error transition-colors hover:bg-error/15 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Revoke
+                  </button>
+                </div>
+
+                {setOperatorError && (
+                  <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                    <p className="text-xs text-error break-words">{formatWriteContractError(setOperatorError)}</p>
+                  </div>
+                )}
+                {operatorFormErr && (
+                  <p className="text-xs text-error">{operatorFormErr}</p>
+                )}
+              </div>
             )}
           </div>
         </details>

@@ -94,8 +94,20 @@ export function createRoutesRouter(): Router {
       res.status(400).json({ error: "missing name" });
       return;
     }
+    if (name.length > 100) {
+      res.status(400).json({ error: "name must be 100 characters or fewer" });
+      return;
+    }
     if (!category) {
       res.status(400).json({ error: "missing category" });
+      return;
+    }
+    if (category.length > 60) {
+      res.status(400).json({ error: "category must be 60 characters or fewer" });
+      return;
+    }
+    if (detail !== null && detail.length > 200) {
+      res.status(400).json({ error: "detail must be 200 characters or fewer" });
       return;
     }
 

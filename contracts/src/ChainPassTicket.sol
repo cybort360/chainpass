@@ -64,9 +64,14 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     mapping(uint256 tokenId => uint64) public validUntil;
     mapping(uint256 tokenId => address) public operatorOf;
 
+    /// @notice Addresses permitted to be recorded as `operatorAddr` on minted tickets.
+    ///         address(0) is approved by default so existing zero-address sentinel usage works.
+    mapping(address => bool) public approvedOperators;
+
     // ─── Errors ───────────────────────────────────────────────────────────────
 
     error SoulboundTransfer();
+    error OperatorNotApproved(address operator);
     error TicketExpired(uint256 tokenId, uint64 validUntilEpoch, uint256 nowTimestamp);
     error RouteMismatch(uint256 tokenId, uint256 expectedRouteId, uint256 actualRouteId);
     error HolderMismatch(uint256 tokenId, address expectedHolder, address actualOwner);
@@ -84,6 +89,7 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         address indexed to, uint256 indexed tokenId, uint256 routeId, uint64 validUntilEpoch, address operatorAddr
     );
     event TicketBurned(address indexed from, uint256 indexed tokenId, uint256 routeId);
+    event OperatorApproved(address indexed operator, bool approved);
     event RoutePriceSet(uint256 indexed routeId, uint256 weiAmount);
     event MintPriceSet(uint256 weiAmount);
     event BaseURISet(string baseURI);
@@ -103,6 +109,20 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         _baseTokenURI = baseURI_;
         treasury = treasury_;
         mintPriceWei = mintPriceWei_;
+        // Allow address(0) as a zero-operator sentinel by default.
+        approvedOperators[address(0)] = true;
+    }
+
+    // ─── Admin: operator whitelist ────────────────────────────────────────────
+
+    /// @notice Approve or revoke an operator address. Only approved addresses may be
+    ///         passed as `operatorAddr` when minting tickets.
+    function setOperatorApproved(address operator, bool approved)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        approvedOperators[operator] = approved;
+        emit OperatorApproved(operator, approved);
     }
 
     // ─── Admin: MON pricing ───────────────────────────────────────────────────
@@ -285,6 +305,7 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         internal
         returns (uint256 tokenId)
     {
+        if (!approvedOperators[operatorAddr]) revert OperatorNotApproved(operatorAddr);
         tokenId = _allocateTokenId(to, routeId, validUntilEpoch, operatorAddr);
         routeOf[tokenId]    = routeId;
         validUntil[tokenId] = validUntilEpoch;

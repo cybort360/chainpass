@@ -30,9 +30,9 @@ CREATE INDEX IF NOT EXISTS ticket_events_burn_token_idx ON ticket_events (token_
 -- Keep in sync with server/api/src/schema.ts (ROUTE_LABELS_INIT_SQL).
 CREATE TABLE IF NOT EXISTS route_labels (
   route_id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  detail TEXT,
-  category TEXT NOT NULL DEFAULT 'General',
+  name TEXT NOT NULL CHECK (char_length(name) <= 100),
+  detail TEXT CHECK (detail IS NULL OR char_length(detail) <= 200),
+  category TEXT NOT NULL DEFAULT 'General' CHECK (char_length(category) <= 60),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -40,6 +40,20 @@ ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT
 
 ALTER TABLE ticket_events ADD COLUMN IF NOT EXISTS payment_wei TEXT;
 CREATE INDEX IF NOT EXISTS ticket_events_created_at_idx ON ticket_events (created_at DESC);
+
+-- General indexes for high-frequency query patterns
+CREATE INDEX IF NOT EXISTS ticket_events_event_type_idx ON ticket_events (event_type);
+CREATE INDEX IF NOT EXISTS ticket_events_token_id_idx ON ticket_events (token_id);
+CREATE INDEX IF NOT EXISTS ticket_events_operator_lower_idx ON ticket_events (LOWER(operator_addr))
+  WHERE operator_addr IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ticket_events_route_id_idx ON ticket_events (route_id)
+  WHERE route_id IS NOT NULL;
+
+-- Length constraints on route_labels (idempotent; ADD CONSTRAINT IF NOT EXISTS is Postgres 9.6+)
+ALTER TABLE route_labels
+  ADD CONSTRAINT IF NOT EXISTS route_labels_name_len     CHECK (char_length(name) <= 100),
+  ADD CONSTRAINT IF NOT EXISTS route_labels_detail_len   CHECK (detail IS NULL OR char_length(detail) <= 200),
+  ADD CONSTRAINT IF NOT EXISTS route_labels_category_len CHECK (char_length(category) <= 60);
 
 DO $$
 BEGIN
