@@ -1,11 +1,11 @@
 import { Component, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router-dom"
-import { isAddress, parseEther } from "viem"
+import { formatUnits, isAddress, parseEther, parseUnits } from "viem"
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode"
-import { chainPassTicketAbi, newRouteIdDecimalFromUuid } from "@chainpass/shared"
-import { Button } from "../components/ui/Button"
+import { chainPassTicketAbi, monadTestnet, newRouteIdDecimalFromUuid } from "@chainpass/shared"
 import { getContractAddress } from "../lib/contract"
+import { env } from "../lib/env"
 import { registerRouteLabel, verifyQrPayload, type QrPayload } from "../lib/api"
 import { formatWriteContractError } from "../lib/walletError"
 
@@ -80,12 +80,12 @@ class ConductorErrorBoundary extends Component<{ children: ReactNode }, Conducto
   render() {
     if (this.state.err) {
       return (
-        <div className="mx-auto max-w-2xl rounded-2xl border border-error/40 bg-error/10 p-6 text-sm text-error">
+        <div className="mx-auto max-w-2xl rounded-2xl border border-error/30 bg-error/8 p-6">
           <p className="font-headline font-semibold text-white">Something went wrong after the scan</p>
-          <p className="mt-2 break-words font-mono text-xs">{this.state.err.message}</p>
+          <p className="mt-2 break-words font-mono text-xs text-error">{this.state.err.message}</p>
           <button
             type="button"
-            className="mt-4 rounded-lg border border-outline-variant px-4 py-2 text-on-surface"
+            className="mt-4 rounded-xl border border-outline-variant/30 bg-surface-container px-4 py-2 font-headline text-sm font-semibold text-on-surface hover:bg-surface-container-high transition-colors"
             onClick={() => this.setState({ err: null })}
           >
             Try again
@@ -368,6 +368,170 @@ export function ConductorPage() {
   const [regFormErr, setRegFormErr] = useState<string | null>(null)
   const [regLabelMsg, setRegLabelMsg] = useState<string | null>(null)
 
+  // ── MON price config ───────────────────────────────────────────────────────
+  const { data: currentMonPrice, refetch: refetchMonPrice } = useReadContract({
+    address: contractAddress ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "mintPriceWei",
+    query: { enabled: !!contractAddress },
+  })
+
+  const [monDefaultInput, setMonDefaultInput] = useState("")
+  const [monRouteIdInput, setMonRouteIdInput] = useState("")
+  const [monRoutePriceInput, setMonRoutePriceInput] = useState("")
+  const [monFormErr, setMonFormErr] = useState<string | null>(null)
+
+  const {
+    data: setMonDefaultHash, writeContract: writeSetMonDefault,
+    isPending: setMonDefaultPending, error: setMonDefaultError, reset: resetMonDefault,
+  } = useWriteContract()
+  const { isLoading: setMonDefaultConfirming, isSuccess: setMonDefaultSuccess } =
+    useWaitForTransactionReceipt({ hash: setMonDefaultHash })
+
+  const {
+    data: setMonRouteHash, writeContract: writeSetMonRoute,
+    isPending: setMonRoutePending, error: setMonRouteError, reset: resetMonRoute,
+  } = useWriteContract()
+  const { isLoading: setMonRouteConfirming, isSuccess: setMonRouteSuccess } =
+    useWaitForTransactionReceipt({ hash: setMonRouteHash })
+
+  useEffect(() => { if (setMonDefaultSuccess || setMonRouteSuccess) void refetchMonPrice() },
+    [setMonDefaultSuccess, setMonRouteSuccess, refetchMonPrice])
+
+  const onSetMonDefault = () => {
+    if (!contractAddress) return
+    setMonFormErr(null)
+    resetMonDefault()
+    const raw = monDefaultInput.trim()
+    if (!raw || isNaN(Number(raw)) || Number(raw) < 0) {
+      setMonFormErr("Enter a valid MON amount (e.g. 0.05).")
+      return
+    }
+    let amount: bigint
+    try { amount = parseEther(raw) } catch {
+      setMonFormErr("Invalid MON amount.")
+      return
+    }
+    writeSetMonDefault({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "setMintPriceWei",
+      args: [amount],
+    })
+  }
+
+  const onSetMonRoute = () => {
+    if (!contractAddress) return
+    setMonFormErr(null)
+    resetMonRoute()
+    const idRaw = monRouteIdInput.trim()
+    const priceRaw = monRoutePriceInput.trim()
+    if (!idRaw || !/^\d+$/.test(idRaw)) {
+      setMonFormErr("Enter a valid numeric route ID.")
+      return
+    }
+    if (!priceRaw || isNaN(Number(priceRaw)) || Number(priceRaw) < 0) {
+      setMonFormErr("Enter a valid MON price (e.g. 0.075).")
+      return
+    }
+    let routeId: bigint
+    let amount: bigint
+    try { routeId = BigInt(idRaw) } catch {
+      setMonFormErr("Route ID must be a number.")
+      return
+    }
+    try { amount = parseEther(priceRaw) } catch {
+      setMonFormErr("Invalid MON amount.")
+      return
+    }
+    writeSetMonRoute({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "setRouteMintPrice",
+      args: [routeId, amount],
+    })
+  }
+
+  // ── USDC config ────────────────────────────────────────────────────────────
+  // If this errors, the deployed contract doesn't have USDC functions yet (needs redeploy).
+  const { data: currentUsdcToken, error: usdcTokenReadErr } = useReadContract({
+    address: contractAddress ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "usdcToken",
+    query: { enabled: !!contractAddress, retry: 1 },
+  })
+  const { data: currentUsdcPrice } = useReadContract({
+    address: contractAddress ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "mintPriceUsdc",
+    query: { enabled: !!contractAddress, retry: 1 },
+  })
+  // true = USDC functions confirmed on-chain; false = old contract; null = still loading
+  const contractHasUsdc: boolean | null =
+    usdcTokenReadErr != null ? false :
+    currentUsdcToken !== undefined ? true : null
+
+  const [usdcTokenInput, setUsdcTokenInput] = useState("")
+  const [usdcPriceInput, setUsdcPriceInput] = useState("")
+  const [usdcFormErr, setUsdcFormErr] = useState<string | null>(null)
+
+  // Seed inputs from env on first render
+  useEffect(() => {
+    if (env.usdcAddress && !usdcTokenInput) setUsdcTokenInput(env.usdcAddress)
+  }, [usdcTokenInput])
+
+  const {
+    data: setTokenHash, writeContract: writeSetUsdcToken,
+    isPending: setTokenPending, error: setTokenError, reset: resetSetToken,
+  } = useWriteContract()
+  const { isLoading: setTokenConfirming, isSuccess: setTokenSuccess } =
+    useWaitForTransactionReceipt({ hash: setTokenHash })
+
+  const {
+    data: setPriceHash, writeContract: writeSetUsdcPrice,
+    isPending: setPricePending, error: setPriceError, reset: resetSetPrice,
+  } = useWriteContract()
+  const { isLoading: setPriceConfirming, isSuccess: setPriceSuccess } =
+    useWaitForTransactionReceipt({ hash: setPriceHash })
+
+  const onSetUsdcToken = () => {
+    if (!contractAddress) return
+    setUsdcFormErr(null)
+    resetSetToken()
+    if (!isAddress(usdcTokenInput.trim())) {
+      setUsdcFormErr("Enter a valid 0x address for the USDC token.")
+      return
+    }
+    writeSetUsdcToken({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "setUsdcToken",
+      args: [usdcTokenInput.trim() as `0x${string}`],
+    })
+  }
+
+  const onSetUsdcPrice = () => {
+    if (!contractAddress) return
+    setUsdcFormErr(null)
+    resetSetPrice()
+    const raw = usdcPriceInput.trim()
+    if (!raw || isNaN(Number(raw)) || Number(raw) < 0) {
+      setUsdcFormErr("Enter a valid USDC amount (e.g. 0.10).")
+      return
+    }
+    let amount: bigint
+    try { amount = parseUnits(raw, 6) } catch {
+      setUsdcFormErr("Invalid USDC amount.")
+      return
+    }
+    writeSetUsdcPrice({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "setMintPriceUsdc",
+      args: [amount],
+    })
+  }
+
   const ownerStr = chainOwner && typeof chainOwner === "string" ? chainOwner : undefined
   const holderMatches = ownerStr && parsed && ownerStr.toLowerCase() === parsed.holder.toLowerCase()
   const notExpired =
@@ -475,283 +639,782 @@ export function ConductorPage() {
 
   if (!contractAddress) {
     return (
-      <div className="mx-auto max-w-lg rounded-2xl bg-surface-container p-8 text-on-surface-variant">
+      <div className="mx-auto max-w-md rounded-2xl border border-outline-variant/20 bg-surface-container p-8 text-center text-sm text-on-surface-variant">
         Set <code className="font-mono text-primary">VITE_CHAINPASS_CONTRACT_ADDRESS</code> in env.
       </div>
     )
   }
 
-  const shellHeader = (
-    <>
-      <p className="font-headline text-xs font-bold uppercase tracking-[0.2em] text-primary">Conductor</p>
-      <h1 className="mt-2 font-headline text-3xl font-bold text-white">Gate</h1>
-    </>
+  const pageHeader = (
+    <div className="mb-6">
+      <p className="font-headline text-[10px] font-bold uppercase tracking-[0.25em] text-primary">Conductor</p>
+      <h1 className="mt-1.5 font-headline text-3xl font-bold text-white">Gate</h1>
+    </div>
   )
 
   if (!isConnected || !address) {
     return (
-      <div className="mx-auto max-w-2xl">
-        {shellHeader}
-        <p className="mt-4 text-on-surface-variant">
-          Connect the wallet that has <span className="font-mono text-tertiary">BURNER_ROLE</span> on the ticket
-          contract, then return here to scan and burn tickets.
-        </p>
-        <p className="mt-8 text-sm text-tertiary">Use the connect button in the header.</p>
-        <p className="mt-10 text-center text-xs text-on-surface-variant">
-          <Link to="/routes" className="text-primary hover:underline">
-            ← Routes
-          </Link>
-        </p>
+      <div className="mx-auto max-w-lg">
+        {pageHeader}
+        <div className="rounded-2xl border border-outline-variant/20 bg-surface-container p-8 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-primary" aria-hidden>
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+              <path d="M14 14h2v2h-2zM18 14h3M14 18h3M20 18v3M17 21h3" />
+            </svg>
+          </div>
+          <p className="font-headline font-semibold text-white">Connect your wallet</p>
+          <p className="mt-1.5 text-sm text-on-surface-variant">
+            Connect the wallet with{" "}
+            <code className="font-mono text-xs text-tertiary">BURNER_ROLE</code> to scan and burn tickets.
+          </p>
+        </div>
       </div>
     )
   }
 
   if (checkingAccess) {
     return (
-      <div className="mx-auto max-w-2xl">
-        {shellHeader}
-        <p className="mt-8 text-sm text-on-surface-variant">Checking wallet roles…</p>
+      <div className="mx-auto max-w-lg">
+        {pageHeader}
+        <div className="flex items-center gap-3 text-sm text-on-surface-variant">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-outline-variant border-t-primary" />
+          Checking wallet roles…
+        </div>
       </div>
     )
   }
 
   const showGateScanner = isBurner === true
 
+  /* ── Input field style shared between form fields ── */
+  const inputClass =
+    "mt-1.5 w-full rounded-xl border border-outline-variant/25 bg-surface-container-high px-3.5 py-2.5 text-sm text-white placeholder:text-on-surface-variant/50 focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+
   return (
     <ConductorErrorBoundary>
-      <div className="mx-auto max-w-2xl">
-        {shellHeader}
-        {showGateScanner ? (
-          <p className="mt-2 text-on-surface-variant">
-            Scan a passenger QR or paste the JSON. Your wallet has{" "}
-            <span className="font-mono text-tertiary">BURNER_ROLE</span> — you can burn validated tickets.
-          </p>
-        ) : (
-          <p className="mt-2 text-on-surface-variant">
-            This wallet does not have <span className="font-mono text-tertiary">BURNER_ROLE</span>. Use{" "}
-            <strong className="text-on-surface">Register new route</strong> below if you are a contract admin; conductors need
-            a burner wallet to scan tickets.
-          </p>
-        )}
+      {/* scanFile() mount target */}
+      <div id={fileRegionId}
+        className="pointer-events-none fixed top-0 left-[-9999px] h-px w-px overflow-hidden opacity-0" aria-hidden />
 
-        <details className="mt-8 rounded-2xl border border-outline-variant/30 bg-surface-container-low/50 p-4 open:bg-surface-container-low">
-          <summary className="cursor-pointer font-headline text-sm font-semibold text-white">
-            Register new route (admin only)
+      <div className="mx-auto max-w-2xl">
+        {pageHeader}
+
+        {/* Role badge */}
+        <div className={`mb-6 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-headline text-xs font-semibold ${
+          showGateScanner
+            ? "border-tertiary/30 bg-tertiary/8 text-tertiary"
+            : "border-error/30 bg-error/8 text-error"
+        }`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${showGateScanner ? "bg-tertiary" : "bg-error"}`} aria-hidden />
+          {showGateScanner ? "BURNER_ROLE active — ready to scan" : "No BURNER_ROLE — read-only"}
+        </div>
+
+        {/* Register route (admin) */}
+        <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+          <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors">
+            Register new route
+            <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+              Admin only
+            </span>
           </summary>
-          <p className="mt-2 text-xs leading-relaxed text-on-surface-variant">
-            Sets an on-chain mint price for a <strong className="text-on-surface">new</strong> route (a uint256 route ID is
-            generated automatically from a random UUID). Registers the name in the app (insert-only). Requires{" "}
-            <code className="font-mono text-tertiary">DEFAULT_ADMIN_ROLE</code> on the ticket contract. Separate from
-            conductor <code className="font-mono">BURNER_ROLE</code>.
-          </p>
-          {isAdmin !== true ? (
-            <p className="mt-4 text-sm text-on-surface-variant">
-              Connect an admin wallet in the header to enable this form.
+          <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4">
+            <p className="mb-4 text-xs leading-relaxed text-on-surface-variant">
+              Generates a random route ID, sets its on-chain price, and registers the label.
+              Requires <code className="font-mono text-tertiary">DEFAULT_ADMIN_ROLE</code>.
             </p>
-          ) : (
-            <div className="mt-4 space-y-3">
-              <label className="block text-xs text-on-surface-variant">
-                Category
-                <input
-                  type="text"
-                  className="mt-1 w-full rounded-lg border border-outline-variant/30 bg-surface-container px-3 py-2 text-sm text-white"
-                  value={regCategory}
-                  onChange={(e) => setRegCategory(e.target.value)}
-                  placeholder="e.g. Abuja & FCT"
-                />
-              </label>
-              <label className="block text-xs text-on-surface-variant">
-                Name
-                <input
-                  type="text"
-                  className="mt-1 w-full rounded-lg border border-outline-variant/30 bg-surface-container px-3 py-2 text-sm text-white"
-                  value={regName}
-                  onChange={(e) => setRegName(e.target.value)}
-                  placeholder="Route display name"
-                />
-              </label>
-              <label className="block text-xs text-on-surface-variant">
-                Detail (optional)
-                <input
-                  type="text"
-                  className="mt-1 w-full rounded-lg border border-outline-variant/30 bg-surface-container px-3 py-2 text-sm text-white"
-                  value={regDetail}
-                  onChange={(e) => setRegDetail(e.target.value)}
-                />
-              </label>
-              <label className="block text-xs text-on-surface-variant">
-                Mint price (MON)
-                <input
-                  type="text"
-                  className="mt-1 w-full rounded-lg border border-outline-variant/30 bg-surface-container px-3 py-2 font-mono text-sm text-white"
-                  value={regPriceMon}
-                  onChange={(e) => setRegPriceMon(e.target.value)}
-                  placeholder="0.075"
-                />
-              </label>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                disabled={routePricePending || routePriceConfirming}
-                onClick={() => void onRegisterRoute()}
-              >
-                {routePricePending || routePriceConfirming ? "Confirm in wallet…" : "Set price & register new route"}
-              </Button>
-              {routePriceError ? (
-                <p className="text-sm text-error">{formatWriteContractError(routePriceError)}</p>
-              ) : null}
-              {regFormErr ? <p className="text-sm text-error">{regFormErr}</p> : null}
-              {regLabelMsg ? <p className="text-sm text-tertiary">{regLabelMsg}</p> : null}
-            </div>
-          )}
+            {isAdmin !== true ? (
+              <p className="text-sm text-on-surface-variant">Connect an admin wallet to enable this form.</p>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Category</span>
+                    <input type="text" className={inputClass} value={regCategory}
+                      onChange={(e) => setRegCategory(e.target.value)} placeholder="e.g. Abuja & FCT" />
+                  </label>
+                  <label className="block">
+                    <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Mint price (MON)</span>
+                    <input type="text" className={`${inputClass} font-mono`} value={regPriceMon}
+                      onChange={(e) => setRegPriceMon(e.target.value)} placeholder="0.075" />
+                  </label>
+                </div>
+                <label className="block">
+                  <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Route name</span>
+                  <input type="text" className={inputClass} value={regName}
+                    onChange={(e) => setRegName(e.target.value)} placeholder="Route display name" />
+                </label>
+                <label className="block">
+                  <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Detail (optional)</span>
+                  <input type="text" className={inputClass} value={regDetail}
+                    onChange={(e) => setRegDetail(e.target.value)} placeholder="Short description" />
+                </label>
+                <button type="button"
+                  disabled={routePricePending || routePriceConfirming}
+                  onClick={() => void onRegisterRoute()}
+                  className="btn-primary-gradient rounded-xl px-5 py-2.5 font-headline text-sm font-bold text-white transition-[filter] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed">
+                  {routePricePending || routePriceConfirming ? "Confirm in wallet…" : "Set price & register"}
+                </button>
+                {routePriceError && <p className="text-xs text-error">{formatWriteContractError(routePriceError)}</p>}
+                {regFormErr && <p className="text-xs text-error">{regFormErr}</p>}
+                {regLabelMsg && <p className="text-xs text-tertiary">{regLabelMsg}</p>}
+              </div>
+            )}
+          </div>
         </details>
 
-        {!showGateScanner ? (
-          <div className="mt-8 rounded-2xl border border-error/40 bg-error/10 p-6 text-sm text-error">
-            Gate scanning requires <code className="font-mono">BURNER_ROLE</code>. Ask an admin to grant it to this address,
-            or switch to the conductor wallet.
+        {/* Configure MON prices (admin) */}
+        <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+          <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors">
+            Configure MON prices
+            <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+              Admin only
+            </span>
+          </summary>
+          <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4 space-y-5">
+
+            {/* Current on-chain state */}
+            <div className="rounded-xl bg-surface-container-high px-4 py-3">
+              <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">Current default price</p>
+              <p className="mt-1 font-mono text-sm text-white">
+                {typeof currentMonPrice === "bigint"
+                  ? currentMonPrice === 0n
+                    ? <span className="text-on-surface-variant/50">0 MON (free)</span>
+                    : `${formatUnits(currentMonPrice, 18)} MON`
+                  : <span className="h-3 w-12 animate-pulse rounded bg-surface-container-high inline-block" />}
+              </p>
+            </div>
+
+            {isAdmin !== true ? (
+              <p className="text-sm text-on-surface-variant">Connect an admin wallet to configure prices.</p>
+            ) : (
+              <div className="space-y-5">
+
+                {/* Default price */}
+                <div className="space-y-2">
+                  <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                    Default price (all routes)
+                  </p>
+                  <p className="text-xs text-on-surface-variant/60">
+                    Used when a route has no per-route override. Enter in MON (e.g. <code className="font-mono">0.05</code>).
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="number" step="0.001" min="0"
+                      className={`${inputClass} flex-1 font-mono text-xs`}
+                      placeholder="0.05"
+                      value={monDefaultInput}
+                      onChange={(e) => { setMonDefaultInput(e.target.value); resetMonDefault() }}
+                    />
+                    <button
+                      type="button"
+                      disabled={setMonDefaultPending || setMonDefaultConfirming}
+                      onClick={onSetMonDefault}
+                      className="shrink-0 rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 font-headline text-sm font-semibold text-primary transition-colors hover:bg-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {setMonDefaultPending ? (
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                          Confirm…
+                        </span>
+                      ) : setMonDefaultConfirming ? (
+                        <span className="flex items-center gap-1.5">
+                          <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                          Saving…
+                        </span>
+                      ) : setMonDefaultSuccess ? "✓ Saved" : "Set"}
+                    </button>
+                  </div>
+                  {setMonDefaultError && (
+                    <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                      <p className="text-xs text-error break-words">{formatWriteContractError(setMonDefaultError)}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-outline-variant/10" />
+
+                {/* Per-route override */}
+                <div className="space-y-2">
+                  <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                    Per-route override
+                  </p>
+                  <p className="text-xs text-on-surface-variant/60">
+                    Overrides the default for a specific route. Use the numeric route ID shown in the URL.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="text"
+                      className={`${inputClass} font-mono text-xs`}
+                      placeholder="Route ID (number)"
+                      value={monRouteIdInput}
+                      onChange={(e) => { setMonRouteIdInput(e.target.value); resetMonRoute() }}
+                    />
+                    <input
+                      type="number" step="0.001" min="0"
+                      className={`${inputClass} font-mono text-xs`}
+                      placeholder="Price in MON"
+                      value={monRoutePriceInput}
+                      onChange={(e) => { setMonRoutePriceInput(e.target.value); resetMonRoute() }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={setMonRoutePending || setMonRouteConfirming}
+                    onClick={onSetMonRoute}
+                    className="rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 font-headline text-sm font-semibold text-primary transition-colors hover:bg-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {setMonRoutePending ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                        Confirm…
+                      </span>
+                    ) : setMonRouteConfirming ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                        Saving…
+                      </span>
+                    ) : setMonRouteSuccess ? "✓ Saved" : "Set route price"}
+                  </button>
+                  {setMonRouteError && (
+                    <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                      <p className="text-xs text-error break-words">{formatWriteContractError(setMonRouteError)}</p>
+                    </div>
+                  )}
+                </div>
+
+                {monFormErr && (
+                  <p className="rounded-xl bg-error/10 px-3 py-2 text-xs text-error">{monFormErr}</p>
+                )}
+
+              </div>
+            )}
           </div>
-        ) : null}
+        </details>
 
-      {/* Mount target for scanFile(); must exist in DOM before decode-from-image runs. */}
-      <div
-        id={fileRegionId}
-        className="pointer-events-none fixed top-0 left-[-9999px] h-px w-px overflow-hidden opacity-0"
-        aria-hidden
-      />
+        {/* Configure USDC payments (admin) */}
+        <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+          <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors">
+            Configure USDC payments
+            <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+              Admin only
+            </span>
+          </summary>
 
-      {showGateScanner ? (
-        <>
-      <div className="mt-8 space-y-4">
-        <textarea
-          className="min-h-[120px] w-full rounded-xl border border-outline-variant/30 bg-surface-container px-4 py-3 font-mono text-sm text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none"
-          placeholder='Paste QR JSON: {"tokenId":"1","holder":"0x...","exp":...,"signature":"..."}'
-          value={rawInput}
-          onChange={(e) => {
-            setRawInput(e.target.value)
-            setParsed(null)
-            setParseErr(null)
-          }}
-        />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button type="button" variant="primary" size="sm" onClick={() => applyDecoded(rawInput)}>
-            Decode
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setCameraErr(null)
-              setCameraOn((c) => !c)
-            }}
-          >
-            {cameraOn ? "Stop camera" : "Use camera"}
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="sr-only"
-            onChange={onQrImageChosen}
-          />
-          <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-            Upload QR photo
-          </Button>
-        </div>
-        <p className="text-xs text-on-surface-variant">
-          <strong className="text-on-surface">iPhone:</strong> live scan is unreliable in Safari; use{" "}
-          <strong className="text-on-surface">Upload QR photo</strong> (screenshot the passenger pass) if the camera does
-          not decode.
-        </p>
-        {cameraOn ? (
-          <>
-            <p className="text-xs text-on-surface-variant">
-              {isIosLike() ? (
-                <>
-                  Use the <strong className="text-on-surface">full camera view</strong> — keep the whole QR in frame and
-                  hold steady (maximum screen brightness on the passenger phone).
-                </>
-              ) : (
-                <>
-                  Fit the <strong className="text-on-surface">entire QR</strong> inside the shaded box. Hold steady; raise
-                  brightness on the passenger phone if needed.
-                </>
-              )}
+          <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4 space-y-4">
+
+            {/* ── Contract doesn't have USDC functions yet ── */}
+            {contractHasUsdc === false && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 px-4 py-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                    className="mt-0.5 shrink-0 text-amber-400" aria-hidden>
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                  </svg>
+                  <div>
+                    <p className="font-headline text-sm font-bold text-amber-300">Contract needs redeployment</p>
+                    <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+                      The deployed contract doesn't have USDC functions yet. You need to redeploy
+                      with the updated <code className="font-mono">ChainPassTicket.sol</code> first.
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-lg bg-black/30 px-3 py-2.5 font-mono text-xs text-amber-200/70 space-y-1">
+                  <p className="text-amber-200/40 select-none"># in the contracts/ folder:</p>
+                  <p>forge script script/DeployChainPass.s.sol \</p>
+                  <p className="pl-4">--rpc-url $RPC_URL --broadcast</p>
+                </div>
+                <p className="text-xs text-amber-200/60">
+                  Then update <code className="font-mono">VITE_CHAINPASS_CONTRACT_ADDRESS</code> in{" "}
+                  <code className="font-mono">client/.env</code> with the new address and restart.
+                </p>
+              </div>
+            )}
+
+            {/* ── Still checking if contract has USDC ── */}
+            {contractHasUsdc === null && (
+              <div className="flex items-center gap-2 text-xs text-on-surface-variant">
+                <span className="h-3 w-3 animate-spin rounded-full border-2 border-outline-variant border-t-primary" />
+                Checking contract…
+              </div>
+            )}
+
+            {/* ── Contract supports USDC ── */}
+            {contractHasUsdc === true && (
+              <>
+                {/* Current on-chain state */}
+                <div className="grid grid-cols-2 gap-3 rounded-xl bg-surface-container-high px-4 py-3">
+                  <div>
+                    <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">Token on-chain</p>
+                    <p className="mt-1 font-mono text-xs text-white truncate"
+                      title={typeof currentUsdcToken === "string" ? currentUsdcToken : "—"}>
+                      {typeof currentUsdcToken === "string" && currentUsdcToken !== "0x0000000000000000000000000000000000000000"
+                        ? `${currentUsdcToken.slice(0, 10)}…${currentUsdcToken.slice(-6)}`
+                        : <span className="text-on-surface-variant/50">not set</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">Default price</p>
+                    <p className="mt-1 font-mono text-xs text-white">
+                      {typeof currentUsdcPrice === "bigint" && currentUsdcPrice > 0n
+                        ? `$${formatUnits(currentUsdcPrice, 6)} USDC`
+                        : <span className="text-on-surface-variant/50">not set</span>}
+                    </p>
+                  </div>
+                </div>
+
+                {isAdmin !== true ? (
+                  <div className="flex items-center gap-2 rounded-xl bg-surface-container-high px-4 py-3">
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-outline-variant border-t-primary" aria-hidden />
+                    <p className="text-sm text-on-surface-variant">
+                      {checkingAdminAccess ? "Checking wallet role…" : "Connect the admin wallet to configure USDC."}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+
+                    {/* ── Step 1: token address ── */}
+                    <div className="space-y-2">
+                      <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                        Step 1 — Set USDC token address
+                      </p>
+                      <p className="text-xs text-on-surface-variant/60">
+                        Monad testnet USDC:{" "}
+                        <button type="button"
+                          className="font-mono text-primary/80 hover:text-primary underline underline-offset-2"
+                          onClick={() => setUsdcTokenInput("0x534b2f3A21130d7a60830c2Df862319e593943A3")}>
+                          0x534b2f…943A3
+                        </button>
+                        {" "}(click to fill)
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          className={`${inputClass} flex-1 font-mono text-xs`}
+                          placeholder="0x… USDC contract address"
+                          value={usdcTokenInput}
+                          onChange={(e) => { setUsdcTokenInput(e.target.value); resetSetToken() }}
+                        />
+                        <button
+                          type="button"
+                          disabled={setTokenPending || setTokenConfirming}
+                          onClick={onSetUsdcToken}
+                          className="shrink-0 rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 font-headline text-sm font-semibold text-primary transition-colors hover:bg-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {setTokenPending ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                              Confirm…
+                            </span>
+                          ) : setTokenConfirming ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                              Saving…
+                            </span>
+                          ) : setTokenSuccess ? "✓ Saved" : "Set"}
+                        </button>
+                      </div>
+                      {setTokenError && (
+                        <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                            className="mt-0.5 shrink-0 text-error" aria-hidden>
+                            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                          </svg>
+                          <p className="text-xs text-error break-words">{formatWriteContractError(setTokenError)}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="border-t border-outline-variant/10" />
+
+                    {/* ── Step 2: default price ── */}
+                    <div className="space-y-2">
+                      <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                        Step 2 — Set default USDC price
+                      </p>
+                      <p className="text-xs text-on-surface-variant/60">
+                        Enter the amount in plain USDC (e.g. <code className="font-mono">0.10</code> for $0.10).
+                        All routes without a per-route override will use this.
+                      </p>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono text-sm text-on-surface-variant/60">$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className={`${inputClass} pl-7`}
+                            placeholder="0.10"
+                            value={usdcPriceInput}
+                            onChange={(e) => { setUsdcPriceInput(e.target.value); resetSetPrice() }}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          disabled={setPricePending || setPriceConfirming}
+                          onClick={onSetUsdcPrice}
+                          className="shrink-0 rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 font-headline text-sm font-semibold text-primary transition-colors hover:bg-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {setPricePending ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                              Confirm…
+                            </span>
+                          ) : setPriceConfirming ? (
+                            <span className="flex items-center gap-1.5">
+                              <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                              Saving…
+                            </span>
+                          ) : setPriceSuccess ? "✓ Saved" : "Set"}
+                        </button>
+                      </div>
+                      {setPriceError && (
+                        <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                            className="mt-0.5 shrink-0 text-error" aria-hidden>
+                            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                          </svg>
+                          <p className="text-xs text-error break-words">{formatWriteContractError(setPriceError)}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {usdcFormErr && (
+                      <p className="rounded-xl bg-error/10 px-3 py-2 text-xs text-error">{usdcFormErr}</p>
+                    )}
+
+                    {(setTokenSuccess || setPriceSuccess) && (
+                      <div className="flex items-center gap-2 rounded-xl bg-tertiary/8 px-4 py-2.5">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                          className="shrink-0 text-tertiary" aria-hidden>
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                        <p className="text-xs font-semibold text-tertiary">
+                          Saved. Add <code className="font-mono">VITE_USDC_CONTRACT_ADDRESS</code> to{" "}
+                          <code className="font-mono">client/.env</code> and restart <code className="font-mono">pnpm dev</code>.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </details>
+
+        {/* No burner role warning */}
+        {!showGateScanner && (
+          <div className="mb-6 flex items-start gap-3 rounded-2xl border border-error/20 bg-error/8 p-4">
+            <span className="material-symbols-outlined mt-0.5 shrink-0 text-base text-error" aria-hidden>lock</span>
+            <p className="text-sm text-error">
+              Gate scanning requires <code className="font-mono text-xs">BURNER_ROLE</code>.
+              Ask an admin to grant it to this address, or switch wallets.
             </p>
-            <div
-              id={regionId}
-              className="min-h-[min(280px,85vw)] w-full overflow-hidden rounded-xl bg-black/40 [&_video]:max-h-[70vh]"
-            />
-          </>
-        ) : null}
-        {cameraErr ? (
-          <p className="text-sm text-error">
-            Camera: {cameraErr}. On iPhone, allow camera when prompted; if it still fails, check Settings → Safari → Camera
-            (or the site’s permission in Settings → Safari → Advanced → Website Data).
-          </p>
-        ) : null}
-        {parseErr ? <p className="text-sm text-error">{parseErr}</p> : null}
-      </div>
+          </div>
+        )}
 
-      {parsed && tokenIdBig === undefined ? (
-        <p className="mt-6 text-sm text-error">Invalid token id in QR (must be a non-negative integer). Paste JSON from the API pass screen.</p>
-      ) : null}
+        {/* ── Burn result screens ── */}
+        {showGateScanner && burnSuccess && (
+          <div className="flex flex-col items-center px-4 py-12 text-center">
+            {/* Illustration */}
+            <div className="relative mb-8 flex h-36 w-36 items-center justify-center">
+              {/* Outer glow ring */}
+              <div className="absolute inset-0 rounded-full bg-tertiary/10" />
+              <div className="absolute inset-3 rounded-full bg-tertiary/15" />
+              {/* Main circle */}
+              <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-tertiary/30 to-tertiary/10 shadow-[0_0_48px_rgba(var(--color-tertiary-rgb,100,200,100),0.25)]">
+                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  className="text-tertiary" aria-hidden>
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                  <polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+              </div>
+              {/* Scatter dots */}
+              <span className="absolute top-1 right-4 h-2.5 w-2.5 rounded-full bg-tertiary/40" aria-hidden />
+              <span className="absolute top-5 right-0 h-1.5 w-1.5 rounded-full bg-tertiary/25" aria-hidden />
+              <span className="absolute bottom-3 right-2 h-2 w-2 rounded-full bg-tertiary/30" aria-hidden />
+              <span className="absolute bottom-1 left-5 h-1.5 w-1.5 rounded-full bg-primary/35" aria-hidden />
+              <span className="absolute top-2 left-2 h-2 w-2 rounded-full bg-primary/25" aria-hidden />
+              <span className="absolute top-8 left-0 h-1 w-1 rounded-full bg-tertiary/40" aria-hidden />
+            </div>
 
-      {parsed && tokenIdBig !== undefined ? (
-        <div className="mt-10 space-y-4 rounded-2xl bg-surface-container p-6">
-          <h2 className="font-headline font-bold text-white">Checks</h2>
-          <ul className="space-y-2 text-sm text-on-surface-variant">
-            <li>
-              API signature:{" "}
-              {apiVerify === null ? "…" : apiVerify ? <span className="text-tertiary">valid</span> : <span className="text-error">invalid / API down</span>}
-            </li>
-            <li>
-              Holder matches <code className="font-mono text-xs">ownerOf</code>:{" "}
-              {chainOwner === undefined ? (
-                "…"
-              ) : holderMatches ? (
-                <span className="text-tertiary">yes</span>
-              ) : (
-                <span className="text-error">no</span>
-              )}
-            </li>
-            <li>
-              Not expired (validUntil):{" "}
-              {validUntil === undefined ? "…" : notExpired ? <span className="text-tertiary">ok</span> : <span className="text-error">expired</span>}
-            </li>
-            <li>
-              Route on-chain: <span className="font-mono text-white">{chainRoute !== undefined ? String(chainRoute) : "…"}</span>
-            </li>
-          </ul>
-          <Button
-            type="button"
-            variant="primary"
-            className="mt-4 w-full sm:w-auto"
-            disabled={
-              !holderMatches ||
-              !notExpired ||
-              burnPending ||
-              burnConfirming ||
-              chainRoute === undefined
-            }
-            onClick={() => void onBurn()}
-          >
-            {burnPending || burnConfirming ? "Confirm burn…" : "Burn ticket"}
-          </Button>
-          {burnError ? <p className="mt-2 text-sm text-error">{formatWriteContractError(burnError)}</p> : null}
-          {burnSuccess ? <p className="mt-2 text-sm text-tertiary">Burn confirmed on-chain.</p> : null}
-        </div>
-      ) : null}
-        </>
-      ) : null}
+            {/* Heading */}
+            <h2 className="font-headline text-3xl font-bold leading-tight text-white">
+              Ticket burned!
+            </h2>
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-on-surface-variant">
+              Confirmed on-chain. The pass is permanently invalidated and cannot be used again.
+            </p>
 
-        <p className="mt-10 text-center text-xs text-on-surface-variant">
-          <Link to="/operator" className="text-primary hover:underline">
-            Operations
+            {/* Tx hash pill */}
+            {burnHash && (
+              <a
+                href={`${monadTestnet.blockExplorers.default.url}/tx/${burnHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-5 inline-flex items-center gap-2 rounded-full border border-tertiary/20 bg-tertiary/8 px-4 py-2 font-mono text-[11px] text-tertiary transition-colors hover:border-tertiary/40"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+                {burnHash.slice(0, 12)}…{burnHash.slice(-8)} ↗
+              </a>
+            )}
+
+            {/* CTA */}
+            <button
+              type="button"
+              onClick={() => { setParsed(null); setRawInput(""); setParseErr(null); resetBurn() }}
+              className="mt-8 w-full max-w-xs rounded-full bg-white px-8 py-4 font-headline text-base font-bold text-zinc-900 shadow-lg transition-all hover:bg-white/90 active:scale-[0.97]"
+            >
+              Scan next ticket
+            </button>
+            <Link to="/operator"
+              className="mt-4 font-headline text-sm font-semibold text-on-surface-variant underline underline-offset-4 hover:text-white">
+              Go to operations
+            </Link>
+          </div>
+        )}
+
+        {showGateScanner && !burnSuccess && burnError && (
+          <div className="flex flex-col items-center px-4 py-12 text-center">
+            {/* Illustration */}
+            <div className="relative mb-8 flex h-36 w-36 items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-error/10" />
+              <div className="absolute inset-3 rounded-full bg-error/15" />
+              <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-error/30 to-error/10 shadow-[0_0_48px_rgba(255,80,100,0.2)]">
+                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  className="text-error" aria-hidden>
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="15" y1="9" x2="9" y2="15" />
+                  <line x1="9" y1="9" x2="15" y2="15" />
+                </svg>
+              </div>
+              {/* Scatter dots */}
+              <span className="absolute top-1 right-4 h-2.5 w-2.5 rounded-full bg-error/35" aria-hidden />
+              <span className="absolute top-5 right-0 h-1.5 w-1.5 rounded-full bg-error/20" aria-hidden />
+              <span className="absolute bottom-3 right-2 h-2 w-2 rounded-full bg-error/25" aria-hidden />
+              <span className="absolute bottom-1 left-5 h-1.5 w-1.5 rounded-full bg-on-surface-variant/20" aria-hidden />
+              <span className="absolute top-2 left-2 h-2 w-2 rounded-full bg-error/20" aria-hidden />
+              <span className="absolute top-8 left-0 h-1 w-1 rounded-full bg-error/35" aria-hidden />
+            </div>
+
+            {/* Heading */}
+            <h2 className="font-headline text-3xl font-bold leading-tight text-white">
+              Burn failed.
+            </h2>
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-on-surface-variant">
+              {formatWriteContractError(burnError)}
+            </p>
+
+            {/* CTA */}
+            <button
+              type="button"
+              onClick={() => resetBurn()}
+              className="mt-8 w-full max-w-xs rounded-full bg-white px-8 py-4 font-headline text-base font-bold text-zinc-900 shadow-lg transition-all hover:bg-white/90 active:scale-[0.97]"
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={() => { setParsed(null); setRawInput(""); setParseErr(null); resetBurn() }}
+              className="mt-4 font-headline text-sm font-semibold text-on-surface-variant underline underline-offset-4 hover:text-white"
+            >
+              Scan different ticket
+            </button>
+          </div>
+        )}
+
+        {/* ── Scanner section ── */}
+        {showGateScanner && !burnSuccess && !burnError && (
+          <div className="space-y-4">
+            {/* Action buttons */}
+            <div className="flex flex-wrap gap-2">
+              <button type="button"
+                onClick={() => { setCameraErr(null); setCameraOn((c) => !c) }}
+                className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 font-headline text-sm font-semibold transition-all ${
+                  cameraOn
+                    ? "border-primary/40 bg-primary/15 text-primary"
+                    : "border-outline-variant/30 bg-surface-container text-on-surface-variant hover:border-primary/30 hover:text-white"
+                }`}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+                {cameraOn ? "Stop camera" : "Scan QR"}
+              </button>
+              <button type="button" onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 rounded-xl border border-outline-variant/30 bg-surface-container px-4 py-2.5 font-headline text-sm font-semibold text-on-surface-variant transition-colors hover:border-primary/30 hover:text-white">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                  <path d="M14 14h2v2h-2zM18 14h3M14 18h3M20 18v3M17 21h3" />
+                </svg>
+                Upload QR
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" onChange={onQrImageChosen} />
+            </div>
+
+            {/* Camera view */}
+            {cameraOn && (
+              <div className="overflow-hidden rounded-2xl bg-black">
+                <p className="px-4 pt-3 text-xs text-on-surface-variant">
+                  Fit the entire QR inside the box. Hold steady.
+                </p>
+                <div className="relative">
+                  <div id={regionId}
+                    className="min-h-[min(300px,85vw)] w-full [&_video]:max-h-[70vh]" />
+                  {/* Corner-bracket viewfinder overlay — purely visual, doesn't affect scanning */}
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <div className="relative"
+                      style={{ width: "min(75vw, 260px)", height: "min(75vw, 260px)" }}>
+                      {/* Top-left */}
+                      <span className="absolute left-0 top-0 h-8 w-8 border-l-[3px] border-t-[3px] border-white rounded-tl-sm" />
+                      {/* Top-right */}
+                      <span className="absolute right-0 top-0 h-8 w-8 border-r-[3px] border-t-[3px] border-white rounded-tr-sm" />
+                      {/* Bottom-left */}
+                      <span className="absolute bottom-0 left-0 h-8 w-8 border-b-[3px] border-l-[3px] border-white rounded-bl-sm" />
+                      {/* Bottom-right */}
+                      <span className="absolute bottom-0 right-0 h-8 w-8 border-b-[3px] border-r-[3px] border-white rounded-br-sm" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {cameraErr && (
+              <p className="rounded-xl border border-error/20 bg-error/8 px-4 py-3 text-xs text-error">
+                Camera error: {cameraErr}
+              </p>
+            )}
+
+            {/* Paste JSON */}
+            <div>
+              <label>
+                <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                  Or paste QR JSON
+                </span>
+                <textarea
+                  className={`${inputClass} mt-1.5 min-h-[90px] font-mono resize-none`}
+                  placeholder={`{"tokenId":"1","holder":"0x...","exp":...,"signature":"..."}`}
+                  value={rawInput}
+                  onChange={(e) => { setRawInput(e.target.value); setParsed(null); setParseErr(null) }}
+                />
+              </label>
+              <button type="button"
+                onClick={() => applyDecoded(rawInput)}
+                className="mt-2 rounded-xl border border-outline-variant/30 bg-surface-container px-4 py-2 font-headline text-sm font-semibold text-on-surface-variant transition-colors hover:border-primary/40 hover:text-white">
+                Decode
+              </button>
+            </div>
+
+            {parseErr && <p className="text-xs text-error">{parseErr}</p>}
+            {parsed && tokenIdBig === undefined && (
+              <p className="text-xs text-error">Invalid token ID in QR. Paste JSON from the pass screen.</p>
+            )}
+
+            {/* Verification panel */}
+            {parsed && tokenIdBig !== undefined && (
+              <div className="overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+                <div className="border-b border-outline-variant/15 px-5 py-4">
+                  <h2 className="font-headline text-sm font-bold text-white">Verification</h2>
+                  <p className="mt-0.5 font-mono text-xs text-on-surface-variant truncate"
+                    title={parsed.holder}>
+                    Holder: {parsed.holder.slice(0, 10)}…{parsed.holder.slice(-6)}
+                  </p>
+                </div>
+
+                <ul className="divide-y divide-outline-variant/10">
+                  {[
+                    {
+                      label: "API signature",
+                      status: apiVerify === null ? "pending" : apiVerify ? "ok" : "fail",
+                      ok: apiVerify === true,
+                      text: apiVerify === null ? "Checking…" : apiVerify ? "Valid" : "Invalid / API down",
+                    },
+                    {
+                      label: "Holder = ownerOf",
+                      status: chainOwner === undefined ? "pending" : holderMatches ? "ok" : "fail",
+                      ok: holderMatches === true,
+                      text: chainOwner === undefined ? "…" : holderMatches ? "Matches" : "Mismatch",
+                    },
+                    {
+                      label: "Not expired",
+                      status: validUntil === undefined ? "pending" : notExpired ? "ok" : "fail",
+                      ok: notExpired === true,
+                      text: validUntil === undefined ? "…" : notExpired ? "Valid" : "Expired",
+                    },
+                    {
+                      label: "Route on-chain",
+                      status: chainRoute !== undefined ? "ok" : "pending",
+                      ok: chainRoute !== undefined,
+                      text: chainRoute !== undefined ? String(chainRoute) : "Loading…",
+                    },
+                  ].map((item) => (
+                    <li key={item.label} className="flex items-center justify-between px-5 py-3">
+                      <span className="text-sm text-on-surface-variant">{item.label}</span>
+                      <span className={`font-headline text-xs font-semibold ${
+                        item.status === "pending" ? "text-on-surface-variant" :
+                        item.status === "ok" ? "text-tertiary" : "text-error"
+                      }`}>
+                        {item.status === "ok" && (
+                          <span className="mr-1" aria-hidden>✓</span>
+                        )}
+                        {item.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="border-t border-outline-variant/15 p-5">
+                  {/* ── Burn button ── */}
+                  <button type="button"
+                    disabled={!holderMatches || !notExpired || burnPending || burnConfirming || chainRoute === undefined}
+                    onClick={() => void onBurn()}
+                    className="w-full rounded-2xl bg-error/80 px-6 py-4 font-headline text-base font-bold text-white transition-all hover:bg-error hover:shadow-[0_0_24px_rgba(255,110,132,0.3)] disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">
+                    {burnPending || burnConfirming ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                        {burnPending ? "Confirm in wallet…" : "Burning on-chain…"}
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
+                          <path d="M15 9l-6 6M9 9l6 6" />
+                        </svg>
+                        Burn ticket
+                      </span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-10 text-center">
+          <Link to="/operator" className="font-headline text-xs font-semibold text-primary hover:underline">
+            Operations →
           </Link>
-        </p>
+        </div>
       </div>
     </ConductorErrorBoundary>
   )

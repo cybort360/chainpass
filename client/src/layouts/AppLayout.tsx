@@ -2,14 +2,15 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { usePrivy, useWallets } from "@privy-io/react-auth"
 import { useQuery } from "@tanstack/react-query"
 import { Link, NavLink, Outlet } from "react-router-dom"
-import { createPublicClient, formatEther, http } from "viem"
+import { createPublicClient, formatEther, formatUnits, http } from "viem"
 import type { Address } from "viem"
-import { useAccount, useSwitchChain } from "wagmi"
-import { monadTestnet } from "@chainpass/shared"
+import { useAccount, useReadContract, useSwitchChain } from "wagmi"
+import { erc20Abi, monadTestnet } from "@chainpass/shared"
+import { env } from "../lib/env"
+import { formatNgn, MON_USD_PRICE, useExchangeRates } from "../lib/prices"
 import { pickEthereumAddressFromUser } from "../lib/privyWallet"
 import { switchToMonadTestnet } from "../lib/switchToMonadTestnet"
 
-/** Privy reports chain as CAIP-2 (e.g. `eip155:10143`). */
 function caip2ToChainId(caip: string | undefined): number | undefined {
   if (!caip) return undefined
   const m = /^eip155:(\d+)$/.exec(caip)
@@ -21,16 +22,6 @@ const monadPublicClient = createPublicClient({
   transport: http(),
 })
 
-const navLink =
-  "font-headline text-sm font-medium text-on-surface-variant transition-colors hover:text-white aria-[current=page]:text-primary"
-
-const navLinkDrawer =
-  "rounded-xl px-4 py-3.5 font-headline text-base font-medium text-on-surface-variant transition-colors hover:bg-surface-container-high/80 hover:text-white aria-[current=page]:bg-primary/15 aria-[current=page]:text-primary"
-
-/** Primary CTA — matches wallet chip / Connect (no drop shadow). */
-const walletPurpleBtn =
-  "btn-primary-gradient border border-white/20 font-headline text-sm font-medium text-white transition-[filter] hover:brightness-[1.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-low disabled:cursor-not-allowed disabled:opacity-55"
-
 function formatMonDisplay(value: bigint | undefined, isPending: boolean): string {
   if (isPending) return "…"
   if (value === undefined) return "—"
@@ -38,39 +29,72 @@ function formatMonDisplay(value: bigint | undefined, isPending: boolean): string
   if (!Number.isFinite(n)) return "—"
   if (n === 0) return "0"
   if (n > 0 && n < 1e-4) return "<0.0001"
-  return n.toLocaleString(undefined, { maximumFractionDigits: 4, minimumFractionDigits: 0 })
+  return n.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
 function ChevronIcon({ className, open }: { className?: string; open: boolean }) {
   return (
     <svg
-      className={`${className ?? ""} size-4 shrink-0 transition-transform duration-200 sm:size-[18px] ${open ? "rotate-180" : ""}`}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden
+      className={`${className ?? ""} size-4 shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden
     >
       <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
 
+/* ─────────── Bottom nav icons ─────────── */
+function RoutesIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="1" y="8" width="22" height="9" rx="2" />
+      <path d="M5 8V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />
+      <circle cx="7" cy="17" r="1.5" fill={active ? "currentColor" : "none"} />
+      <circle cx="17" cy="17" r="1.5" fill={active ? "currentColor" : "none"} />
+    </svg>
+  )
+}
+function PassesIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M2 9a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1a2 2 0 0 0 0 4v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-4V9z" />
+      <line x1="9" y1="7" x2="9" y2="17" strokeDasharray="2 2" />
+    </svg>
+  )
+}
+function GateIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <path d="M14 14h2v2h-2zM18 14h3M14 18h3M20 18v3M17 21h3" />
+    </svg>
+  )
+}
+function OpsIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </svg>
+  )
+}
+
+const walletPurpleBtn =
+  "btn-primary-gradient border border-white/20 font-headline text-sm font-medium text-white transition-[filter] hover:brightness-[1.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-low disabled:cursor-not-allowed disabled:opacity-55"
+
 function HeaderWalletControls() {
   const { ready, authenticated, login, logout, user, linkWallet } = usePrivy()
   const { wallets, ready: walletsReady } = useWallets()
-  const firstEthWallet = useMemo(
-    () => wallets.find((w) => w.type === "ethereum"),
-    [wallets],
-  )
+  const firstEthWallet = useMemo(() => wallets.find((w) => w.type === "ethereum"), [wallets])
   const addressFromUser = useMemo(() => pickEthereumAddressFromUser(user), [user])
   const connectedAddress = (firstEthWallet?.address ?? addressFromUser) as Address | undefined
-  const walletChainId = useMemo(
-    () => caip2ToChainId(firstEthWallet?.chainId),
-    [firstEthWallet?.chainId],
-  )
+  const walletChainId = useMemo(() => caip2ToChainId(firstEthWallet?.chainId), [firstEthWallet?.chainId])
   const { chainId: accountChainId } = useAccount()
-  /** Wagmi reflects the injected wallet once synced; Privy CAIP chain can lag or be missing. */
   const effectiveChainId = accountChainId ?? walletChainId
   const onMonad = effectiveChainId === monadTestnet.id
 
@@ -80,15 +104,8 @@ function HeaderWalletControls() {
   const onSwitchToMonad = useCallback(async () => {
     setSwitchPending(true)
     try {
-      await switchToMonadTestnet({
-        privyEthWallet: firstEthWallet,
-        wagmiSwitchChain: switchChainAsync,
-      })
-    } catch {
-      /* extension may reject; add/switch still surfaces in wallet UI */
-    } finally {
-      setSwitchPending(false)
-    }
+      await switchToMonadTestnet({ privyEthWallet: firstEthWallet, wagmiSwitchChain: switchChainAsync })
+    } catch { /* ignore */ } finally { setSwitchPending(false) }
   }, [firstEthWallet, switchChainAsync])
 
   const switchBusy = switchPending || wagmiSwitchPending
@@ -98,6 +115,22 @@ function HeaderWalletControls() {
     queryFn: () => monadPublicClient.getBalance({ address: connectedAddress! }),
     enabled: Boolean(authenticated && connectedAddress),
   })
+
+  const usdcAddress = env.usdcAddress
+  const { data: usdcBalanceRaw } = useReadContract({
+    address: usdcAddress,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: [connectedAddress ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: Boolean(authenticated && connectedAddress && usdcAddress), refetchInterval: 12_000 },
+  })
+  const usdcBalance = typeof usdcBalanceRaw === "bigint" ? usdcBalanceRaw : undefined
+
+  const { usdToNgn, rateLoading: rateLoad } = useExchangeRates()
+  const monNum  = balanceWei !== undefined ? Number(formatEther(balanceWei)) : 0
+  const usdcNum = usdcBalance !== undefined ? Number(formatUnits(usdcBalance, 6)) : 0
+  const totalNgn = monNum * MON_USD_PRICE * usdToNgn + usdcNum * usdToNgn
+
   const [menuOpen, setMenuOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -115,9 +148,7 @@ function HeaderWalletControls() {
 
   useEffect(() => {
     if (!menuOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false)
-    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false) }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [menuOpen])
@@ -127,55 +158,32 @@ function HeaderWalletControls() {
       await navigator.clipboard.writeText(a)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 2000)
-    } catch {
-      setCopied(false)
-    }
+    } catch { setCopied(false) }
   }, [])
 
-  if (!ready) {
-    return (
-      <button
-        type="button"
-        disabled
-        className={`${walletPurpleBtn} flex h-9 shrink-0 cursor-wait items-center justify-center rounded-xl px-4 opacity-90 sm:h-10 sm:px-5`}
-        aria-busy
-      >
-        Connecting…
-      </button>
-    )
-  }
+  const loadingBtn = (label: string) => (
+    <button type="button" disabled aria-busy
+      className={`${walletPurpleBtn} flex h-9 shrink-0 cursor-wait items-center justify-center rounded-xl px-4 opacity-90`}>
+      {label}
+    </button>
+  )
+
+  if (!ready) return loadingBtn("Connecting…")
 
   if (!authenticated) {
     return (
-      <button
-        type="button"
-        className={`${walletPurpleBtn} flex h-9 shrink-0 items-center justify-center rounded-xl px-4 sm:h-10 sm:px-5`}
-        onClick={() => void login()}
-      >
+      <button type="button" onClick={() => void login()}
+        className={`${walletPurpleBtn} flex h-9 shrink-0 items-center justify-center rounded-xl px-5`}>
         Connect
       </button>
     )
   }
 
   if (!connectedAddress) {
-    if (!walletsReady) {
-      return (
-        <button
-          type="button"
-          disabled
-          className={`${walletPurpleBtn} flex h-9 shrink-0 cursor-wait items-center justify-center rounded-xl px-4 opacity-90 sm:h-10 sm:px-5`}
-          aria-busy
-        >
-          Connecting…
-        </button>
-      )
-    }
+    if (!walletsReady) return loadingBtn("Connecting…")
     return (
-      <button
-        type="button"
-        className={`${walletPurpleBtn} flex h-9 shrink-0 items-center justify-center rounded-xl px-4 sm:h-10 sm:px-5`}
-        onClick={() => linkWallet()}
-      >
+      <button type="button" onClick={() => linkWallet()}
+        className={`${walletPurpleBtn} flex h-9 shrink-0 items-center justify-center rounded-xl px-5`}>
         Connect wallet
       </button>
     )
@@ -185,142 +193,136 @@ function HeaderWalletControls() {
   const explorerAddressUrl = `${monadTestnet.blockExplorers.default.url}/address/${connectedAddress}`
 
   const menuItemClass =
-    "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-headline text-sm text-on-surface transition-colors hover:bg-surface-container-high/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
+    "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left font-headline text-sm text-on-surface transition-colors hover:bg-surface-container-high/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/45"
 
   return (
-    <div
-      ref={containerRef}
-      className="relative flex max-w-[min(100%,calc(100vw-9.5rem))] min-w-0 items-stretch gap-1.5 md:max-w-[22rem] lg:max-w-none"
-    >
-      <button
-        type="button"
-        className={`${walletPurpleBtn} flex h-9 max-w-full min-w-0 flex-1 items-center gap-1.5 rounded-xl px-2 pr-1.5 text-left sm:h-10 sm:gap-2 sm:rounded-2xl sm:px-3 sm:pr-2`}
-        aria-expanded={menuOpen}
-        aria-haspopup="dialog"
-        aria-controls={walletMenuId}
-        onClick={() => setMenuOpen((v) => !v)}
-      >
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-row flex-wrap items-center gap-x-1.5 gap-y-0 sm:gap-x-3">
-            <span
-              className="min-w-0 max-w-[7rem] truncate font-mono text-[11px] font-medium tabular-nums tracking-tight text-white sm:max-w-none sm:text-[13px]"
-              title={connectedAddress}
-            >
+    <div ref={containerRef}
+      className="relative flex max-w-[min(100%,calc(100vw-7rem))] min-w-0 items-stretch gap-1.5 md:max-w-none">
+      <button type="button"
+        className={`${walletPurpleBtn} flex h-9 max-w-full min-w-0 flex-1 items-center gap-2 rounded-xl px-3 text-left`}
+        aria-expanded={menuOpen} aria-haspopup="dialog" aria-controls={walletMenuId}
+        onClick={() => setMenuOpen((v) => !v)}>
+        {/* Colored dot */}
+        <span className={`h-2 w-2 shrink-0 rounded-full ${onMonad ? "bg-tertiary" : "bg-amber-400"}`} aria-hidden />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2">
+            <span className="min-w-0 max-w-[6rem] truncate font-mono text-[11px] font-medium tabular-nums text-white sm:max-w-none sm:text-xs"
+              title={connectedAddress}>
               {connectedAddress.slice(0, 6)}…{connectedAddress.slice(-4)}
             </span>
-            <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-              <span
-                className={`inline-flex items-center rounded-md border px-1.5 py-px font-headline text-[9px] font-semibold uppercase tracking-wider sm:rounded-lg sm:px-2 sm:py-0.5 sm:text-[10px] ${
-                  onMonad
-                    ? "border-white/35 bg-white/15 text-white"
-                    : "border-amber-200/50 bg-amber-400/25 text-amber-50"
-                }`}
-                title={onMonad ? "Monad testnet" : `Wrong network (chain ${effectiveChainId ?? "?"})`}
-              >
-                {onMonad ? "Monad" : "Off"}
-              </span>
-              <span className="hidden h-3.5 w-px shrink-0 bg-white/25 sm:block" aria-hidden />
-              <span className="inline-flex items-baseline gap-0.5 font-mono text-[10px] tabular-nums tracking-tight text-white sm:gap-1 sm:text-xs">
-                <span className="font-semibold text-tertiary">{monLabel}</span>
-                <span className="text-white/75 sm:hidden">M</span>
-                <span className="hidden text-white/75 sm:inline">MON</span>
-              </span>
-            </div>
-          </div>
-        </div>
-        <ChevronIcon className="text-white/90" open={menuOpen} />
+            <span className="hidden items-baseline gap-0.5 sm:inline-flex">
+              <span className="font-semibold text-tertiary text-xs">{monLabel}</span>
+              <span className="text-white/60 text-[10px]">MON</span>
+            </span>
+          </span>
+        </span>
+        <ChevronIcon className="text-white/70" open={menuOpen} />
       </button>
+
       {!onMonad ? (
-        <button
-          type="button"
-          disabled={switchBusy}
-          onClick={() => void onSwitchToMonad()}
-          className="btn-primary-gradient shrink-0 rounded-xl border border-primary/45 px-2.5 font-headline text-[10px] font-semibold uppercase tracking-wide text-white transition-[filter] hover:brightness-[1.06] disabled:opacity-50 sm:px-3 sm:text-xs"
-        >
+        <button type="button" disabled={switchBusy} onClick={() => void onSwitchToMonad()}
+          className="btn-primary-gradient shrink-0 rounded-xl border border-amber-400/40 bg-amber-500/15 px-2.5 font-headline text-[10px] font-semibold uppercase tracking-wide text-amber-200 transition-[filter] hover:brightness-110 disabled:opacity-50">
           {switchBusy ? "…" : "Switch"}
         </button>
       ) : null}
 
       {menuOpen ? (
-        <div
-          id={walletMenuId}
-          role="dialog"
-          aria-label="Wallet"
-          className="absolute right-0 top-full z-[60] mt-1.5 w-[min(calc(100vw-2.5rem),20rem)] rounded-2xl border border-outline-variant/40 bg-surface-container py-2 shadow-xl shadow-black/40 ring-1 ring-white/[0.06]"
-        >
-          <div className="border-b border-outline-variant/25 px-3 pb-3 pt-2">
-            <p className="font-headline text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
+        <div id={walletMenuId} role="dialog" aria-label="Wallet"
+          className="absolute right-0 top-full z-[60] mt-2 w-[min(calc(100vw-2rem),22rem)] overflow-hidden rounded-2xl border border-outline-variant/30 bg-surface-container shadow-2xl shadow-black/50 ring-1 ring-white/[0.05]">
+          {/* Header */}
+          <div className="bg-gradient-to-br from-primary/10 to-transparent p-4 pb-3">
+            <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
               Connected wallet
             </p>
-            <p className="mt-1 break-all font-mono text-xs leading-snug text-white">{connectedAddress}</p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span
-                className={`inline-flex rounded-md border px-2 py-0.5 font-headline text-[10px] font-semibold uppercase tracking-wide ${
-                  onMonad
-                    ? "border-primary/35 bg-primary/10 text-primary"
-                    : "border-amber-500/40 bg-amber-500/10 text-amber-100"
-                }`}
-              >
+            <p className="mt-1.5 break-all font-mono text-xs leading-relaxed text-white">{connectedAddress}</p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 font-headline text-[10px] font-bold uppercase tracking-wide
+                ${onMonad ? "border-tertiary/30 bg-tertiary/10 text-tertiary" : "border-amber-500/40 bg-amber-500/10 text-amber-200"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${onMonad ? "bg-tertiary" : "bg-amber-400"}`} aria-hidden />
                 {onMonad ? "Monad testnet" : `Chain ${effectiveChainId ?? "—"}`}
               </span>
-              <span className="font-mono text-xs text-tertiary">
-                {monLabel} MON
-              </span>
+              <span className="font-mono text-xs font-semibold text-tertiary">{monLabel} MON</span>
+            </div>
+
+            {/* ── Balance breakdown ── */}
+            <div className="mt-3 overflow-hidden rounded-xl border border-outline-variant/20 bg-surface-container-low/60">
+              {/* MON row */}
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20">
+                    <span className="h-2 w-2 rounded-full bg-primary" aria-hidden />
+                  </span>
+                  <span className="font-headline text-xs font-semibold text-white">
+                    {balancePending ? "…" : monLabel} <span className="text-on-surface-variant font-normal">MON</span>
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] text-on-surface-variant/70">
+                  {!rateLoad && balanceWei !== undefined
+                    ? formatNgn(monNum * MON_USD_PRICE * usdToNgn, { compact: true })
+                    : "—"}
+                </span>
+              </div>
+              {/* USDC row */}
+              {usdcAddress && (
+                <div className="flex items-center justify-between border-t border-outline-variant/10 px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-tertiary/20">
+                      <span className="font-mono text-[9px] font-bold text-tertiary">$</span>
+                    </span>
+                    <span className="font-headline text-xs font-semibold text-white">
+                      {usdcBalance !== undefined
+                        ? Number(formatUnits(usdcBalance, 6)).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                        : "—"}{" "}
+                      <span className="text-on-surface-variant font-normal">USDC</span>
+                    </span>
+                  </div>
+                  <span className="font-mono text-[10px] text-on-surface-variant/70">
+                    {!rateLoad && usdcBalance !== undefined
+                      ? formatNgn(usdcNum * usdToNgn, { compact: true })
+                      : "—"}
+                  </span>
+                </div>
+              )}
+              {/* Total NGN row */}
+              <div className="flex items-center justify-between border-t border-outline-variant/10 bg-surface-container/50 px-3 py-2">
+                <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+                  Total
+                </span>
+                <span className="font-headline text-xs font-bold text-white">
+                  {rateLoad ? "…" : formatNgn(totalNgn)}
+                </span>
+              </div>
             </div>
             {!onMonad ? (
               <div className="mt-3 space-y-2">
-                <p className="text-xs leading-relaxed text-amber-200/90">
-                  Wrong network — switch to Monad testnet to buy passes and use the gate.
+                <p className="text-xs leading-relaxed text-amber-200/80">
+                  Switch to Monad testnet to buy passes and use the gate.
                 </p>
-                <button
-                  type="button"
-                  disabled={switchBusy}
-                  onClick={() => void onSwitchToMonad()}
-                  className="w-full rounded-xl border border-primary/40 bg-primary/15 px-3 py-2.5 font-headline text-sm font-semibold text-primary transition-colors hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
-                >
+                <button type="button" disabled={switchBusy} onClick={() => void onSwitchToMonad()}
+                  className="w-full rounded-xl border border-primary/40 bg-primary/15 px-3 py-2 font-headline text-sm font-semibold text-primary transition-colors hover:bg-primary/25 disabled:opacity-60">
                   {switchBusy ? "Switching…" : "Switch to Monad testnet"}
                 </button>
               </div>
             ) : null}
           </div>
 
-          <div className="flex flex-col p-1.5">
-            <button
-              type="button"
-              className={menuItemClass}
-              onClick={() => void copyAddress(connectedAddress)}
-            >
-              <span className="material-symbols-outlined text-lg text-primary" aria-hidden>
-                content_copy
-              </span>
-              {copied ? "Copied address" : "Copy address"}
+          <div className="flex flex-col px-1.5 py-1">
+            <button type="button" className={menuItemClass} onClick={() => void copyAddress(connectedAddress)}>
+              <span className="material-symbols-outlined text-[18px] text-primary" aria-hidden>content_copy</span>
+              {copied ? "Copied!" : "Copy address"}
             </button>
-            <a
-              href={explorerAddressUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={menuItemClass}
-              onClick={() => setMenuOpen(false)}
-            >
-              <span className="material-symbols-outlined text-lg text-tertiary" aria-hidden>
-                open_in_new
-              </span>
+            <a href={explorerAddressUrl} target="_blank" rel="noopener noreferrer"
+              className={menuItemClass} onClick={() => setMenuOpen(false)}>
+              <span className="material-symbols-outlined text-[18px] text-tertiary" aria-hidden>open_in_new</span>
               View on MonadVision
             </a>
           </div>
 
-          <div className="border-t border-outline-variant/25 p-1.5">
-            <button
-              type="button"
+          <div className="border-t border-outline-variant/20 px-1.5 py-1">
+            <button type="button"
               className={`${menuItemClass} text-error hover:bg-error/10`}
-              onClick={() => {
-                setMenuOpen(false)
-                void logout()
-              }}
-            >
-              <span className="material-symbols-outlined text-lg" aria-hidden>
-                logout
-              </span>
+              onClick={() => { setMenuOpen(false); void logout() }}>
+              <span className="material-symbols-outlined text-[18px]" aria-hidden>logout</span>
               Disconnect
             </button>
           </div>
@@ -330,138 +332,94 @@ function HeaderWalletControls() {
   )
 }
 
-function MenuIcon({ className }: { className?: string }) {
+/* ─────────── Bottom navigation bar ─────────── */
+const allBottomTabs = [
+  { to: "/routes",    label: "Routes", Icon: RoutesIcon, end: true,  gate: false },
+  { to: "/profile",  label: "Passes", Icon: PassesIcon, end: false, gate: false },
+  { to: "/conductor",label: "Gate",   Icon: GateIcon,   end: false, gate: true  },
+  { to: "/operator", label: "Ops",    Icon: OpsIcon,    end: false, gate: false },
+]
+
+function BottomNav({ showGate }: { showGate: boolean }) {
+  const tabs = allBottomTabs.filter((t) => !t.gate || showGate)
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" />
-    </svg>
+    <nav aria-label="App navigation"
+      className="fixed bottom-0 inset-x-0 z-40 md:hidden bg-surface-container-low/95 backdrop-blur-xl border-t border-outline-variant/25">
+      <div className="flex h-[60px] items-stretch">
+        {tabs.map((tab) => (
+          <NavLink key={tab.to} to={tab.to} end={tab.end}
+            className={({ isActive }) =>
+              `flex flex-1 flex-col items-center justify-center gap-[3px] transition-colors ${
+                isActive ? "text-primary" : "text-on-surface-variant/70"
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <span className={`transition-transform duration-200 ${isActive ? "scale-110" : "scale-100"}`}>
+                  <tab.Icon active={isActive} />
+                </span>
+                <span className="font-headline text-[9px] font-semibold tracking-wide uppercase">{tab.label}</span>
+              </>
+            )}
+          </NavLink>
+        ))}
+      </div>
+    </nav>
   )
 }
 
-function CloseIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
-    </svg>
-  )
-}
+/* ─────────── App shell ─────────── */
+const desktopNavLink =
+  "font-headline text-sm font-medium text-on-surface-variant transition-colors hover:text-white aria-[current=page]:text-primary"
 
 export function AppLayout() {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuPanelId = useId()
-  const menuTitleId = useId()
-
-  const closeMenu = useCallback(() => setMenuOpen(false), [])
-
-  useEffect(() => {
-    if (!menuOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeMenu()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [menuOpen, closeMenu])
-
-  useEffect(() => {
-    if (menuOpen) document.body.style.overflow = "hidden"
-    else document.body.style.overflow = ""
-    return () => {
-      document.body.style.overflow = ""
-    }
-  }, [menuOpen])
+  const { address } = useAccount()
+  const restricted = env.gateWallets.size > 0
+  const showGate = !restricted || Boolean(address && env.gateWallets.has(address.toLowerCase()))
 
   return (
     <div className="flex min-h-screen flex-col bg-surface text-on-surface">
-      <header className="sticky top-0 z-40 border-b border-outline-variant/25 bg-surface-container-low/95 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl flex-nowrap items-center gap-x-3 gap-y-3 px-5 py-3.5 sm:px-8">
-          <Link to="/" className="shrink-0 font-headline text-lg font-bold tracking-tight text-white sm:text-xl">
-            ChainPass
+      {/* Header */}
+      <header className="sticky top-0 z-40 border-b border-outline-variant/20 bg-surface-container-low/95 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center gap-4 px-5 py-3 sm:px-8">
+          {/* Logo */}
+          <Link to="/" className="shrink-0 flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"
+                strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M3 10h18M3 14h18M10 3v18M14 3v18" />
+              </svg>
+            </div>
+            <span className="font-headline text-base font-bold tracking-tight text-white sm:text-lg">
+              ChainPass
+            </span>
           </Link>
-          <nav className="hidden min-w-0 flex-1 flex-wrap items-center justify-center gap-x-5 gap-y-1 sm:gap-x-8 md:flex">
-            <NavLink to="/routes" className={navLink} end>
-              Routes
-            </NavLink>
-            <NavLink to="/profile" className={navLink}>
-              My passes
-            </NavLink>
-            <NavLink to="/conductor" className={navLink}>
-              Gate
-            </NavLink>
-            <NavLink to="/operator" className={navLink}>
-              Operations
-            </NavLink>
+
+          {/* Desktop nav */}
+          <nav className="hidden flex-1 items-center justify-center gap-8 md:flex">
+            <NavLink to="/routes" className={desktopNavLink} end>Routes</NavLink>
+            <NavLink to="/profile" className={desktopNavLink}>My Passes</NavLink>
+            {showGate && <NavLink to="/conductor" className={desktopNavLink}>Gate</NavLink>}
+            <NavLink to="/operator" className={desktopNavLink}>Operations</NavLink>
           </nav>
-          <div className="ml-auto flex shrink-0 items-center gap-2 [&_button]:!font-headline [&_button]:!text-sm">
+
+          {/* Wallet */}
+          <div className="ml-auto shrink-0">
             <HeaderWalletControls />
-            <button
-              type="button"
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-outline-variant/40 bg-surface-container-high/40 text-on-surface-variant transition-colors hover:border-outline-variant hover:bg-surface-container-high/70 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:h-10 sm:w-10 md:hidden"
-              aria-expanded={menuOpen}
-              aria-controls={menuPanelId}
-              aria-label={menuOpen ? "Close menu" : "Open menu"}
-              onClick={() => setMenuOpen((v) => !v)}
-            >
-              {menuOpen ? <CloseIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
-            </button>
           </div>
         </div>
-        <div
-          className="h-px w-full bg-gradient-to-r from-primary/20 via-monad-deep/30 to-tertiary/20"
-          aria-hidden
-        />
+        {/* Gradient rule */}
+        <div className="h-px w-full bg-gradient-to-r from-primary/15 via-primary/30 to-tertiary/15" aria-hidden />
       </header>
 
-      {menuOpen ? (
-        <div
-          className="fixed inset-0 z-50 md:hidden"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={menuTitleId}
-        >
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/65 backdrop-blur-[2px]"
-            aria-label="Close menu"
-            onClick={closeMenu}
-          />
-          <div
-            id={menuPanelId}
-            className="absolute right-0 top-0 flex h-full w-[min(100%,20rem)] flex-col border-l border-outline-variant/40 bg-surface-container-low shadow-2xl"
-          >
-            <div className="flex items-center justify-between border-b border-outline-variant/30 px-4 py-4">
-              <p id={menuTitleId} className="font-headline text-lg font-semibold text-white">
-                Menu
-              </p>
-              <button
-                type="button"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high/80 hover:text-white"
-                aria-label="Close menu"
-                onClick={closeMenu}
-              >
-                <CloseIcon className="h-6 w-6" />
-              </button>
-            </div>
-            <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
-              <NavLink to="/routes" className={navLinkDrawer} end onClick={closeMenu}>
-                Routes
-              </NavLink>
-              <NavLink to="/profile" className={navLinkDrawer} onClick={closeMenu}>
-                My passes
-              </NavLink>
-              <NavLink to="/conductor" className={navLinkDrawer} onClick={closeMenu}>
-                Gate
-              </NavLink>
-              <NavLink to="/operator" className={navLinkDrawer} onClick={closeMenu}>
-                Operations
-              </NavLink>
-            </nav>
-          </div>
-        </div>
-      ) : null}
-
-      <main className="flex-1 px-5 py-10 sm:px-8">
+      {/* Page content */}
+      <main className="flex-1 px-4 py-8 pb-[calc(60px+2rem)] sm:px-8 md:py-10 md:pb-10">
         <Outlet />
       </main>
+
+      {/* Mobile bottom nav */}
+      <BottomNav showGate={showGate} />
     </div>
   )
 }

@@ -5,27 +5,69 @@ import { monadTestnet } from "@chainpass/shared"
 import { fetchOperatorEvents, fetchOperatorStats, type OperatorEventRow, type OperatorStats } from "../lib/api"
 import { fetchTicketLifecycleTotals } from "../lib/chainTicketCounters"
 import { env } from "../lib/env"
-import { Button } from "../components/ui/Button"
 
 const REFETCH_MS = 6000
-
-/** Off while not running the Postgres indexer; skips `/events` fetch and hides the mint/burn table. */
 const INDEXER_EVENT_FEED_ENABLED = false
-
 const explorerTxBase = `${monadTestnet.blockExplorers.default.url}/tx`
-
-function txExplorerUrl(txHash: string): string {
-  return `${explorerTxBase}/${txHash}`
-}
 
 function fmtBigint(n: bigint): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 0 })
 }
-
 function countEventsByType(rows: OperatorEventRow[] | null, type: string): bigint {
   if (!rows) return 0n
-  const n = rows.filter((e) => e.event_type === type).length
-  return BigInt(n)
+  return BigInt(rows.filter((e) => e.event_type === type).length)
+}
+function txExplorerUrl(txHash: string): string {
+  return `${explorerTxBase}/${txHash}`
+}
+
+type StatCardProps = {
+  label: string
+  value: string
+  sub?: string
+  accent: "primary" | "burn" | "outstanding" | "neutral"
+}
+
+function StatCard({ label, value, sub, accent }: StatCardProps) {
+  const accentClass = {
+    primary:     "from-primary/20 to-transparent border-primary/20",
+    burn:        "from-error/15 to-transparent border-error/20",
+    outstanding: "from-tertiary/15 to-transparent border-tertiary/20",
+    neutral:     "from-surface-container-high/80 to-transparent border-outline-variant/15",
+  }[accent]
+
+  const valueClass = {
+    primary:     "text-white",
+    burn:        "text-error",
+    outstanding: "text-tertiary",
+    neutral:     "text-on-surface-variant",
+  }[accent]
+
+  return (
+    <div className={`overflow-hidden rounded-2xl border bg-gradient-to-br ${accentClass} bg-surface-container`}>
+      <div className="p-5">
+        <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
+          {label}
+        </p>
+        <p className={`mt-2 font-headline text-3xl font-bold tabular-nums tracking-tight ${valueClass}`}>
+          {value}
+        </p>
+        {sub && (
+          <p className="mt-1.5 text-[10px] text-on-surface-variant/70">{sub}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function StatCardSkeleton() {
+  return (
+    <div className="rounded-2xl border border-outline-variant/15 bg-surface-container p-5">
+      <div className="skeleton h-3 w-1/2 rounded mb-3" />
+      <div className="skeleton h-8 w-1/3 rounded mb-2" />
+      <div className="skeleton h-2.5 w-2/3 rounded" />
+    </div>
+  )
 }
 
 export function OperatorPage() {
@@ -54,18 +96,11 @@ export function OperatorPage() {
       chainPromise,
     ])
 
-    if (ct) {
-      setChainTotals({ mint: ct.totalMinted, burn: ct.totalBurned })
-    } else {
-      setChainTotals(null)
-    }
+    setChainTotals(ct ? { mint: ct.totalMinted, burn: ct.totalBurned } : null)
 
     const anyApi = s !== null || e !== null
-    const chainOk = ct !== null
-    if (!anyApi && !chainOk) {
-      setErr(
-        "Could not load data. Set VITE_CHAINPASS_CONTRACT_ADDRESS for on-chain totals, and/or run the API with DATABASE_URL + indexer for the event feed.",
-      )
+    if (!anyApi && !ct) {
+      setErr("Set VITE_CHAINPASS_CONTRACT_ADDRESS for on-chain totals, and/or run the API with DATABASE_URL + indexer.")
     } else {
       setErr(null)
     }
@@ -73,29 +108,23 @@ export function OperatorPage() {
     setStats(s)
     setEvents(e)
     setLastUpdated(new Date())
-
     setLoading(false)
     setRefreshing(false)
   }, [publicClient])
 
   useEffect(() => {
-    const id = window.setTimeout(() => {
-      void load("initial")
-    }, 0)
+    const id = window.setTimeout(() => { void load("initial") }, 0)
     return () => window.clearTimeout(id)
   }, [load])
 
   useEffect(() => {
-    const id = window.setInterval(() => {
-      void load("poll")
-    }, REFETCH_MS)
+    const id = window.setInterval(() => { void load("poll") }, REFETCH_MS)
     return () => window.clearInterval(id)
   }, [load])
 
   const indexerRowMints = countEventsByType(events, "mint")
   const indexerRowBurns = countEventsByType(events, "burn")
 
-  /** When the contract is configured, indexed rows must match chain or we hide the table / rolling 24h. */
   const countsAlignWithChain = useMemo(() => {
     if (!INDEXER_EVENT_FEED_ENABLED) return true
     if (!chainTotals) return true
@@ -105,183 +134,170 @@ export function OperatorPage() {
 
   const dbTotalsMatchChain = useMemo(() => {
     if (!chainTotals || !stats) return true
-    return (
-      BigInt(stats.totals.mint) === chainTotals.mint && BigInt(stats.totals.burn) === chainTotals.burn
-    )
+    return BigInt(stats.totals.mint) === chainTotals.mint && BigInt(stats.totals.burn) === chainTotals.burn
   }, [chainTotals, stats])
 
-  /** Rolling 24h is only meaningful when indexer rows + API aggregates match chain (same deployment, synced DB). */
-  const showRolling24h =
-    Boolean(stats) && countsAlignWithChain && dbTotalsMatchChain && stats !== null
-
-  const outstanding =
-    chainTotals !== null ? chainTotals.mint - chainTotals.burn : null
-
+  const showRolling24h = Boolean(stats) && countsAlignWithChain && dbTotalsMatchChain && stats !== null
+  const outstanding = chainTotals !== null ? chainTotals.mint - chainTotals.burn : null
   const showStatsGrid = chainTotals !== null || stats !== null
+
   const totalMintsLabel = chainTotals ? fmtBigint(chainTotals.mint) : stats ? stats.totals.mint.toLocaleString() : "—"
   const totalBurnsLabel = chainTotals ? fmtBigint(chainTotals.burn) : stats ? stats.totals.burn.toLocaleString() : "—"
-  const totalsSource = chainTotals ? "On-chain (this deployment)" : stats ? "Indexer (DB)" : null
-
+  const totalsSource = chainTotals ? "On-chain" : stats ? "Indexer DB" : null
   const showEventTable = INDEXER_EVENT_FEED_ENABLED && Boolean(events && events.length > 0)
 
   return (
     <div className="mx-auto max-w-5xl">
-      <p className="font-headline text-xs font-bold uppercase tracking-[0.2em] text-primary">Operator</p>
-      <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      {/* Header */}
+      <div className="mb-8 flex items-end justify-between gap-4">
         <div>
-          <h1 className="font-headline text-3xl font-bold text-white">Operations</h1>
-          <p className="mt-2 text-on-surface-variant">
-            <strong className="text-on-surface">Lifetime mints/burns</strong> come from the contract when{" "}
-            <span className="font-mono text-on-surface-variant/90">VITE_CHAINPASS_CONTRACT_ADDRESS</span> is set.{" "}
-            <strong className="text-on-surface">Outstanding</strong> is minted minus burned (still valid tickets).{" "}
-            <strong className="text-on-surface">Last 24h</strong> needs Postgres + indexer in sync with this deployment; otherwise we show{" "}
-            on-chain metrics only.
+          <p className="font-headline text-[10px] font-bold uppercase tracking-[0.25em] text-primary">Operator</p>
+          <h1 className="mt-1.5 font-headline text-3xl font-bold text-white">Operations</h1>
+          <p className="mt-1.5 max-w-xl text-sm text-on-surface-variant">
+            Lifetime counts from the contract. Rolling 24h requires the Postgres indexer.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {lastUpdated ? (
-            <p className="text-xs text-on-surface-variant">
-              Updated {lastUpdated.toLocaleTimeString()}
-            </p>
-          ) : null}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
+        <div className="flex shrink-0 items-center gap-2.5">
+          {lastUpdated && (
+            <span className="text-[10px] text-on-surface-variant/60">
+              {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+          <button type="button"
             disabled={refreshing || loading}
             onClick={() => void load("manual")}
-          >
-            {refreshing ? "Refreshing…" : "Refresh"}
-          </Button>
+            className="flex h-8 items-center gap-1.5 rounded-lg border border-outline-variant/30 bg-surface-container px-3 font-headline text-xs font-semibold text-on-surface-variant transition-colors hover:border-primary/40 hover:text-white disabled:opacity-50">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+              className={refreshing ? "animate-spin" : ""} aria-hidden>
+              <path d="M23 4v6h-6M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+            {refreshing ? "…" : "Refresh"}
+          </button>
         </div>
       </div>
 
-      {loading ? <p className="mt-10 text-on-surface-variant">Loading…</p> : null}
-      {err ? <p className="mt-6 rounded-xl bg-error/10 p-4 text-sm text-error">{err}</p> : null}
+      {/* Error */}
+      {err && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-error/20 bg-error/8 p-4">
+          <span className="material-symbols-outlined mt-0.5 text-base text-error shrink-0" aria-hidden>error</span>
+          <p className="text-xs leading-relaxed text-error">{err}</p>
+        </div>
+      )}
 
-      {showStatsGrid ? (
-        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-2xl bg-surface-container p-5">
-            <p className="text-xs uppercase tracking-widest text-on-surface-variant">Total mints</p>
-            <p className="mt-2 font-headline text-3xl font-bold text-white">{totalMintsLabel}</p>
-            {totalsSource ? (
-              <p className="mt-1 text-xs text-on-surface-variant/80">{totalsSource}</p>
-            ) : null}
-          </div>
-          <div className="rounded-2xl bg-surface-container p-5">
-            <p className="text-xs uppercase tracking-widest text-on-surface-variant">Total burns</p>
-            <p className="mt-2 font-headline text-3xl font-bold text-white">{totalBurnsLabel}</p>
-            {totalsSource ? (
-              <p className="mt-1 text-xs text-on-surface-variant/80">{totalsSource}</p>
-            ) : null}
-          </div>
-          <div className="rounded-2xl bg-surface-container p-5">
-            <p className="text-xs uppercase tracking-widest text-on-surface-variant">Outstanding</p>
-            <p className="mt-2 font-headline text-3xl font-bold text-tertiary">
-              {outstanding !== null ? fmtBigint(outstanding) : "—"}
-            </p>
-            <p className="mt-1 text-xs text-on-surface-variant/80">
-              {chainTotals ? "On-chain (unburned supply)" : "Needs contract address"}
-            </p>
-          </div>
-          <div className="rounded-2xl bg-surface-container p-5">
-            {showRolling24h ? (
-              <>
-                <p className="text-xs uppercase tracking-widest text-on-surface-variant">Last 24 hours</p>
-                <p className="mt-2 font-headline text-xl font-bold text-tertiary">
-                  {stats!.last24h.mint} mints · {stats!.last24h.burn} burns
+      {/* Stats grid */}
+      {loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => <StatCardSkeleton key={i} />)}
+        </div>
+      ) : showStatsGrid ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Total mints"
+            value={totalMintsLabel}
+            sub={totalsSource ?? undefined}
+            accent="primary"
+          />
+          <StatCard
+            label="Total burns"
+            value={totalBurnsLabel}
+            sub={totalsSource ?? undefined}
+            accent="burn"
+          />
+          <StatCard
+            label="Outstanding"
+            value={outstanding !== null ? fmtBigint(outstanding) : "—"}
+            sub={chainTotals ? "Unburned supply" : "Needs contract address"}
+            accent="outstanding"
+          />
+          <div className="overflow-hidden rounded-2xl border border-outline-variant/15 bg-surface-container">
+            <div className="p-5">
+              <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
+                Rolling 24h
+              </p>
+              {showRolling24h ? (
+                <>
+                  <div className="mt-2 flex flex-col gap-1">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="font-headline text-2xl font-bold text-white tabular-nums">
+                        {stats!.last24h.mint}
+                      </span>
+                      <span className="text-xs text-on-surface-variant">mints</span>
+                    </div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="font-headline text-2xl font-bold text-error tabular-nums">
+                        {stats!.last24h.burn}
+                      </span>
+                      <span className="text-xs text-on-surface-variant">burns</span>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-[10px] text-on-surface-variant/70">Indexer DB, in sync</p>
+                </>
+              ) : (
+                <p className="mt-2 text-xs leading-relaxed text-on-surface-variant">
+                  Needs Postgres + indexer in sync with this deployment.
                 </p>
-                <p className="mt-1 text-xs text-on-surface-variant/80">Indexer (DB), in sync with chain</p>
-              </>
-            ) : (
-              <>
-                <p className="text-xs uppercase tracking-widest text-on-surface-variant">Rolling 24h</p>
-                <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
-                  Rolling windows need an indexer writing to Postgres. On shared Monad testnet RPCs, a typical indexer
-                  polls <span className="font-mono text-xs">eth_getLogs</span> often enough that public endpoints rate-limit
-                  or throttle it—so we rely on on-chain lifetime totals here instead.
-                </p>
-              </>
-            )}
+              )}
+            </div>
           </div>
         </div>
       ) : null}
 
-      {showEventTable ? (
-        <div className="mt-12 overflow-hidden rounded-2xl bg-surface-container-low">
-          <table className="w-full table-fixed border-collapse text-left text-sm">
-            <colgroup>
-              <col className="w-[10%]" />
-              <col className="w-[34%]" />
-              <col className="w-[18%]" />
-              <col className="w-[14%]" />
-              <col className="w-[24%]" />
-            </colgroup>
-            <thead>
-              <tr className="border-b border-outline-variant/20 text-on-surface-variant">
-                <th className="px-2 py-3 font-headline font-semibold sm:px-4">Type</th>
-                <th className="px-2 py-3 font-headline font-semibold sm:px-4">Token</th>
-                <th className="px-2 py-3 font-headline font-semibold sm:px-4">Route</th>
-                <th className="px-2 py-3 font-headline font-semibold sm:px-4">Block</th>
-                <th className="px-2 py-3 font-headline font-semibold sm:px-4">Tx</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events!.slice(0, 100).map((ev) => (
-                <tr key={ev.id} className="border-b border-outline-variant/10">
-                  <td colSpan={5} className="p-0">
-                    <a
-                      href={txExplorerUrl(ev.tx_hash)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="grid w-full grid-cols-[minmax(0,10%)_minmax(0,34%)_minmax(0,18%)_minmax(0,14%)_minmax(0,24%)] gap-x-1 px-2 py-3 text-left text-sm text-on-surface-variant no-underline transition-colors hover:bg-white/[0.04] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary sm:gap-x-2 sm:px-4"
-                      aria-label={`View transaction ${ev.tx_hash.slice(0, 10)}… on explorer`}
-                    >
-                      <span className="min-w-0 truncate font-mono text-sm text-white">{ev.event_type}</span>
-                      <span className="min-w-0 truncate font-mono text-xs" title={ev.token_id}>
-                        {ev.token_id}
-                      </span>
-                      <span className="min-w-0 truncate font-mono text-xs" title={String(ev.route_id)}>
-                        {ev.route_id}
-                      </span>
-                      <span className="min-w-0 truncate font-mono text-xs">{ev.block_number}</span>
-                      <span className="min-w-0 truncate font-mono text-xs text-primary" title={ev.tx_hash}>
-                        {ev.tx_hash.slice(0, 10)}…{ev.tx_hash.slice(-6)}
-                      </span>
-                    </a>
-                  </td>
+      {/* Event table */}
+      {showEventTable && (
+        <div className="mt-10 overflow-hidden rounded-2xl border border-outline-variant/15 bg-surface-container-low">
+          <div className="border-b border-outline-variant/15 px-5 py-4">
+            <h2 className="font-headline text-sm font-semibold text-white">Recent events</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full table-fixed border-collapse text-left text-sm">
+              <colgroup>
+                <col className="w-[10%]" />
+                <col className="w-[34%]" />
+                <col className="w-[18%]" />
+                <col className="w-[14%]" />
+                <col className="w-[24%]" />
+              </colgroup>
+              <thead>
+                <tr className="border-b border-outline-variant/15">
+                  {["Type", "Token", "Route", "Block", "Tx"].map((h) => (
+                    <th key={h} className="px-4 py-3 font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {events!.slice(0, 100).map((ev) => (
+                  <tr key={ev.id} className="border-b border-outline-variant/8 hover:bg-white/[0.03] transition-colors">
+                    <td colSpan={5} className="p-0">
+                      <a href={txExplorerUrl(ev.tx_hash)} target="_blank" rel="noopener noreferrer"
+                        className="grid w-full grid-cols-[minmax(0,10%)_minmax(0,34%)_minmax(0,18%)_minmax(0,14%)_minmax(0,24%)] px-4 py-3 text-sm text-on-surface-variant no-underline">
+                        <span className={`min-w-0 truncate font-headline text-xs font-semibold ${ev.event_type === "mint" ? "text-primary" : "text-error"}`}>
+                          {ev.event_type}
+                        </span>
+                        <span className="min-w-0 truncate font-mono text-xs" title={ev.token_id}>{ev.token_id}</span>
+                        <span className="min-w-0 truncate font-mono text-xs" title={String(ev.route_id)}>{ev.route_id}</span>
+                        <span className="min-w-0 truncate font-mono text-xs">{ev.block_number}</span>
+                        <span className="min-w-0 truncate font-mono text-xs text-primary" title={ev.tx_hash}>
+                          {ev.tx_hash.slice(0, 10)}…{ev.tx_hash.slice(-6)}
+                        </span>
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      ) : null}
+      )}
 
-      {!loading &&
-      !err &&
-      INDEXER_EVENT_FEED_ENABLED &&
-      events !== null &&
-      events.length === 0 &&
-      (!chainTotals || countsAlignWithChain) ? (
-        <p className="mt-10 text-on-surface-variant">No indexed events yet.</p>
-      ) : null}
-
-      {!loading &&
-      !err &&
-      INDEXER_EVENT_FEED_ENABLED &&
-      events === null &&
-      (chainTotals !== null || stats !== null) ? (
-        <p className="mt-10 text-on-surface-variant">
-          Event feed unavailable — start the API with DATABASE_URL and the indexer, or check{" "}
-          <span className="font-mono text-on-surface-variant/90">VITE_CHAINPASS_API_URL</span>.
-        </p>
-      ) : null}
-
-      <p className="mt-10 text-center">
-        <Link to="/conductor" className="font-headline text-sm text-primary hover:underline">
-          Gate tools
+      <div className="mt-10 text-center">
+        <Link to="/conductor" className="font-headline text-sm font-semibold text-primary hover:underline">
+          Gate tools →
         </Link>
-      </p>
+      </div>
     </div>
   )
 }

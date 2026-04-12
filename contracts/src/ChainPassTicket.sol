@@ -5,10 +5,16 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 
+/// @dev Minimal ERC-20 interface used only for USDC payment (transferFrom + balanceOf).
+interface IERC20Minimal {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+}
+
 /// @title ChainPassTicket
 /// @notice Soulbound ERC-721 transit ticket: gated mint, role-gated burn, indexable events.
-/// @dev On-chain burn checks: expiry, route, and owner must match `expectedHolder` (from signed QR). QR/HMAC stays off-chain.
-///      Token IDs are pseudo-random uint256 values (not sequential); not unpredictable RNG—do not rely on them for secrecy.
+///         Accepts native MON or USDC for public purchases.
+/// @dev Token IDs are pseudo-random uint256 values (not sequential); not unpredictable RNG—do not rely on them for secrecy.
 contract ChainPassTicket is ERC721Enumerable, AccessControl {
 
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
@@ -24,24 +30,41 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
 
     string private _baseTokenURI;
 
-    /// @notice Receives native MON from `purchaseTicket` (Monad testnet).
+    /// @notice Receives native MON and USDC from ticket purchases (Monad testnet).
     address payable public immutable treasury;
 
-    /// @notice Lifetime count of successful mints (including still-held and burned tokens). Cheap ops dashboard read.
+    /// @notice Lifetime count of successful mints (including still-held and burned tokens).
     uint256 public totalMinted;
 
     /// @notice Lifetime count of successful `burnTicket` calls.
     uint256 public totalBurned;
 
+    // ─── MON pricing ─────────────────────────────────────────────────────────
+
     /// @notice Default minimum wei for `purchaseTicket` when `routeMintPriceWei[routeId]` is unset (0).
     uint256 public mintPriceWei;
 
-    /// @notice Per-route override for `purchaseTicket`. If 0, `mintPriceWei` applies for that route.
+    /// @notice Per-route override for `purchaseTicket`. If 0, `mintPriceWei` applies.
     mapping(uint256 routeId => uint256) public routeMintPriceWei;
+
+    // ─── USDC pricing ────────────────────────────────────────────────────────
+
+    /// @notice ERC-20 token accepted as payment (set by admin; address(0) = disabled).
+    address public usdcToken;
+
+    /// @notice Default USDC price for `purchaseTicketWithUSDC` (6 decimals). 0 = disabled.
+    uint256 public mintPriceUsdc;
+
+    /// @notice Per-route USDC override. If 0, `mintPriceUsdc` applies for that route.
+    mapping(uint256 routeId => uint256) public routeMintPriceUsdc;
+
+    // ─── Token metadata ───────────────────────────────────────────────────────
 
     mapping(uint256 tokenId => uint256) public routeOf;
     mapping(uint256 tokenId => uint64) public validUntil;
     mapping(uint256 tokenId => address) public operatorOf;
+
+    // ─── Errors ───────────────────────────────────────────────────────────────
 
     error SoulboundTransfer();
     error TicketExpired(uint256 tokenId, uint64 validUntilEpoch, uint256 nowTimestamp);
@@ -49,19 +72,29 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     error HolderMismatch(uint256 tokenId, address expectedHolder, address actualOwner);
     error InsufficientPayment(uint256 sent, uint256 required);
     error TreasuryTransferFailed();
+    error ExcessRefundFailed();
     error TokenIdAllocationFailed();
+    error UsdcNotConfigured();
+    error UsdcTransferFailed();
+
+    // ─── Events ───────────────────────────────────────────────────────────────
 
     event TicketMinted(
         address indexed to, uint256 indexed tokenId, uint256 routeId, uint64 validUntilEpoch, address operatorAddr
     );
-
     event TicketBurned(address indexed from, uint256 indexed tokenId, uint256 routeId);
-
     event RoutePriceSet(uint256 indexed routeId, uint256 weiAmount);
+    event MintPriceSet(uint256 weiAmount);
+    event BaseURISet(string baseURI);
+    event UsdcTokenSet(address indexed token);
+    event UsdcRoutePriceSet(uint256 indexed routeId, uint256 amount);
 
-    /// @param baseURI_ Base URI for {tokenURI}; concatenated with decimal `tokenId` (Option A). Use empty string if unset.
-    /// @param treasury_ Receives native MON from ticket purchases.
-    /// @param mintPriceWei_ Default price for `purchaseTicket` when no per-route price is set (wei); use 0 for testnets.
+    // ─── Constructor ─────────────────────────────────────────────────────────
+
+    /// @param admin       Receives DEFAULT_ADMIN_ROLE.
+    /// @param baseURI_    Base URI for {tokenURI}; empty string if unset.
+    /// @param treasury_   Receives all payments.
+    /// @param mintPriceWei_ Default MON price (wei); 0 for free on testnets.
     constructor(address admin, string memory baseURI_, address payable treasury_, uint256 mintPriceWei_)
         ERC721("ChainPass Ticket", "PASS")
     {
@@ -71,37 +104,51 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         mintPriceWei = mintPriceWei_;
     }
 
-    /// @notice Update default price for `purchaseTicket` when `routeMintPriceWei[routeId]` is 0 (admin only).
+    // ─── Admin: MON pricing ───────────────────────────────────────────────────
+
     function setMintPriceWei(uint256 newPriceWei) external onlyRole(DEFAULT_ADMIN_ROLE) {
         mintPriceWei = newPriceWei;
+        emit MintPriceSet(newPriceWei);
     }
 
-    /// @notice Set minimum wei for `purchaseTicket` for a specific route. Use 0 to clear override (falls back to `mintPriceWei`).
     function setRouteMintPrice(uint256 routeId, uint256 weiAmount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         routeMintPriceWei[routeId] = weiAmount;
         emit RoutePriceSet(routeId, weiAmount);
     }
 
-    /// @notice Update metadata base URI (admin only).
+    // ─── Admin: USDC pricing ──────────────────────────────────────────────────
+
+    /// @notice Set the ERC-20 token accepted for USDC payments. Use address(0) to disable.
+    function setUsdcToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        usdcToken = token;
+        emit UsdcTokenSet(token);
+    }
+
+    /// @notice Set default USDC price (6 decimals). Use 0 to disable global USDC purchases.
+    function setMintPriceUsdc(uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        mintPriceUsdc = amount;
+    }
+
+    /// @notice Per-route USDC override. Use 0 to clear (falls back to `mintPriceUsdc`).
+    function setRouteUsdcPrice(uint256 routeId, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        routeMintPriceUsdc[routeId] = amount;
+        emit UsdcRoutePriceSet(routeId, amount);
+    }
+
+    // ─── Admin: metadata ─────────────────────────────────────────────────────
+
     function setBaseURI(string memory baseURI_) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _baseTokenURI = baseURI_;
+        emit BaseURISet(baseURI_);
     }
 
     function _baseURI() internal view override returns (string memory) {
         return _baseTokenURI;
     }
 
-    function supportsInterface(bytes4 interfaceId)
-        public
-        view
-        virtual
-        override(ERC721Enumerable, AccessControl)
-        returns (bool)
-    {
-        return super.supportsInterface(interfaceId);
-    }
+    // ─── Minting ──────────────────────────────────────────────────────────────
 
-    /// @notice Mint a new ticket NFT. Only addresses with `MINTER_ROLE` may call (free / backend / promo).
+    /// @notice Mint a ticket (free / backend / promo). Only `MINTER_ROLE`.
     function mint(address to, uint256 routeId, uint64 validUntilEpoch, address operatorAddr)
         external
         onlyRole(MINTER_ROLE)
@@ -110,25 +157,51 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         return _mintTicket(to, routeId, validUntilEpoch, operatorAddr);
     }
 
-    /// @notice Buy a ticket with native MON; mints to `msg.sender` and forwards payment to `treasury`.
+    /// @notice Buy a ticket with native MON; forwards payment to treasury, refunds any excess.
     function purchaseTicket(uint256 routeId, uint64 validUntilEpoch, address operatorAddr)
         external
         payable
         returns (uint256 tokenId)
     {
         uint256 required = routeMintPriceWei[routeId];
-        if (required == 0) {
-            required = mintPriceWei;
-        }
-        if (msg.value < required) {
-            revert InsufficientPayment(msg.value, required);
-        }
+        if (required == 0) required = mintPriceWei;
+
+        if (msg.value < required) revert InsufficientPayment(msg.value, required);
+
         tokenId = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr);
-        (bool ok,) = treasury.call{value: msg.value}("");
-        if (!ok) {
-            revert TreasuryTransferFailed();
+
+        (bool ok,) = treasury.call{value: required}("");
+        if (!ok) revert TreasuryTransferFailed();
+
+        // Refund any overpayment
+        uint256 excess = msg.value - required;
+        if (excess > 0) {
+            (bool refundOk,) = msg.sender.call{value: excess}("");
+            if (!refundOk) revert ExcessRefundFailed();
         }
     }
+
+    /// @notice Buy a ticket paying with `usdcToken`. Caller must pre-approve this contract.
+    ///         `usdcToken` and a non-zero USDC price must be configured by an admin first.
+    function purchaseTicketWithUSDC(uint256 routeId, uint64 validUntilEpoch, address operatorAddr)
+        external
+        returns (uint256 tokenId)
+    {
+        address token = usdcToken;
+        if (token == address(0)) revert UsdcNotConfigured();
+
+        uint256 required = routeMintPriceUsdc[routeId];
+        if (required == 0) required = mintPriceUsdc;
+        if (required == 0) revert UsdcNotConfigured();
+
+        // Pull payment first (revert on failure — no state has changed yet)
+        bool ok = IERC20Minimal(token).transferFrom(msg.sender, treasury, required);
+        if (!ok) revert UsdcTransferFailed();
+
+        tokenId = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr);
+    }
+
+    // ─── Internal helpers ─────────────────────────────────────────────────────
 
     function _allocateTokenId(address to, uint256 routeId, uint64 validUntilEpoch, address operatorAddr)
         internal
@@ -138,16 +211,9 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
             tokenId = uint256(
                 keccak256(
                     abi.encodePacked(
-                        ++_mintNonce,
-                        block.chainid,
-                        to,
-                        routeId,
-                        validUntilEpoch,
-                        operatorAddr,
-                        msg.sender,
-                        block.timestamp,
-                        block.prevrandao,
-                        attempt
+                        ++_mintNonce, block.chainid, to, routeId,
+                        validUntilEpoch, operatorAddr, msg.sender,
+                        block.timestamp, block.prevrandao, attempt
                     )
                 )
             );
@@ -164,49 +230,58 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         returns (uint256 tokenId)
     {
         tokenId = _allocateTokenId(to, routeId, validUntilEpoch, operatorAddr);
-        routeOf[tokenId] = routeId;
+        routeOf[tokenId]    = routeId;
         validUntil[tokenId] = validUntilEpoch;
         operatorOf[tokenId] = operatorAddr;
         _safeMint(to, tokenId);
-        unchecked {
-            ++totalMinted;
-        }
+        unchecked { ++totalMinted; }
         emit TicketMinted(to, tokenId, routeId, validUntilEpoch, operatorAddr);
     }
 
-    /// @notice Burn after validation. Only `BURNER_ROLE`.
-    /// @param expectedHolder Must match current owner (passenger wallet from signed QR).
-    function burnTicket(uint256 tokenId, uint256 expectedRouteId, address expectedHolder) external onlyRole(BURNER_ROLE) {
-        address from = _ownerOf(tokenId);
-        uint256 route = routeOf[tokenId];
-        uint64 until = validUntil[tokenId];
+    // ─── Burning ──────────────────────────────────────────────────────────────
 
-        if (block.timestamp > uint256(until)) {
-            revert TicketExpired(tokenId, until, block.timestamp);
-        }
-        if (route != expectedRouteId) {
-            revert RouteMismatch(tokenId, expectedRouteId, route);
-        }
-        if (from != expectedHolder) {
-            revert HolderMismatch(tokenId, expectedHolder, from);
-        }
+    /// @notice Validate and burn a ticket at the gate. Only `BURNER_ROLE`.
+    function burnTicket(uint256 tokenId, uint256 expectedRouteId, address expectedHolder)
+        external
+        onlyRole(BURNER_ROLE)
+    {
+        address from  = _requireOwned(tokenId);
+        uint256 route = routeOf[tokenId];
+        uint64  until = validUntil[tokenId];
+
+        if (block.timestamp >= uint256(until)) revert TicketExpired(tokenId, until, block.timestamp);
+        if (route != expectedRouteId)          revert RouteMismatch(tokenId, expectedRouteId, route);
+        if (from  != expectedHolder)           revert HolderMismatch(tokenId, expectedHolder, from);
 
         delete routeOf[tokenId];
         delete validUntil[tokenId];
         delete operatorOf[tokenId];
         _burn(tokenId);
-        unchecked {
-            ++totalBurned;
-        }
+        unchecked { ++totalBurned; }
         emit TicketBurned(from, tokenId, route);
     }
 
-    /// @dev Soulbound: disallow transfers between two non-zero addresses (mint and burn allowed).
-    function _update(address to, uint256 tokenId, address auth) internal virtual override returns (address) {
+    // ─── Soulbound ────────────────────────────────────────────────────────────
+
+    /// @dev Disallow transfers between two non-zero addresses (mint and burn allowed).
+    function _update(address to, uint256 tokenId, address auth)
+        internal
+        virtual
+        override
+        returns (address)
+    {
         address from = _ownerOf(tokenId);
-        if (from != address(0) && to != address(0)) {
-            revert SoulboundTransfer();
-        }
+        if (from != address(0) && to != address(0)) revert SoulboundTransfer();
         return super._update(to, tokenId, auth);
+    }
+
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(ERC721Enumerable, AccessControl)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
     }
 }
