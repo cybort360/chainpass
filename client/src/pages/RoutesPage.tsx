@@ -229,36 +229,6 @@ export function RoutesPage() {
     query: { enabled: !!contractAddress },
   })
 
-  // Per-route effective Economy price via multicall (ticketPrice resolves override → global)
-  const routePriceCalls = useMemo(
-    () =>
-      rows.map((r) => ({
-        address: contractAddress as `0x${string}`,
-        abi: chainPassTicketAbi,
-        functionName: "ticketPrice" as const,
-        args: [BigInt(r.routeId), 0] as [bigint, number],
-      })),
-    [rows, contractAddress],
-  )
-  const { data: routePriceResults } = useReadContracts({
-    contracts: routePriceCalls,
-    query: { enabled: !!contractAddress && rows.length > 0 },
-  })
-
-  // Map routeId → resolved MON price in wei
-  const routePriceMap = useMemo(() => {
-    const m = new Map<string, bigint>()
-    if (!routePriceResults) return m
-    rows.forEach((r, i) => {
-      const res = routePriceResults[i]
-      if (res?.status === "success" && res.result) {
-        const [mon] = res.result as [bigint, bigint]
-        m.set(r.routeId, mon)
-      }
-    })
-    return m
-  }, [routePriceResults, rows])
-
   useEffect(() => {
     void fetchRouteLabels().then(setApiLabels)
   }, [])
@@ -288,6 +258,36 @@ export function RoutesPage() {
       return cmp < 0n ? -1 : cmp > 0n ? 1 : 0
     })
   }, [apiLabels])
+
+  // Per-route effective Economy price via multicall (ticketPrice resolves override → global)
+  const routePriceCalls = useMemo(
+    () =>
+      rows.map((r) => ({
+        address: contractAddress as `0x${string}`,
+        abi: chainPassTicketAbi,
+        functionName: "ticketPrice" as const,
+        args: [BigInt(r.routeId), 0] as [bigint, number],
+      })),
+    [rows, contractAddress],
+  )
+  const { data: routePriceResults } = useReadContracts({
+    contracts: routePriceCalls,
+    query: { enabled: !!contractAddress && rows.length > 0 },
+  })
+
+  // Map routeId → resolved MON price in wei
+  const routePriceMap = useMemo(() => {
+    const m = new Map<string, bigint>()
+    if (!routePriceResults) return m
+    rows.forEach((r, i) => {
+      const res = routePriceResults[i]
+      if (res?.status === "success" && res.result) {
+        const [mon] = res.result as [bigint, bigint]
+        m.set(r.routeId, mon)
+      }
+    })
+    return m
+  }, [routePriceResults, rows])
 
   const categories = useMemo(() => {
     const cats = Array.from(new Set(rows.map((r) => r.category))).sort()
