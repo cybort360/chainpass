@@ -213,10 +213,36 @@ async function catchUpOnce(): Promise<void> {
   }
 }
 
+/** One-time backfill: fetch tx.value for mint rows where payment_wei is NULL. */
+async function backfillPaymentWei(): Promise<void> {
+  const { rows } = await pool.query<{ tx_hash: string }>(
+    `SELECT DISTINCT tx_hash FROM ticket_events WHERE event_type = 'mint' AND payment_wei IS NULL LIMIT 500`,
+  );
+  if (rows.length === 0) return;
+  console.log(`[chainpass-indexer] backfilling payment_wei for ${rows.length} mint tx(s)…`);
+  let filled = 0;
+  for (const row of rows) {
+    try {
+      const tx = await client.getTransaction({ hash: row.tx_hash as `0x${string}` });
+      const wei = tx.value > 0n ? tx.value.toString() : "0";
+      await pool.query(
+        `UPDATE ticket_events SET payment_wei = $1 WHERE tx_hash = $2 AND event_type = 'mint' AND payment_wei IS NULL`,
+        [wei, row.tx_hash],
+      );
+      filled++;
+    } catch {
+      // Non-fatal: skip this tx
+    }
+  }
+  console.log(`[chainpass-indexer] backfill complete: ${filled}/${rows.length} updated`);
+}
+
 async function main(): Promise<void> {
   console.log(
     `[chainpass-indexer] contract=${cfg.ticketContractAddress} initial fromBlock=${cfg.fromBlock} (empty table uses this; else max(block)+1)`,
   );
+
+  await backfillPaymentWei();
 
   let lastHeartbeat = 0;
   const heartbeatMs = 45_000;
