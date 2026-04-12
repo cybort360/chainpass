@@ -189,30 +189,33 @@ export function RoutePurchasePage() {
     : null
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  const validUntilEpoch = BigInt(Math.floor(Date.now() / 1000) + 86400 * 7)
-
   const onPayMon = async () => {
     if (!address || priceWei === undefined || !contractAddress || !publicClient) return
     resetMon()
     setMintProgress({ done: 0, total: quantity })
     setMintedTokenIds([])
-    const ids: bigint[] = []
     try {
-      for (let i = 0; i < quantity; i++) {
-        const hash = await writeMonAsync({
-          address: contractAddress,
-          abi: chainPassTicketAbi,
-          functionName: "purchaseTicket",
-          args: [routeIdBig!, BigInt(Math.floor(Date.now() / 1000) + 86400 * 7), env.defaultOperator],
-          value: priceWei,
-        })
-        const receipt = await publicClient.waitForTransactionReceipt({ hash })
-        const tokenId = extractMintedTokenIdFromReceipt(receipt.logs, contractAddress)
-        if (tokenId !== null) ids.push(tokenId)
-        setMintProgress({ done: i + 1, total: quantity })
+      const validUntil = BigInt(Math.floor(Date.now() / 1000) + 86400 * 7)
+      const hash = await writeMonAsync({
+        address: contractAddress,
+        abi: chainPassTicketAbi,
+        functionName: quantity === 1 ? "purchaseTicket" : "batchPurchaseTicket",
+        args: quantity === 1
+          ? [routeIdBig!, validUntil, env.defaultOperator]
+          : [routeIdBig!, validUntil, env.defaultOperator, BigInt(quantity)],
+        value: priceWei * BigInt(quantity),
+      })
+      setMintProgress({ done: 1, total: quantity })
+      const receipt = await publicClient.waitForTransactionReceipt({ hash })
+      setMintProgress({ done: quantity, total: quantity })
+      // Extract all minted token IDs from the batch receipt logs
+      const ids: bigint[] = []
+      for (const log of receipt.logs) {
+        const id = extractMintedTokenIdFromReceipt([log], contractAddress)
+        if (id !== null) ids.push(id)
       }
+      setMintedTokenIds(ids.length > 0 ? ids : [])
     } finally {
-      setMintedTokenIds(ids)
       setMintProgress(null)
     }
   }
@@ -231,11 +234,14 @@ export function RoutePurchasePage() {
   const onPayUsdc = () => {
     if (!contractAddress) return
     resetUsdc()
+    const validUntil = BigInt(Math.floor(Date.now() / 1000) + 86400 * 7)
     writeUsdcPurchase({
       address: contractAddress,
       abi: chainPassTicketAbi,
-      functionName: "purchaseTicketWithUSDC",
-      args: [routeIdBig!, validUntilEpoch, env.defaultOperator],
+      functionName: quantity === 1 ? "purchaseTicketWithUSDC" : "batchPurchaseTicketWithUSDC",
+      args: quantity === 1
+        ? [routeIdBig!, validUntil, env.defaultOperator]
+        : [routeIdBig!, validUntil, env.defaultOperator, BigInt(quantity)],
     })
   }
 

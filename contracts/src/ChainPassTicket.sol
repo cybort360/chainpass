@@ -76,6 +76,7 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     error TokenIdAllocationFailed();
     error UsdcNotConfigured();
     error UsdcTransferFailed();
+    error InvalidQuantity();
 
     // ─── Events ───────────────────────────────────────────────────────────────
 
@@ -181,6 +182,36 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         }
     }
 
+    /// @notice Buy multiple tickets at once with native MON; one signature, total price charged.
+    /// @param qty Number of tickets (1–20).
+    function batchPurchaseTicket(uint256 routeId, uint64 validUntilEpoch, address operatorAddr, uint256 qty)
+        external
+        payable
+        returns (uint256[] memory tokenIds)
+    {
+        if (qty == 0 || qty > 20) revert InvalidQuantity();
+
+        uint256 unitPrice = routeMintPriceWei[routeId];
+        if (unitPrice == 0) unitPrice = mintPriceWei;
+
+        uint256 totalRequired = unitPrice * qty;
+        if (msg.value < totalRequired) revert InsufficientPayment(msg.value, totalRequired);
+
+        tokenIds = new uint256[](qty);
+        for (uint256 i = 0; i < qty; ++i) {
+            tokenIds[i] = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr);
+        }
+
+        (bool ok,) = treasury.call{value: totalRequired}("");
+        if (!ok) revert TreasuryTransferFailed();
+
+        uint256 excess = msg.value - totalRequired;
+        if (excess > 0) {
+            (bool refundOk,) = msg.sender.call{value: excess}("");
+            if (!refundOk) revert ExcessRefundFailed();
+        }
+    }
+
     /// @notice Buy a ticket paying with `usdcToken`. Caller must pre-approve this contract.
     ///         `usdcToken` and a non-zero USDC price must be configured by an admin first.
     function purchaseTicketWithUSDC(uint256 routeId, uint64 validUntilEpoch, address operatorAddr)
@@ -199,6 +230,31 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
         if (!ok) revert UsdcTransferFailed();
 
         tokenId = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr);
+    }
+
+    /// @notice Buy multiple tickets at once with USDC; caller must pre-approve total amount.
+    /// @param qty Number of tickets (1–20).
+    function batchPurchaseTicketWithUSDC(uint256 routeId, uint64 validUntilEpoch, address operatorAddr, uint256 qty)
+        external
+        returns (uint256[] memory tokenIds)
+    {
+        if (qty == 0 || qty > 20) revert InvalidQuantity();
+
+        address token = usdcToken;
+        if (token == address(0)) revert UsdcNotConfigured();
+
+        uint256 unitPrice = routeMintPriceUsdc[routeId];
+        if (unitPrice == 0) unitPrice = mintPriceUsdc;
+        if (unitPrice == 0) revert UsdcNotConfigured();
+
+        uint256 totalRequired = unitPrice * qty;
+        bool ok = IERC20Minimal(token).transferFrom(msg.sender, treasury, totalRequired);
+        if (!ok) revert UsdcTransferFailed();
+
+        tokenIds = new uint256[](qty);
+        for (uint256 i = 0; i < qty; ++i) {
+            tokenIds[i] = _mintTicket(msg.sender, routeId, validUntilEpoch, operatorAddr);
+        }
     }
 
     // ─── Internal helpers ─────────────────────────────────────────────────────
