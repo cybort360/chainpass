@@ -1,7 +1,6 @@
 import { Buffer } from "buffer"
 if (typeof window !== "undefined") {
-  // @ts-expect-error polyfill
-  window.Buffer = window.Buffer ?? Buffer
+  (window as unknown as Record<string, unknown>).Buffer ??= Buffer
 }
 
 import { StrictMode } from "react"
