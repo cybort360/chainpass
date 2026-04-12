@@ -68,13 +68,13 @@ export function PassPage() {
   try { tokenId = BigInt(tokenIdStr ?? "0") }
   catch { tokenId = 0n }
 
-  // Poll every 3s so we detect the burn immediately when conductor scans
+  // Poll every 1s — matches Monad's ~1s block time so burn is detected within ~2s
   const { data: owner, error: ownerError } = useReadContract({
     address: contractAddress,
     abi: chainPassTicketAbi,
     functionName: "ownerOf",
     args: [tokenId],
-    query: { enabled: !!contractAddress && !!tokenIdStr, refetchInterval: 3_000 },
+    query: { enabled: !!contractAddress && !!tokenIdStr, refetchInterval: 1_000 },
   })
 
   const { data: routeId } = useReadContract({
