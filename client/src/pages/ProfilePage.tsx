@@ -6,7 +6,7 @@ import { monadTestnet, chainPassTicketAbi } from "@chainpass/shared"
 import { fetchMyPasses, fetchRouteLabels, type MyPassesResponse } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
-import { fetchActivePassesFromChain } from "../lib/onchainPasses"
+import { fetchActivePassesFromChain, fetchBurnedPassesFromChain } from "../lib/onchainPasses"
 import { routeMetaForRouteId, shortenNumericId } from "../lib/passDisplay"
 import { isExpiringSoon } from "../lib/passDisplay"
 import { extractMintedTokenIdFromReceipt } from "../lib/tx"
@@ -161,7 +161,10 @@ export function ProfilePage() {
       const used = api?.used ?? []
 
       if (ticket && publicClient) {
-        const chainActive = await fetchActivePassesFromChain(publicClient, ticket, address)
+        const [chainActive, chainBurned] = await Promise.all([
+          fetchActivePassesFromChain(publicClient, ticket, address),
+          fetchBurnedPassesFromChain(publicClient, ticket, address),
+        ])
         if (chainActive === null) {
           setErr("Could not read NFTs from the chain (RPC error). Check your connection.")
           setData({ holder: address, active: [], used })
@@ -174,8 +177,13 @@ export function ProfilePage() {
           const expired = chainActive.filter(
             (p) => p.valid_until_epoch !== null && Number(p.valid_until_epoch) <= now
           )
+          // Merge chain burns with API burns — chain is source of truth, API fills any gaps
+          const mergedUsed = [
+            ...chainBurned,
+            ...used.filter((a) => !chainBurned.some((c) => c.token_id === a.token_id)),
+          ]
           setErr(null)
-          setData({ holder: address, active: activeOnly, used })
+          setData({ holder: address, active: activeOnly, used: mergedUsed })
           setExpiredPasses(expired)
         }
       } else {

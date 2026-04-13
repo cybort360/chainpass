@@ -4,6 +4,7 @@ import { AppLayout } from "./layouts/AppLayout"
 import { RoutesPage } from "./pages/RoutesPage"
 import { RoutePurchasePage } from "./pages/RoutePurchasePage"
 import { PassPage } from "./pages/PassPage"
+import { AdminPage } from "./pages/AdminPage"
 import { ConductorPage } from "./pages/ConductorPage"
 import { OperatorPage } from "./pages/OperatorPage"
 import { ProfilePage } from "./pages/ProfilePage"
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="profile" element={<ProfilePage />} />
         <Route path="conductor" element={<ConductorPage />} />
         <Route path="operator" element={<OperatorPage />} />
+        <Route path="admin" element={<AdminPage />} />
       </Route>
     </Routes>
   )

@@ -84,6 +84,15 @@ function OpsIcon({ active }: { active: boolean }) {
   )
 }
 
+function AdminIcon({ active }: { active: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  )
+}
+
 const walletPurpleBtn =
   "btn-primary-gradient border border-white/20 font-headline text-sm font-medium text-white transition-[filter] hover:brightness-[1.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-low disabled:cursor-not-allowed disabled:opacity-55"
 
@@ -338,6 +347,7 @@ const allBottomTabs = [
   { to: "/profile",  label: "Passes", Icon: PassesIcon, end: false, gate: false, ops: false },
   { to: "/conductor",label: "Gate",   Icon: GateIcon,   end: false, gate: true,  ops: false },
   { to: "/operator", label: "Ops",    Icon: OpsIcon,    end: false, gate: false, ops: true  },
+  { to: "/admin",    label: "Admin",  Icon: AdminIcon,  end: false, gate: false, ops: true  },
 ]
 
 function BottomNav({ showGate, showOps }: { showGate: boolean; showOps: boolean }) {
@@ -404,6 +414,7 @@ export function AppLayout() {
             <NavLink to="/profile" className={desktopNavLink}>My Passes</NavLink>
             {showGate && <NavLink to="/conductor" className={desktopNavLink}>Gate</NavLink>}
             {showOps && <NavLink to="/operator" className={desktopNavLink}>Operations</NavLink>}
+            {showOps && <NavLink to="/admin" className={desktopNavLink}>Admin</NavLink>}
           </nav>
 
           {/* Wallet */}

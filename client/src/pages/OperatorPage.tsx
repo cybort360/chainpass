@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { formatEther } from "viem"
 import { useReadContract } from "wagmi"
 import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
@@ -76,7 +76,52 @@ function fillBuckets(serverBuckets: TimeseriesBucket[], period: Period): FilledB
 
 // ─── SVG Bar Chart ───────────────────────────────────────────────────────────
 
+type TooltipState = { x: number; y: number; bucket: FilledBucket } | null
+
+function ChartTooltip({ tooltip, type }: { tooltip: TooltipState; type: "activity" | "revenue" }) {
+  if (!tooltip) return null
+  const { x, y, bucket } = tooltip
+  return (
+    <div
+      className="pointer-events-none absolute z-20 min-w-[120px] rounded-xl border border-outline-variant/30 bg-surface-container-highest px-3 py-2 shadow-lg"
+      style={{ left: x, top: y, transform: "translate(-50%, -110%)" }}
+    >
+      <p className="mb-1.5 font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+        {bucket.label}
+      </p>
+      {type === "activity" ? (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1 text-[11px] text-on-surface-variant">
+              <span className="h-2 w-2 rounded-sm bg-primary/80" />Mints
+            </span>
+            <span className="font-headline text-xs font-bold text-white">{bucket.mints}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex items-center gap-1 text-[11px] text-on-surface-variant">
+              <span className="h-2 w-2 rounded-sm bg-error/80" />Burns
+            </span>
+            <span className="font-headline text-xs font-bold text-white">{bucket.burns}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-3">
+          <span className="flex items-center gap-1 text-[11px] text-on-surface-variant">
+            <span className="h-2 w-2 rounded-sm bg-emerald-400/80" />MON
+          </span>
+          <span className="font-headline text-xs font-bold text-emerald-400">
+            {bucket.inflowWei === 0n ? "0" : Number(formatEther(bucket.inflowWei)).toLocaleString(undefined, { maximumFractionDigits: 4 })}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ActivityChart({ buckets }: { buckets: FilledBucket[] }) {
+  const [tooltip, setTooltip] = useState<TooltipState>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+
   const maxVal = Math.max(1, ...buckets.map((b) => Math.max(b.mints, b.burns)))
   const W = 600
   const H = 160
@@ -91,43 +136,65 @@ function ActivityChart({ buckets }: { buckets: FilledBucket[] }) {
   const barW = Math.max(3, Math.min(18, groupW * 0.38))
   const showEveryNth = Math.ceil(n / 8)
 
+  function svgXToPercent(svgX: number) {
+    return (svgX / W) * 100
+  }
+
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full select-none" aria-label="Activity chart">
-      {[0, 0.5, 1].map((t) => {
-        const y = PAD_T + chartH * (1 - t)
-        return (
-          <g key={t}>
-            <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y}
-              stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-            <text x={PAD_L - 4} y={y + 4} fontSize="8" textAnchor="end"
-              fill="rgba(255,255,255,0.25)">{Math.round(maxVal * t)}</text>
-          </g>
-        )
-      })}
-      <line x1={PAD_L} x2={W - PAD_R} y1={PAD_T + chartH} y2={PAD_T + chartH}
-        stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-      {buckets.map((b, i) => {
-        const cx = PAD_L + (i + 0.5) * groupW
-        const mintH = Math.max(b.mints > 0 ? 2 : 0, (b.mints / maxVal) * chartH)
-        const burnH = Math.max(b.burns > 0 ? 2 : 0, (b.burns / maxVal) * chartH)
-        return (
-          <g key={b.key}>
-            <rect x={cx - barW - 1} y={PAD_T + chartH - mintH}
-              width={barW} height={mintH} fill="rgba(110,84,255,0.8)" rx="2" />
-            <rect x={cx + 1} y={PAD_T + chartH - burnH}
-              width={barW} height={burnH} fill="rgba(220,60,60,0.8)" rx="2" />
-            {i % showEveryNth === 0 && (
-              <text x={cx} y={H - 6} fontSize="7" textAnchor="middle"
-                fill="rgba(255,255,255,0.3)">{b.label}</text>
-            )}
-          </g>
-        )
-      })}
-    </svg>
+    <div className="relative">
+      <ChartTooltip tooltip={tooltip} type="activity" />
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full select-none" aria-label="Activity chart"
+        onMouseLeave={() => setTooltip(null)}>
+        {[0, 0.5, 1].map((t) => {
+          const y = PAD_T + chartH * (1 - t)
+          return (
+            <g key={t}>
+              <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y}
+                stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+              <text x={PAD_L - 4} y={y + 4} fontSize="8" textAnchor="end"
+                fill="rgba(255,255,255,0.25)">{Math.round(maxVal * t)}</text>
+            </g>
+          )
+        })}
+        <line x1={PAD_L} x2={W - PAD_R} y1={PAD_T + chartH} y2={PAD_T + chartH}
+          stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+        {buckets.map((b, i) => {
+          const cx = PAD_L + (i + 0.5) * groupW
+          const mintH = Math.max(b.mints > 0 ? 2 : 0, (b.mints / maxVal) * chartH)
+          const burnH = Math.max(b.burns > 0 ? 2 : 0, (b.burns / maxVal) * chartH)
+          const hoverH = Math.max(mintH, burnH, 8)
+          return (
+            <g key={b.key}
+              onMouseEnter={(e) => {
+                const rect = svgRef.current?.getBoundingClientRect()
+                if (!rect) return
+                setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top, bucket: b })
+              }}
+              style={{ cursor: "default" }}
+            >
+              {/* invisible hover zone */}
+              <rect x={cx - barW - 4} y={PAD_T + chartH - hoverH} width={barW * 2 + 8} height={hoverH}
+                fill="transparent" />
+              <rect x={cx - barW - 1} y={PAD_T + chartH - mintH}
+                width={barW} height={mintH} fill="rgba(110,84,255,0.8)" rx="2" />
+              <rect x={cx + 1} y={PAD_T + chartH - burnH}
+                width={barW} height={burnH} fill="rgba(220,60,60,0.8)" rx="2" />
+              {i % showEveryNth === 0 && (
+                <text x={cx} y={H - 6} fontSize="7" textAnchor="middle"
+                  fill="rgba(255,255,255,0.3)">{b.label}</text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
   )
 }
 
 function RevenueChart({ buckets }: { buckets: FilledBucket[] }) {
+  const [tooltip, setTooltip] = useState<TooltipState>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+
   const maxWei = buckets.reduce((m, b) => b.inflowWei > m ? b.inflowWei : m, 1n)
   const maxNum = Number(maxWei)
   const W = 600
@@ -150,36 +217,50 @@ function RevenueChart({ buckets }: { buckets: FilledBucket[] }) {
   }
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full select-none" aria-label="Revenue chart">
-      {[0, 0.5, 1].map((t) => {
-        const y = PAD_T + chartH * (1 - t)
-        const weiVal = BigInt(Math.round(maxNum * t))
-        return (
-          <g key={t}>
-            <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y}
-              stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
-            <text x={PAD_L - 4} y={y + 4} fontSize="7.5" textAnchor="end"
-              fill="rgba(255,255,255,0.25)">{fmtWeiShort(weiVal)}</text>
-          </g>
-        )
-      })}
-      <line x1={PAD_L} x2={W - PAD_R} y1={PAD_T + chartH} y2={PAD_T + chartH}
-        stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-      {buckets.map((b, i) => {
-        const cx = PAD_L + (i + 0.5) * (chartW / n)
-        const h = maxNum > 0 ? Math.max(b.inflowWei > 0n ? 2 : 0, (Number(b.inflowWei) / maxNum) * chartH) : 0
-        return (
-          <g key={b.key}>
-            <rect x={cx - barW / 2} y={PAD_T + chartH - h}
-              width={barW} height={h} fill="rgba(0,200,170,0.75)" rx="2" />
-            {i % showEveryNth === 0 && (
-              <text x={cx} y={H - 6} fontSize="7" textAnchor="middle"
-                fill="rgba(255,255,255,0.3)">{b.label}</text>
-            )}
-          </g>
-        )
-      })}
-    </svg>
+    <div className="relative">
+      <ChartTooltip tooltip={tooltip} type="revenue" />
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} className="w-full select-none" aria-label="Revenue chart"
+        onMouseLeave={() => setTooltip(null)}>
+        {[0, 0.5, 1].map((t) => {
+          const y = PAD_T + chartH * (1 - t)
+          const weiVal = BigInt(Math.round(maxNum * t))
+          return (
+            <g key={t}>
+              <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y}
+                stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+              <text x={PAD_L - 4} y={y + 4} fontSize="7.5" textAnchor="end"
+                fill="rgba(255,255,255,0.25)">{fmtWeiShort(weiVal)}</text>
+            </g>
+          )
+        })}
+        <line x1={PAD_L} x2={W - PAD_R} y1={PAD_T + chartH} y2={PAD_T + chartH}
+          stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+        {buckets.map((b, i) => {
+          const cx = PAD_L + (i + 0.5) * (chartW / n)
+          const h = maxNum > 0 ? Math.max(b.inflowWei > 0n ? 2 : 0, (Number(b.inflowWei) / maxNum) * chartH) : 0
+          return (
+            <g key={b.key}
+              onMouseEnter={(e) => {
+                const rect = svgRef.current?.getBoundingClientRect()
+                if (!rect) return
+                setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top, bucket: b })
+              }}
+              style={{ cursor: "default" }}
+            >
+              {/* invisible hover zone */}
+              <rect x={cx - barW / 2 - 4} y={PAD_T} width={barW + 8} height={chartH}
+                fill="transparent" />
+              <rect x={cx - barW / 2} y={PAD_T + chartH - h}
+                width={barW} height={h} fill="rgba(0,200,170,0.75)" rx="2" />
+              {i % showEveryNth === 0 && (
+                <text x={cx} y={H - 6} fontSize="7" textAnchor="middle"
+                  fill="rgba(255,255,255,0.3)">{b.label}</text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
   )
 }
 
