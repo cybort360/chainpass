@@ -20,7 +20,9 @@ import { DEMO_ROUTES } from "../constants/demoRoutes"
 const REFETCH_MS = 8000
 const explorerTxBase = `${monadTestnet.blockExplorers.default.url}/tx`
 
-type TabId = "active" | "used" | "history"
+type TabId = "active" | "history"
+
+const HISTORY_PAGE_SIZE = 10
 
 function formatEpoch(epoch: string | number | null | undefined): string {
   if (!epoch) return "—"
@@ -59,6 +61,7 @@ export function ProfilePage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [tab, setTab] = useState<TabId>("active")
+  const [historyPage, setHistoryPage] = useState(0)
 
   // ── Notifications ─────────────────────────────────────────────────────────
   const { permission: notifPermission, requestPermission, scheduleExpiryNotification } = useNotifications()
@@ -230,6 +233,18 @@ export function ProfilePage() {
   const activeCount = data?.active.length ?? 0
   const usedCount = data?.used.length ?? 0
   const historyCount = expiredPasses.length + usedCount
+
+  // Combined history list: expired (still held) first, then burned — newest burned first
+  const historyItems = useMemo(() => [
+    ...expiredPasses.map((p) => ({ type: "expired" as const, data: p })),
+    ...(data?.used ?? []).map((p) => ({ type: "burned" as const, data: p })),
+  ], [expiredPasses, data?.used])
+
+  const historyPageCount = Math.max(1, Math.ceil(historyItems.length / HISTORY_PAGE_SIZE))
+  const historySlice = historyItems.slice(
+    historyPage * HISTORY_PAGE_SIZE,
+    (historyPage + 1) * HISTORY_PAGE_SIZE,
+  )
 
   return (
     <div className="mx-auto max-w-lg">
@@ -403,9 +418,8 @@ export function ProfilePage() {
         {([
           { id: "active" as TabId,  label: "Active",  count: activeCount  },
           { id: "history" as TabId, label: "History", count: historyCount },
-          { id: "used" as TabId,    label: "Burned",  count: usedCount    },
         ] as const).map((t) => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id)}
+          <button key={t.id} type="button" onClick={() => { setTab(t.id); setHistoryPage(0) }}
             className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2 font-headline text-sm font-semibold transition-all ${
               tab === t.id
                 ? "bg-surface-container-highest text-white shadow-sm"
@@ -526,7 +540,7 @@ export function ProfilePage() {
         </>
       )}
 
-      {/* History tab — expired (still held) + burned */}
+      {/* History tab — expired (still held) + burned, paginated */}
       {!loading && tab === "history" && (
         <>
           {historyCount === 0 ? (
@@ -542,248 +556,143 @@ export function ProfilePage() {
               <p className="mt-1 text-xs text-on-surface-variant/60">Expired and burned tickets will appear here.</p>
             </div>
           ) : (
-            <div className="relative">
-              {/* Vertical timeline line */}
-              <div className="absolute left-[19px] top-3 bottom-3 w-px bg-outline-variant/20" aria-hidden />
-              <ul className="space-y-3 pl-0">
-                {/* Expired-but-still-held passes */}
-                {expiredPasses.map((row) => {
-                  const meta = routeMetaForRouteId(row.route_id ?? undefined)
-                  const routeName = meta?.name ?? (row.route_id ? `Route ${shortenNumericId(row.route_id)}` : "Transit pass")
-                  const expiredDate = row.valid_until_epoch
-                    ? new Date(Number(row.valid_until_epoch) * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-                    : null
-                  return (
-                    <li key={`exp-${row.token_id}`} className="relative flex gap-4">
-                      <div className="relative z-10 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-outline-variant/20 bg-surface-container">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-                          className="text-error/70" aria-hidden>
-                          <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-                        </svg>
-                      </div>
-                      <div className="flex-1 overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-low/50 pb-3">
-                        <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2">
-                          <p className="truncate font-headline text-sm font-semibold text-on-surface-variant">{routeName}</p>
-                          <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-error/25 bg-error/8 px-2.5 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-error/80">
-                            Expired
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-3 divide-x divide-outline-variant/10 border-t border-outline-variant/10 px-1 text-center">
-                          <div className="px-3 py-2">
-                            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Class</p>
-                            <p className={`mt-0.5 font-headline text-xs font-semibold ${row.seat_class === "Business" ? "text-amber-400/80" : "text-on-surface-variant/70"}`}>
-                              {row.seat_class ?? "Economy"}
-                            </p>
-                          </div>
-                          <div className="px-3 py-2">
-                            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Expired</p>
-                            <p className="mt-0.5 font-headline text-xs font-semibold text-on-surface-variant/70">{expiredDate ?? "—"}</p>
-                          </div>
-                          <div className="px-3 py-2">
-                            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Token</p>
-                            <p className="mt-0.5 font-mono text-xs text-on-surface-variant/70">#{shortenNumericId(row.token_id)}</p>
-                          </div>
-                        </div>
-                      </div>
-                    </li>
-                  )
-                })}
-
-                {/* Burned passes */}
-                {(data?.used ?? []).map((row) => {
-                  const meta = routeMetaForRouteId(row.route_id ?? undefined)
-                  const routeName = meta?.name ?? (row.route_id ? `Route ${shortenNumericId(row.route_id)}` : "Transit pass")
-                  const burnedDate = row.created_at
-                    ? new Date(row.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-                    : null
-                  return (
-                    <li key={`bur-${row.id}-${row.tx_hash}`} className="relative flex gap-4">
-                      <div className="relative z-10 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-tertiary/20 bg-surface-container">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                          className="text-tertiary/70" aria-hidden>
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </div>
-                      <div className="flex-1 overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-low/50 pb-3">
-                        <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2">
-                          <p className="truncate font-headline text-sm font-semibold text-on-surface-variant">{routeName}</p>
-                          <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-outline-variant/20 bg-surface-container px-2.5 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">
-                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                              <polyline points="3 6 5 6 21 6" />
-                              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                              <path d="M10 11v6M14 11v6" />
-                            </svg>
-                            Burned
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-3 divide-x divide-outline-variant/10 border-t border-outline-variant/10 px-1 text-center">
-                          <div className="px-3 py-2">
-                            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Class</p>
-                            <p className={`mt-0.5 font-headline text-xs font-semibold ${row.seat_class === "Business" ? "text-amber-400/80" : "text-on-surface-variant/70"}`}>
-                              {row.seat_class ?? "Economy"}
-                            </p>
-                          </div>
-                          <div className="px-3 py-2">
-                            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Used</p>
-                            <p className="mt-0.5 font-headline text-xs font-semibold text-on-surface-variant/70">{burnedDate ?? "—"}</p>
-                          </div>
-                          <div className="px-3 py-2">
-                            {row.tx_hash ? (
-                              <a href={`${explorerTxBase}/${row.tx_hash}`} target="_blank" rel="noreferrer"
-                                className="font-headline text-xs text-primary/70 hover:text-primary">
-                                Tx ↗
-                              </a>
-                            ) : <span className="font-headline text-xs text-on-surface-variant/50">—</span>}
-                          </div>
-                        </div>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Used (burned) passes */}
-      {!loading && tab === "used" && data && (
-        <>
-          {data.used.length === 0 ? (
-            <div className="rounded-2xl border border-outline-variant/15 bg-surface-container py-12 text-center">
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-surface-container-high">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-                  className="text-on-surface-variant" aria-hidden>
-                  <circle cx="12" cy="12" r="10" />
-                  <polyline points="12 6 12 12 16 14" />
-                </svg>
-              </div>
-              <p className="font-headline text-sm font-medium text-on-surface-variant">No trip history yet</p>
-              <p className="mt-1 text-xs text-on-surface-variant/60">Burned tickets will appear here.</p>
-            </div>
-          ) : (
-            <ul className="space-y-3">
-              {data.used.map((row) => {
-                const meta = routeMetaForRouteId(row.route_id ?? undefined)
-                const routeName =
-                  meta?.name ??
-                  (row.route_id ? `Route ${shortenNumericId(row.route_id)}` : "Transit pass")
-                const burnedDate = row.created_at
-                  ? new Date(row.created_at).toLocaleDateString(undefined, {
-                      month: "short", day: "numeric", year: "numeric",
-                    })
-                  : null
-                const burnedTime = row.created_at
-                  ? new Date(row.created_at).toLocaleTimeString(undefined, {
-                      hour: "2-digit", minute: "2-digit",
-                    })
-                  : null
-                const validUntilDate = row.valid_until_epoch
-                  ? new Date(Number(row.valid_until_epoch) * 1000).toLocaleDateString(undefined, {
-                      month: "short", day: "numeric", year: "numeric",
-                    })
-                  : null
-
-                return (
-                  <li key={`u-${row.id}-${row.tx_hash}`}>
-                    <div className="overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-low/70">
-                      {/* Top strip — muted with burned badge */}
-                      <div className="flex items-center justify-between gap-3 border-b border-outline-variant/10 bg-surface-container-low px-4 py-3">
-                        <div className="flex min-w-0 items-center gap-2.5">
-                          {/* Bus icon — muted */}
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface-container">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            <>
+              <div className="relative">
+                {/* Vertical timeline line */}
+                <div className="absolute left-[19px] top-3 bottom-3 w-px bg-outline-variant/20" aria-hidden />
+                <ul className="space-y-3 pl-0">
+                  {historySlice.map((item) => {
+                    if (item.type === "expired") {
+                      const row = item.data
+                      const meta = routeMetaForRouteId(row.route_id ?? undefined)
+                      const routeName = meta?.name ?? (row.route_id ? `Route ${shortenNumericId(row.route_id)}` : "Transit pass")
+                      const expiredDate = row.valid_until_epoch
+                        ? new Date(Number(row.valid_until_epoch) * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                        : null
+                      return (
+                        <li key={`exp-${row.token_id}`} className="relative flex gap-4">
+                          <div className="relative z-10 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-outline-variant/20 bg-surface-container">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                               strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-                              className="text-on-surface-variant/50" aria-hidden>
-                              <rect x="1" y="7" width="22" height="11" rx="2" />
-                              <path d="M5 7V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v2" />
-                              <circle cx="7" cy="18" r="1.5" />
-                              <circle cx="17" cy="18" r="1.5" />
+                              className="text-error/70" aria-hidden>
+                              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
                             </svg>
                           </div>
-                          <p className="min-w-0 truncate font-headline text-sm font-semibold text-on-surface-variant">
-                            {routeName}
-                          </p>
-                        </div>
-                        <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-outline-variant/20 bg-surface-container px-2.5 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                            <path d="M10 11v6M14 11v6" />
+                          <div className="flex-1 overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-low/50 pb-3">
+                            <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2">
+                              <p className="truncate font-headline text-sm font-semibold text-on-surface-variant">{routeName}</p>
+                              <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-error/25 bg-error/8 px-2.5 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-error/80">
+                                Expired
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-3 divide-x divide-outline-variant/10 border-t border-outline-variant/10 px-1 text-center">
+                              <div className="px-3 py-2">
+                                <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Class</p>
+                                <p className={`mt-0.5 font-headline text-xs font-semibold ${row.seat_class === "Business" ? "text-amber-400/80" : "text-on-surface-variant/70"}`}>
+                                  {row.seat_class ?? "Economy"}
+                                </p>
+                              </div>
+                              <div className="px-3 py-2">
+                                <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Expired</p>
+                                <p className="mt-0.5 font-headline text-xs font-semibold text-on-surface-variant/70">{expiredDate ?? "—"}</p>
+                              </div>
+                              <div className="px-3 py-2">
+                                <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Token</p>
+                                <p className="mt-0.5 font-mono text-xs text-on-surface-variant/70">#{shortenNumericId(row.token_id)}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </li>
+                      )
+                    }
+
+                    // burned
+                    const row = item.data
+                    const meta = routeMetaForRouteId(row.route_id ?? undefined)
+                    const routeName = meta?.name ?? (row.route_id ? `Route ${shortenNumericId(row.route_id)}` : "Transit pass")
+                    const burnedDate = row.created_at
+                      ? new Date(row.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                      : null
+                    return (
+                      <li key={`bur-${row.id}-${row.tx_hash}`} className="relative flex gap-4">
+                        <div className="relative z-10 mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-tertiary/20 bg-surface-container">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                            className="text-tertiary/70" aria-hidden>
+                            <polyline points="20 6 9 17 4 12" />
                           </svg>
-                          Used
-                        </span>
-                      </div>
-
-                      {/* Detail grid */}
-                      <div className="grid grid-cols-2 gap-px bg-outline-variant/8 sm:grid-cols-4">
-                        {/* Date used */}
-                        <div className="bg-surface-container-low/70 px-4 py-3">
-                          <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">
-                            Date used
-                          </p>
-                          <p className="mt-1 font-headline text-xs font-semibold text-on-surface-variant">
-                            {burnedDate ?? "—"}
-                          </p>
-                          {burnedTime && (
-                            <p className="mt-0.5 font-mono text-[10px] text-on-surface-variant/50">
-                              {burnedTime}
-                            </p>
-                          )}
                         </div>
-
-                        {/* Category */}
-                        <div className="bg-surface-container-low/70 px-4 py-3">
-                          <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">
-                            Category
-                          </p>
-                          <p className="mt-1 font-headline text-xs font-semibold text-on-surface-variant">
-                            {meta?.category ?? "General"}
-                          </p>
+                        <div className="flex-1 overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-low/50 pb-3">
+                          <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2">
+                            <p className="truncate font-headline text-sm font-semibold text-on-surface-variant">{routeName}</p>
+                            <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-outline-variant/20 bg-surface-container px-2.5 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                              Used
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 divide-x divide-outline-variant/10 border-t border-outline-variant/10 px-1 text-center">
+                            <div className="px-3 py-2">
+                              <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Class</p>
+                              <p className={`mt-0.5 font-headline text-xs font-semibold ${row.seat_class === "Business" ? "text-amber-400/80" : "text-on-surface-variant/70"}`}>
+                                {row.seat_class ?? "Economy"}
+                              </p>
+                            </div>
+                            <div className="px-3 py-2">
+                              <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">Used</p>
+                              <p className="mt-0.5 font-headline text-xs font-semibold text-on-surface-variant/70">{burnedDate ?? "—"}</p>
+                            </div>
+                            <div className="px-3 py-2">
+                              {row.tx_hash ? (
+                                <a href={`${explorerTxBase}/${row.tx_hash}`} target="_blank" rel="noreferrer"
+                                  className="font-headline text-xs text-primary/70 hover:text-primary">
+                                  Tx ↗
+                                </a>
+                              ) : <span className="font-headline text-xs text-on-surface-variant/50">—</span>}
+                            </div>
+                          </div>
                         </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
 
-                        {/* Valid until */}
-                        <div className="bg-surface-container-low/70 px-4 py-3">
-                          <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">
-                            Was valid until
-                          </p>
-                          <p className="mt-1 font-headline text-xs font-semibold text-on-surface-variant">
-                            {validUntilDate ?? "—"}
-                          </p>
-                        </div>
-
-                        {/* Block */}
-                        <div className="bg-surface-container-low/70 px-4 py-3">
-                          <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/50">
-                            Block
-                          </p>
-                          <p className="mt-1 font-mono text-xs text-on-surface-variant">
-                            {row.block_number}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Footer — token id + tx link */}
-                      <div className="flex items-center justify-between border-t border-outline-variant/10 px-4 py-2.5">
-                        <p className="font-mono text-[10px] text-on-surface-variant/50"
-                          title={`Full token: ${row.token_id}`}>
-                          Token #{shortenNumericId(row.token_id)}
-                        </p>
-                        <a href={`${explorerTxBase}/${row.tx_hash}`} target="_blank" rel="noreferrer"
-                          className="font-headline text-xs font-semibold text-on-surface-variant/60 transition-colors hover:text-primary">
-                          View burn tx ↗
-                        </a>
-                      </div>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
+              {/* Pagination */}
+              {historyPageCount > 1 && (
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-outline-variant/15 bg-surface-container px-4 py-3">
+                  <button
+                    type="button"
+                    disabled={historyPage === 0}
+                    onClick={() => setHistoryPage((p) => p - 1)}
+                    className="flex items-center gap-1.5 font-headline text-xs font-semibold text-on-surface-variant transition-colors hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M19 12H5M12 5l-7 7 7 7" />
+                    </svg>
+                    Prev
+                  </button>
+                  <p className="font-headline text-xs text-on-surface-variant">
+                    Page {historyPage + 1} of {historyPageCount}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={historyPage >= historyPageCount - 1}
+                    onClick={() => setHistoryPage((p) => p + 1)}
+                    className="flex items-center gap-1.5 font-headline text-xs font-semibold text-on-surface-variant transition-colors hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    Next
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M5 12h14M12 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </>
       )}
