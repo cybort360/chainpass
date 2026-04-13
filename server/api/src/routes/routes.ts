@@ -34,8 +34,9 @@ export function createRoutesRouter(): Router {
         name: string;
         detail: string | null;
         category: string;
+        schedule: string | null;
       }>(
-        `SELECT route_id, name, detail, category FROM route_labels
+        `SELECT route_id, name, detail, category, schedule FROM route_labels
          ORDER BY category, route_id::numeric`,
       );
       res.json({
@@ -44,6 +45,7 @@ export function createRoutesRouter(): Router {
           name: row.name,
           detail: row.detail,
           category: row.category,
+          schedule: row.schedule,
         })),
       });
     } catch (err) {
@@ -76,6 +78,15 @@ export function createRoutesRouter(): Router {
           : typeof detailRaw === "string"
             ? detailRaw.trim() || null
             : undefined;
+    const scheduleRaw = body?.schedule;
+    const schedule =
+      scheduleRaw === undefined
+        ? undefined
+        : scheduleRaw === null
+          ? null
+          : typeof scheduleRaw === "string"
+            ? scheduleRaw.trim() || null
+            : undefined;
 
     if (name !== undefined && name.length > 100) {
       res.status(400).json({ error: "name must be 100 characters or fewer" });
@@ -89,6 +100,10 @@ export function createRoutesRouter(): Router {
       res.status(400).json({ error: "detail must be 200 characters or fewer" });
       return;
     }
+    if (schedule !== undefined && schedule !== null && schedule.length > 120) {
+      res.status(400).json({ error: "schedule must be 120 characters or fewer" });
+      return;
+    }
 
     // Build SET clause dynamically
     const sets: string[] = [];
@@ -96,6 +111,7 @@ export function createRoutesRouter(): Router {
     if (name !== undefined) { vals.push(name); sets.push(`name = $${vals.length}`); }
     if (category !== undefined) { vals.push(category); sets.push(`category = $${vals.length}`); }
     if (detail !== undefined) { vals.push(detail); sets.push(`detail = $${vals.length}`); }
+    if (schedule !== undefined) { vals.push(schedule); sets.push(`schedule = $${vals.length}`); }
 
     if (sets.length === 0) {
       res.status(400).json({ error: "no fields to update" });
@@ -108,15 +124,15 @@ export function createRoutesRouter(): Router {
     try {
       const pool = getPool();
       const result = await pool.query(
-        `UPDATE route_labels SET ${setClause} WHERE route_id = $${vals.length} RETURNING route_id, name, detail, category`,
+        `UPDATE route_labels SET ${setClause} WHERE route_id = $${vals.length} RETURNING route_id, name, detail, category, schedule`,
         vals,
       );
       if (result.rowCount === 0) {
         res.status(404).json({ error: "route not found" });
         return;
       }
-      const row = result.rows[0] as { route_id: string; name: string; detail: string | null; category: string };
-      res.json({ route: { routeId: row.route_id, name: row.name, detail: row.detail, category: row.category } });
+      const row = result.rows[0] as { route_id: string; name: string; detail: string | null; category: string; schedule: string | null };
+      res.json({ route: { routeId: row.route_id, name: row.name, detail: row.detail, category: row.category, schedule: row.schedule } });
     } catch (err) {
       console.error("[routes PUT]", err);
       res.status(500).json({ error: "failed to update route" });
@@ -169,6 +185,13 @@ export function createRoutesRouter(): Router {
         : typeof detailRaw === "string"
           ? detailRaw.trim() || null
           : null;
+    const schedulePostRaw = body?.schedule;
+    const schedulePost =
+      schedulePostRaw === undefined || schedulePostRaw === null
+        ? null
+        : typeof schedulePostRaw === "string"
+          ? schedulePostRaw.trim() || null
+          : null;
 
     const priceMonRaw = body?.priceMon;
     let priceMon: number | undefined;
@@ -210,13 +233,17 @@ export function createRoutesRouter(): Router {
       res.status(400).json({ error: "detail must be 200 characters or fewer" });
       return;
     }
+    if (schedulePost !== null && schedulePost.length > 120) {
+      res.status(400).json({ error: "schedule must be 120 characters or fewer" });
+      return;
+    }
 
     try {
       const pool = getPool();
       await pool.query(
-        `INSERT INTO route_labels (route_id, name, detail, category)
-         VALUES ($1, $2, $3, $4)`,
-        [String(routeId), name, detail, category],
+        `INSERT INTO route_labels (route_id, name, detail, category, schedule)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [String(routeId), name, detail, category, schedulePost],
       );
 
       let nigeriaRoutesFile: { ok: true } | { ok: false; reason: string } | undefined;
@@ -239,6 +266,7 @@ export function createRoutesRouter(): Router {
           name,
           detail,
           category,
+          schedule: schedulePost,
         },
         ...(nigeriaRoutesFile !== undefined ? { nigeriaRoutesFile } : {}),
       });

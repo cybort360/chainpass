@@ -6,7 +6,7 @@ import { QRCodeSVG } from "qrcode.react"
 import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
 import { getContractAddress } from "../lib/contract"
 import { routeMetaForRouteId, shortenNumericId } from "../lib/passDisplay"
-import { requestQrPayload, type QrPayload } from "../lib/api"
+import { requestQrPayload, submitRating, type QrPayload } from "../lib/api"
 import { useOfflineQr } from "../hooks/useOfflineQr"
 import { useNotifications } from "../hooks/useNotifications"
 import { ExpiryWarningBanner } from "../components/ui/ExpiryWarningBanner"
@@ -167,6 +167,9 @@ export function PassPage() {
   const burnedInfoRef = useRef<{ routeName: string; usedAt: Date } | null>(null)
 
   const [shareCopied, setShareCopied] = useState(false)
+  const [ratingValue, setRatingValue] = useState<number | null>(null)
+  const [ratingSubmitted, setRatingSubmitted] = useState(false)
+  const [ratingPending, setRatingPending] = useState(false)
 
   const [payload, setPayload] = useState<QrPayload | null>(null)
   const [qrError, setQrError] = useState<string | null>(null)
@@ -317,6 +320,41 @@ export function PassPage() {
                 <p className="text-sm text-on-surface-variant">Ticket scanned successfully. <span className="font-semibold text-white">You're good to board!</span></p>
               </div>
             </div>
+
+            {/* Star rating widget */}
+            {tokenIdStr && routeIdStr && !ratingSubmitted && (
+              <div className="rounded-2xl border border-outline-variant/20 bg-surface-container px-5 py-4 text-center">
+                <p className="font-headline text-xs font-semibold uppercase tracking-widest text-on-surface-variant mb-3">
+                  Rate this trip
+                </p>
+                <div className="flex items-center justify-center gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      disabled={ratingPending}
+                      aria-label={`Rate ${star} star${star > 1 ? "s" : ""}`}
+                      onClick={() => {
+                        setRatingValue(star)
+                        setRatingPending(true)
+                        void submitRating(tokenIdStr, routeIdStr, star).then(() => {
+                          setRatingSubmitted(true)
+                          setRatingPending(false)
+                        })
+                      }}
+                      className="text-2xl leading-none transition-transform hover:scale-125 disabled:cursor-wait"
+                    >
+                      <span className={ratingValue !== null && star <= ratingValue ? "text-amber-400" : "text-on-surface-variant/40"}>
+                        {ratingValue !== null && star <= ratingValue ? "★" : "☆"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {ratingSubmitted && (
+              <p className="text-center text-sm text-tertiary font-semibold">Thanks for your feedback!</p>
+            )}
 
             <div className="flex items-center justify-center gap-4">
               <Link to="/routes"

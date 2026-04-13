@@ -64,6 +64,32 @@ export function createOperatorRouter(): Router {
     }
   });
 
+  r.get("/route-stats", async (_req, res) => {
+    if (!process.env.DATABASE_URL) {
+      res.status(503).json({ error: "database is not configured (DATABASE_URL)" });
+      return;
+    }
+    try {
+      const pool = getPool();
+      const { rows } = await pool.query<{ route_id: string; mint_count: string }>(
+        `SELECT route_id, COUNT(*) as mint_count
+         FROM ticket_events
+         WHERE event_type = 'mint'
+         GROUP BY route_id
+         ORDER BY mint_count DESC`,
+      );
+      res.json({
+        routeStats: rows.map((row) => ({
+          routeId: row.route_id,
+          mintCount: Number(row.mint_count),
+        })),
+      });
+    } catch (err) {
+      console.error("[operator/route-stats]", err);
+      res.status(500).json({ error: "failed to read route stats" });
+    }
+  });
+
   r.get("/timeseries", async (req, res) => {
     if (!process.env.DATABASE_URL) {
       res.status(503).json({ error: "database is not configured (DATABASE_URL)" });

@@ -48,3 +48,19 @@ BEGIN
   END IF;
 END $$;
 `;
+
+/** Add schedule text field to route_labels (idempotent). */
+export const ROUTE_LABELS_MIGRATE_SCHEDULE_SQL = `
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS schedule TEXT CHECK (schedule IS NULL OR char_length(schedule) <= 120);
+`;
+
+export const ROUTE_RATINGS_INIT_SQL = `
+CREATE TABLE IF NOT EXISTS route_ratings (
+  id SERIAL PRIMARY KEY,
+  token_id TEXT NOT NULL UNIQUE,
+  route_id TEXT NOT NULL,
+  rating INT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_route_ratings_route_id ON route_ratings(route_id);
+`;

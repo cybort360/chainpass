@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
+import { PwaInstallBanner } from "../components/PwaInstallBanner"
 import { usePrivy, useWallets } from "@privy-io/react-auth"
 import { useQuery } from "@tanstack/react-query"
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom"
@@ -437,6 +438,9 @@ export function AppLayout() {
       <main className="flex-1 px-4 py-8 pb-[calc(60px+2rem)] sm:px-8 md:py-10 md:pb-10">
         <Outlet />
       </main>
+
+      {/* PWA install prompt (mobile only, above bottom nav) */}
+      <PwaInstallBanner />
 
       {/* Mobile bottom nav */}
       <BottomNav showGate={showGate} showOps={showOps} />

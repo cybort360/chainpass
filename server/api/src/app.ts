@@ -4,6 +4,7 @@ import express, { type Express } from "express";
 import morgan from "morgan";
 import { createOperatorRouter } from "./routes/operator.js";
 import { createQrRouter } from "./routes/qr.js";
+import { createRatingsRouter } from "./routes/ratings.js";
 import { createRiderRouter } from "./routes/rider.js";
 import { createRoutesRouter } from "./routes/routes.js";
 
@@ -33,6 +34,7 @@ export function createApp(): Express {
   app.use("/api/v1/qr", createQrRouter());
   app.use("/api/v1/operator", createOperatorRouter());
   app.use("/api/v1/rider", createRiderRouter());
+  app.use("/api/v1", createRatingsRouter());
   app.use("/api/v1", createRoutesRouter());
 
   return app;

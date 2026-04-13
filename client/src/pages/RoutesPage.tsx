@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query"
 import { createPublicClient, http } from "viem"
 import { chainPassTicketAbi, erc20Abi, monadTestnet } from "@chainpass/shared"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
-import { fetchRouteLabels, updateRouteLabel, deleteRouteLabel } from "../lib/api"
+import { fetchRouteLabels, updateRouteLabel, deleteRouteLabel, fetchRouteStats } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { shortenNumericId } from "../lib/passDisplay"
@@ -20,6 +20,7 @@ type RouteRow = {
   name: string
   detail: string
   category: string
+  schedule?: string | null
 }
 
 function RouteCardSkeleton() {
@@ -247,7 +248,7 @@ function FareBadge({
   )
 }
 
-type EditForm = { name: string; detail: string; category: string }
+type EditForm = { name: string; detail: string; category: string; schedule: string }
 
 function EditRouteModal({
   route,
@@ -262,6 +263,7 @@ function EditRouteModal({
     name: route.name,
     detail: route.detail ?? "",
     category: route.category,
+    schedule: route.schedule ?? "",
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -275,10 +277,11 @@ function EditRouteModal({
       name: form.name.trim(),
       detail: form.detail.trim() || null,
       category: form.category.trim(),
+      schedule: form.schedule.trim() || null,
     })
     setLoading(false)
     if (result.ok) {
-      onSaved({ ...route, name: result.route.name, detail: result.route.detail ?? "", category: result.route.category })
+      onSaved({ ...route, name: result.route.name, detail: result.route.detail ?? "", category: result.route.category, schedule: result.route.schedule })
     } else {
       setError(result.error)
     }
@@ -341,6 +344,20 @@ function EditRouteModal({
               value={form.detail}
               onChange={(e) => setForm((f) => ({ ...f, detail: e.target.value }))}
               placeholder="e.g. Abuja–Lagos · Express · Daily"
+              className="w-full rounded-xl border border-outline-variant/25 bg-surface px-3.5 py-2.5 text-sm text-white placeholder:text-on-surface-variant/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+              Schedule
+            </label>
+            <input
+              type="text"
+              maxLength={120}
+              value={form.schedule}
+              onChange={(e) => setForm((f) => ({ ...f, schedule: e.target.value }))}
+              placeholder="e.g. Mon–Fri 6am–10pm · Every 30 min"
               className="w-full rounded-xl border border-outline-variant/25 bg-surface px-3.5 py-2.5 text-sm text-white placeholder:text-on-surface-variant/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
             />
           </div>
@@ -447,6 +464,7 @@ export function RoutesPage() {
   const [showFavsOnly, setShowFavsOnly] = useState(false)
   const [editingRoute, setEditingRoute] = useState<RouteRow | null>(null)
   const [deletingRoute, setDeletingRoute] = useState<RouteRow | null>(null)
+  const [sortMode, setSortMode] = useState<"name" | "popular">("name")
   const contractAddress = getContractAddress()
   const { ngnForMon, rateLoading } = useExchangeRates()
   const { address } = useAccount()
@@ -464,6 +482,11 @@ export function RoutesPage() {
     query: { enabled: !!contractAddress },
   })
 
+  const { data: routeStatsData } = useQuery({
+    queryKey: ["route-stats"],
+    queryFn: fetchRouteStats,
+  })
+
   function refreshRoutes() {
     void fetchRouteLabels().then(setApiLabels)
   }
@@ -473,7 +496,7 @@ export function RoutesPage() {
   }, [])
 
   function handleRouteSaved(updated: RouteRow) {
-    setApiLabels((prev) => prev ? prev.map((r) => r.routeId === updated.routeId ? { ...r, name: updated.name, detail: updated.detail, category: updated.category } : r) : prev)
+    setApiLabels((prev) => prev ? prev.map((r) => r.routeId === updated.routeId ? { ...r, name: updated.name, detail: updated.detail, category: updated.category, schedule: updated.schedule } : r) : prev)
     setEditingRoute(null)
   }
 
@@ -481,6 +504,16 @@ export function RoutesPage() {
     setApiLabels((prev) => prev ? prev.filter((r) => r.routeId !== routeId) : prev)
     setDeletingRoute(null)
   }
+
+  const mintCountMap = useMemo(() => {
+    const m = new Map<string, number>()
+    if (routeStatsData) {
+      for (const s of routeStatsData) {
+        m.set(s.routeId, s.mintCount)
+      }
+    }
+    return m
+  }, [routeStatsData])
 
   const rows = useMemo((): RouteRow[] => {
     if (apiLabels === undefined) return []
@@ -492,6 +525,7 @@ export function RoutesPage() {
           name: row.name,
           detail: row.detail ?? "",
           category: row.category || "General",
+          schedule: row.schedule ?? null,
         })
       }
     }
@@ -560,8 +594,17 @@ export function RoutesPage() {
       )
     }
 
+    // Popular sort
+    if (sortMode === "popular") {
+      base = [...base].sort((a, b) => {
+        const aCount = mintCountMap.get(a.routeId) ?? -1
+        const bCount = mintCountMap.get(b.routeId) ?? -1
+        return bCount - aCount
+      })
+    }
+
     return base
-  }, [rows, activeCategory, searchQuery, showFavsOnly, isFavourite])
+  }, [rows, activeCategory, searchQuery, showFavsOnly, isFavourite, sortMode, mintCountMap])
 
   const byCategory = useMemo(() => {
     if (activeCategory !== "All" || searchQuery.trim() || showFavsOnly) {
@@ -578,8 +621,19 @@ export function RoutesPage() {
       if (!m.has(r.category)) m.set(r.category, [])
       m.get(r.category)!.push(r)
     }
-    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b))
-  }, [filtered, activeCategory, searchQuery, showFavsOnly])
+    const entries = [...m.entries()].sort(([a], [b]) => a.localeCompare(b))
+    if (sortMode === "popular") {
+      return entries.map(([cat, list]) => [
+        cat,
+        [...list].sort((a, b) => {
+          const aCount = mintCountMap.get(a.routeId) ?? -1
+          const bCount = mintCountMap.get(b.routeId) ?? -1
+          return bCount - aCount
+        }),
+      ] as [string, RouteRow[]])
+    }
+    return entries
+  }, [filtered, activeCategory, searchQuery, showFavsOnly, sortMode, mintCountMap])
 
   const hasFavourites = favourites.size > 0
 
@@ -669,6 +723,34 @@ export function RoutesPage() {
             {cat}
           </button>
         ))}
+
+        {/* Sort toggle — only shown when route stats are available */}
+        {routeStatsData && routeStatsData.length > 0 && (
+          <div className="ml-auto shrink-0 flex items-center gap-0.5 rounded-full border border-outline-variant/30 bg-surface-container p-0.5">
+            <button
+              type="button"
+              onClick={() => setSortMode("name")}
+              className={`rounded-full px-3 py-1 font-headline text-[10px] font-semibold tracking-wide transition-all ${
+                sortMode === "name"
+                  ? "bg-primary text-white shadow-[0_0_8px_rgba(110,84,255,0.3)]"
+                  : "text-on-surface-variant hover:text-white"
+              }`}
+            >
+              A–Z
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortMode("popular")}
+              className={`rounded-full px-3 py-1 font-headline text-[10px] font-semibold tracking-wide transition-all ${
+                sortMode === "popular"
+                  ? "bg-primary text-white shadow-[0_0_8px_rgba(110,84,255,0.3)]"
+                  : "text-on-surface-variant hover:text-white"
+              }`}
+            >
+              Popular
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Status banners */}
@@ -755,6 +837,16 @@ export function RoutesPage() {
                           </p>
                           {r.detail && (
                             <p className="mt-0.5 text-xs text-on-surface-variant">{r.detail}</p>
+                          )}
+                          {r.schedule && (
+                            <p className="mt-0.5 flex items-center gap-1 text-[10px] text-on-surface-variant/60">
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <circle cx="12" cy="12" r="10" />
+                                <polyline points="12 6 12 12 16 14" />
+                              </svg>
+                              {r.schedule}
+                            </p>
                           )}
                           {/* Fare badge — per-route price if set, else global */}
                           {!rateLoading && (

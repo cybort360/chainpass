@@ -5,6 +5,7 @@ export type ApiRouteLabel = {
   name: string
   detail: string | null
   category: string
+  schedule?: string | null
 }
 
 export async function fetchRouteLabels(): Promise<ApiRouteLabel[] | null> {
@@ -32,6 +33,7 @@ export async function registerRouteLabel(payload: {
   name: string
   category: string
   detail?: string | null
+  schedule?: string | null
   /** When set, API appends to config/nigeria-routes.json (server filesystem). */
   priceMon?: number
 }): Promise<RegisterRouteLabelResult> {
@@ -43,6 +45,9 @@ export async function registerRouteLabel(payload: {
     }
     if (payload.detail !== undefined && payload.detail !== null && String(payload.detail).trim() !== "") {
       body.detail = String(payload.detail).trim()
+    }
+    if (payload.schedule !== undefined && payload.schedule !== null && String(payload.schedule).trim() !== "") {
+      body.schedule = String(payload.schedule).trim()
     }
     if (payload.priceMon !== undefined && Number.isFinite(payload.priceMon)) {
       body.priceMon = payload.priceMon
@@ -84,7 +89,7 @@ export type UpdateRouteLabelResult =
 
 export async function updateRouteLabel(
   routeId: string,
-  payload: { name?: string; category?: string; detail?: string | null },
+  payload: { name?: string; category?: string; detail?: string | null; schedule?: string | null },
 ): Promise<UpdateRouteLabelResult> {
   try {
     const res = await fetch(`${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}`, {
@@ -173,6 +178,19 @@ export async function fetchOperatorEvents(): Promise<OperatorEventRow[] | null> 
   }
 }
 
+export type RouteStatItem = { routeId: string; mintCount: number }
+
+export async function fetchRouteStats(): Promise<RouteStatItem[] | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/operator/route-stats`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { routeStats?: RouteStatItem[] }
+    return data.routeStats ?? []
+  } catch {
+    return null
+  }
+}
+
 export type QrPayload = {
   tokenId: string
   holder: `0x${string}`
@@ -234,6 +252,33 @@ export async function fetchMyPasses(holder: `0x${string}`): Promise<MyPassesResp
     const res = await fetch(`${env.apiUrl}/api/v1/rider/passes?${q.toString()}`)
     if (!res.ok) return null
     return (await res.json()) as MyPassesResponse
+  } catch {
+    return null
+  }
+}
+
+export async function submitRating(tokenId: string, routeId: string, rating: number): Promise<boolean> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/ratings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tokenId, routeId, rating }),
+    })
+    if (!res.ok) return false
+    const data = (await res.json()) as { ok?: boolean }
+    return data.ok === true
+  } catch {
+    return false
+  }
+}
+
+export type RouteRating = { average: number | null; count: number }
+
+export async function fetchRouteRating(routeId: string): Promise<RouteRating | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/ratings/${encodeURIComponent(routeId)}`)
+    if (!res.ok) return null
+    return (await res.json()) as RouteRating
   } catch {
     return null
   }

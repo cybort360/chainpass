@@ -1,0 +1,9 @@
+{
+  "name": "ChainPass",
+  "short_name": "ChainPass",
+  "description": "Buy transit tickets, show your pass, board instantly.",
+  "start_url": "/routes",
+  "display": "standalone",
+  "background_color": "#0f0f13",
+  "theme_color": "#6e54ff"
+}

@@ -6,7 +6,7 @@ import { useAccount, usePublicClient, useReadContract, useWaitForTransactionRece
 import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
 import type { DemoRoute } from "../constants/demoRoutes"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
-import { fetchRouteLabels } from "../lib/api"
+import { fetchRouteLabels, fetchRouteRating, type RouteRating } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { trackEvent } from "../lib/analytics"
@@ -33,6 +33,12 @@ export function RoutePurchasePage() {
 
   const [apiLabels, setApiLabels] = useState<Awaited<ReturnType<typeof fetchRouteLabels>> | undefined>(undefined)
   useEffect(() => { void fetchRouteLabels().then(setApiLabels) }, [])
+
+  const [routeRating, setRouteRating] = useState<RouteRating | null>(null)
+  useEffect(() => {
+    if (!routeIdParam) return
+    void fetchRouteRating(routeIdParam).then(setRouteRating)
+  }, [routeIdParam])
 
   const routeMeta = useMemo((): DemoRoute | undefined => {
     if (!routeIdParam) return undefined
@@ -339,9 +345,18 @@ export function RoutePurchasePage() {
         <span className="inline-block rounded-full bg-primary/15 px-3 py-1 font-headline text-[10px] font-bold uppercase tracking-widest text-primary">
           {routeMeta?.category}
         </span>
-        <h1 className="mt-2 font-headline text-3xl font-bold tracking-tight text-white leading-tight">
-          {routeMeta?.name}
-        </h1>
+        <div className="mt-2 flex flex-wrap items-baseline gap-3">
+          <h1 className="font-headline text-3xl font-bold tracking-tight text-white leading-tight">
+            {routeMeta?.name}
+          </h1>
+          {routeRating && routeRating.count > 0 && routeRating.average !== null && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-2.5 py-0.5 font-headline text-xs font-semibold text-amber-400">
+              <span aria-hidden>★</span>
+              {routeRating.average.toFixed(1)}
+              <span className="font-normal text-amber-400/70">({routeRating.count})</span>
+            </span>
+          )}
+        </div>
         {routeMeta?.detail && (
           <p className="mt-1.5 text-sm text-on-surface-variant">{routeMeta.detail}</p>
         )}
