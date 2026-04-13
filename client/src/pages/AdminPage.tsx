@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { isAddress, keccak256, toBytes } from "viem"
 import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"

@@ -136,10 +136,6 @@ function ActivityChart({ buckets }: { buckets: FilledBucket[] }) {
   const barW = Math.max(3, Math.min(18, groupW * 0.38))
   const showEveryNth = Math.ceil(n / 8)
 
-  function svgXToPercent(svgX: number) {
-    return (svgX / W) * 100
-  }
-
   return (
     <div className="relative">
       <ChartTooltip tooltip={tooltip} type="activity" />
