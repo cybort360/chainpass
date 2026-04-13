@@ -23,10 +23,10 @@ export function FinalCtaSection() {
               Get Started
             </Link>
             <Link
-              to="/conductor"
+              to="/routes"
               className="inline-flex items-center justify-center rounded-full border border-outline-variant/30 bg-surface-container px-10 py-5 font-headline text-xl font-bold text-on-surface transition-colors hover:bg-surface-variant focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
             >
-              Try Demo
+              Browse Routes
             </Link>
           </div>
         </div>

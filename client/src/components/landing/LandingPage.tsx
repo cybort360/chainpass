@@ -9,7 +9,6 @@ import { TrustStrip } from './TrustStrip'
 import { HowItWorks } from './HowItWorks'
 import { WhyMonadSection } from './WhyMonadSection'
 import { BetterWaySection } from './BetterWaySection'
-import { WhyItMattersSection } from './WhyItMattersSection'
 import { OperatorsSection } from './OperatorsSection'
 import { SecureByDesignSection } from './SecureByDesignSection'
 import { FinalCtaSection } from './FinalCtaSection'
@@ -34,7 +33,6 @@ export function LandingPage() {
         <HowItWorks />
         <WhyMonadSection />
         <BetterWaySection />
-        <WhyItMattersSection />
         <OperatorsSection />
         <SecureByDesignSection />
         <FinalCtaSection />

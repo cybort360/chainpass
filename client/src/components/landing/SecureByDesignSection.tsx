@@ -3,7 +3,7 @@ import { MotionSection } from './MotionSection'
 
 const tiles = [
   { icon: 'security', color: 'text-error', label: 'Encrypted' },
-  { icon: 'timer', color: 'text-tertiary', label: 'Timed Out' },
+  { icon: 'timer', color: 'text-tertiary', label: 'Time-limited QR' },
   { icon: 'hub', color: 'text-primary', label: 'Decentralized' },
   { icon: 'done_all', color: 'text-on-surface', label: 'Immutable' },
 ] as const
