@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { formatEther, formatUnits } from "viem"
 import { useAccount, useReadContract, useReadContracts } from "wagmi"
@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query"
 import { createPublicClient, http } from "viem"
 import { chainPassTicketAbi, erc20Abi, monadTestnet } from "@chainpass/shared"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
-import { fetchRouteLabels } from "../lib/api"
+import { fetchRouteLabels, updateRouteLabel, deleteRouteLabel } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { shortenNumericId } from "../lib/passDisplay"
@@ -247,14 +247,214 @@ function FareBadge({
   )
 }
 
+type EditForm = { name: string; detail: string; category: string }
+
+function EditRouteModal({
+  route,
+  onClose,
+  onSaved,
+}: {
+  route: RouteRow
+  onClose: () => void
+  onSaved: (updated: RouteRow) => void
+}) {
+  const [form, setForm] = useState<EditForm>({
+    name: route.name,
+    detail: route.detail ?? "",
+    category: route.category,
+  })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    const result = await updateRouteLabel(route.routeId, {
+      name: form.name.trim(),
+      detail: form.detail.trim() || null,
+      category: form.category.trim(),
+    })
+    setLoading(false)
+    if (result.ok) {
+      onSaved({ ...route, name: result.route.name, detail: result.route.detail ?? "", category: result.route.category })
+    } else {
+      setError(result.error)
+    }
+  }
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === overlayRef.current) onClose() }}
+    >
+      <div className="w-full max-w-md rounded-2xl border border-outline-variant/20 bg-surface-container p-6 shadow-2xl">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="font-headline text-base font-bold text-white">Edit Route</h2>
+          <button type="button" onClick={onClose} className="text-on-surface-variant/50 hover:text-white transition-colors">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <p className="mb-4 font-mono text-[10px] text-on-surface-variant/50">Route ID {route.routeId}</p>
+
+        <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+          <div>
+            <label className="mb-1.5 block font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+              Name *
+            </label>
+            <input
+              type="text"
+              required
+              maxLength={100}
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              className="w-full rounded-xl border border-outline-variant/25 bg-surface px-3.5 py-2.5 text-sm text-white placeholder:text-on-surface-variant/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+              Category *
+            </label>
+            <input
+              type="text"
+              required
+              maxLength={60}
+              value={form.category}
+              onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+              className="w-full rounded-xl border border-outline-variant/25 bg-surface px-3.5 py-2.5 text-sm text-white placeholder:text-on-surface-variant/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+              Detail
+            </label>
+            <input
+              type="text"
+              maxLength={200}
+              value={form.detail}
+              onChange={(e) => setForm((f) => ({ ...f, detail: e.target.value }))}
+              placeholder="e.g. Abuja–Lagos · Express · Daily"
+              className="w-full rounded-xl border border-outline-variant/25 bg-surface px-3.5 py-2.5 text-sm text-white placeholder:text-on-surface-variant/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+          </div>
+
+          {error && (
+            <p className="rounded-lg bg-error/10 px-3 py-2 text-xs text-error">{error}</p>
+          )}
+
+          <div className="flex gap-3 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-xl border border-outline-variant/30 py-2.5 font-headline text-sm font-semibold text-on-surface-variant hover:border-outline-variant/60 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 rounded-xl bg-primary py-2.5 font-headline text-sm font-semibold text-white shadow-[0_0_16px_rgba(110,84,255,0.3)] hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {loading ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function DeleteRouteModal({
+  route,
+  onClose,
+  onDeleted,
+}: {
+  route: RouteRow
+  onClose: () => void
+  onDeleted: (routeId: string) => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+
+  async function handleDelete() {
+    setLoading(true)
+    setError(null)
+    const result = await deleteRouteLabel(route.routeId)
+    setLoading(false)
+    if (result.ok) {
+      onDeleted(route.routeId)
+    } else {
+      setError(result.error)
+    }
+  }
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === overlayRef.current) onClose() }}
+    >
+      <div className="w-full max-w-sm rounded-2xl border border-error/20 bg-surface-container p-6 shadow-2xl">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-error/10">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-error" aria-hidden>
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+          </svg>
+        </div>
+        <h2 className="font-headline text-base font-bold text-white">Delete route?</h2>
+        <p className="mt-1.5 text-sm text-on-surface-variant">
+          <span className="font-semibold text-white">{route.name}</span> will be removed from the listing. This cannot be undone.
+        </p>
+
+        {error && (
+          <p className="mt-3 rounded-lg bg-error/10 px-3 py-2 text-xs text-error">{error}</p>
+        )}
+
+        <div className="mt-5 flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-xl border border-outline-variant/30 py-2.5 font-headline text-sm font-semibold text-on-surface-variant hover:border-outline-variant/60 hover:text-white transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            disabled={loading}
+            className="flex-1 rounded-xl bg-error py-2.5 font-headline text-sm font-semibold text-white hover:bg-error/90 disabled:opacity-50 transition-colors"
+          >
+            {loading ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function RoutesPage() {
   const [apiLabels, setApiLabels] = useState<Awaited<ReturnType<typeof fetchRouteLabels>> | undefined>(undefined)
   const [activeCategory, setActiveCategory] = useState<string>("All")
   const [searchQuery, setSearchQuery] = useState("")
   const { isFavourite, toggle, favourites } = useFavouriteRoutes()
   const [showFavsOnly, setShowFavsOnly] = useState(false)
+  const [editingRoute, setEditingRoute] = useState<RouteRow | null>(null)
+  const [deletingRoute, setDeletingRoute] = useState<RouteRow | null>(null)
   const contractAddress = getContractAddress()
   const { ngnForMon, rateLoading } = useExchangeRates()
+  const { address } = useAccount()
+
+  // Operator check: address is in the VITE_OPERATOR_WALLETS allowlist
+  const isOperator = !!address && env.operatorWallets.size > 0
+    ? env.operatorWallets.has(address.toLowerCase())
+    : false
 
   // Global mint price from contract (fallback when no route override)
   const { data: globalPriceWei } = useReadContract({
@@ -264,9 +464,23 @@ export function RoutesPage() {
     query: { enabled: !!contractAddress },
   })
 
-  useEffect(() => {
+  function refreshRoutes() {
     void fetchRouteLabels().then(setApiLabels)
+  }
+
+  useEffect(() => {
+    refreshRoutes()
   }, [])
+
+  function handleRouteSaved(updated: RouteRow) {
+    setApiLabels((prev) => prev ? prev.map((r) => r.routeId === updated.routeId ? { ...r, name: updated.name, detail: updated.detail, category: updated.category } : r) : prev)
+    setEditingRoute(null)
+  }
+
+  function handleRouteDeleted(routeId: string) {
+    setApiLabels((prev) => prev ? prev.filter((r) => r.routeId !== routeId) : prev)
+    setDeletingRoute(null)
+  }
 
   const rows = useMemo((): RouteRow[] => {
     if (apiLabels === undefined) return []
@@ -556,13 +770,44 @@ export function RoutesPage() {
                         </div>
                       </Link>
 
-                      {/* Right action panel — heart + buy, separated by a divider */}
+                      {/* Right action panel — heart + operator actions + buy */}
                       <div className="flex shrink-0 items-center gap-1 border-l border-outline-variant/10 pl-2 pr-3">
                         <FavouriteButton
                           routeId={r.routeId}
                           isFav={fav}
                           onToggle={toggle}
                         />
+
+                        {/* Operator-only edit/delete buttons */}
+                        {isOperator && (
+                          <>
+                            <div className="w-px h-5 bg-outline-variant/20 mx-0.5" aria-hidden />
+                            <button
+                              type="button"
+                              aria-label="Edit route"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingRoute(r) }}
+                              className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/40 hover:bg-primary/10 hover:text-primary transition-colors"
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Delete route"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeletingRoute(r) }}
+                              className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/40 hover:bg-error/10 hover:text-error transition-colors"
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                                <path d="M10 11v6"/><path d="M14 11v6"/>
+                              </svg>
+                            </button>
+                          </>
+                        )}
+
                         <div className="w-px h-5 bg-outline-variant/20 mx-1" aria-hidden />
                         <Link
                           to={`/routes/${r.routeId}`}
@@ -611,6 +856,22 @@ export function RoutesPage() {
           </a>
         </div>
       </div>
+
+      {/* Operator modals */}
+      {editingRoute && (
+        <EditRouteModal
+          route={editingRoute}
+          onClose={() => setEditingRoute(null)}
+          onSaved={handleRouteSaved}
+        />
+      )}
+      {deletingRoute && (
+        <DeleteRouteModal
+          route={deletingRoute}
+          onClose={() => setDeletingRoute(null)}
+          onDeleted={handleRouteDeleted}
+        />
+      )}
     </div>
   )
 }

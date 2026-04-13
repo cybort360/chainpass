@@ -52,6 +52,106 @@ export function createRoutesRouter(): Router {
     }
   });
 
+  r.put("/routes/:routeId", async (req, res) => {
+    if (!process.env.DATABASE_URL) {
+      res.status(503).json({ error: "database is not configured (DATABASE_URL)" });
+      return;
+    }
+
+    const routeId = parseRouteIdBody(req.params.routeId);
+    if (routeId === null) {
+      res.status(400).json({ error: "invalid routeId" });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown> | null;
+    const name = typeof body?.name === "string" ? body.name.trim() : undefined;
+    const category = typeof body?.category === "string" ? body.category.trim() : undefined;
+    const detailRaw = body?.detail;
+    const detail =
+      detailRaw === undefined
+        ? undefined
+        : detailRaw === null
+          ? null
+          : typeof detailRaw === "string"
+            ? detailRaw.trim() || null
+            : undefined;
+
+    if (name !== undefined && name.length > 100) {
+      res.status(400).json({ error: "name must be 100 characters or fewer" });
+      return;
+    }
+    if (category !== undefined && (!category || category.length > 60)) {
+      res.status(400).json({ error: "category must be non-empty and 60 characters or fewer" });
+      return;
+    }
+    if (detail !== undefined && detail !== null && detail.length > 200) {
+      res.status(400).json({ error: "detail must be 200 characters or fewer" });
+      return;
+    }
+
+    // Build SET clause dynamically
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if (name !== undefined) { vals.push(name); sets.push(`name = $${vals.length}`); }
+    if (category !== undefined) { vals.push(category); sets.push(`category = $${vals.length}`); }
+    if (detail !== undefined) { vals.push(detail); sets.push(`detail = $${vals.length}`); }
+
+    if (sets.length === 0) {
+      res.status(400).json({ error: "no fields to update" });
+      return;
+    }
+
+    vals.push(String(routeId));
+    const setClause = sets.join(", ");
+
+    try {
+      const pool = getPool();
+      const result = await pool.query(
+        `UPDATE route_labels SET ${setClause} WHERE route_id = $${vals.length} RETURNING route_id, name, detail, category`,
+        vals,
+      );
+      if (result.rowCount === 0) {
+        res.status(404).json({ error: "route not found" });
+        return;
+      }
+      const row = result.rows[0] as { route_id: string; name: string; detail: string | null; category: string };
+      res.json({ route: { routeId: row.route_id, name: row.name, detail: row.detail, category: row.category } });
+    } catch (err) {
+      console.error("[routes PUT]", err);
+      res.status(500).json({ error: "failed to update route" });
+    }
+  });
+
+  r.delete("/routes/:routeId", async (req, res) => {
+    if (!process.env.DATABASE_URL) {
+      res.status(503).json({ error: "database is not configured (DATABASE_URL)" });
+      return;
+    }
+
+    const routeId = parseRouteIdBody(req.params.routeId);
+    if (routeId === null) {
+      res.status(400).json({ error: "invalid routeId" });
+      return;
+    }
+
+    try {
+      const pool = getPool();
+      const result = await pool.query(
+        `DELETE FROM route_labels WHERE route_id = $1`,
+        [String(routeId)],
+      );
+      if (result.rowCount === 0) {
+        res.status(404).json({ error: "route not found" });
+        return;
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[routes DELETE]", err);
+      res.status(500).json({ error: "failed to delete route" });
+    }
+  });
+
   r.post("/routes", async (req, res) => {
     if (!process.env.DATABASE_URL) {
       res.status(503).json({ error: "database is not configured (DATABASE_URL)" });

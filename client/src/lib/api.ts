@@ -78,6 +78,43 @@ export async function registerRouteLabel(payload: {
   }
 }
 
+export type UpdateRouteLabelResult =
+  | { ok: true; route: ApiRouteLabel }
+  | { ok: false; status: number; error: string }
+
+export async function updateRouteLabel(
+  routeId: string,
+  payload: { name?: string; category?: string; detail?: string | null },
+): Promise<UpdateRouteLabelResult> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    const data = (await res.json().catch(() => ({}))) as { error?: string; route?: ApiRouteLabel }
+    if (res.ok && data.route) return { ok: true, route: data.route }
+    return { ok: false, status: res.status, error: typeof data.error === "string" ? data.error : `request failed (${res.status})` }
+  } catch (e) {
+    return { ok: false, status: 0, error: e instanceof Error ? e.message : "network error" }
+  }
+}
+
+export type DeleteRouteLabelResult = { ok: true } | { ok: false; status: number; error: string }
+
+export async function deleteRouteLabel(routeId: string): Promise<DeleteRouteLabelResult> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}`, {
+      method: "DELETE",
+    })
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    if (res.ok) return { ok: true }
+    return { ok: false, status: res.status, error: typeof data.error === "string" ? data.error : `request failed (${res.status})` }
+  } catch (e) {
+    return { ok: false, status: 0, error: e instanceof Error ? e.message : "network error" }
+  }
+}
+
 export type OperatorStats = {
   totals: { mint: number; burn: number }
   last24h: { mint: number; burn: number }
