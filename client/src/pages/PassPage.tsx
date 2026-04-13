@@ -343,6 +343,25 @@ export function PassPage() {
       ) : (
         <div className="mt-5 min-w-0 space-y-4">
 
+          {/* Shared pass banner — shown to viewers who are not the holder */}
+          {!isOwner && ownerAddr && (
+            <div className="flex items-center gap-2.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                className="shrink-0 text-primary" aria-hidden>
+                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+              </svg>
+              <p className="text-xs text-on-surface-variant">
+                Shared pass · held by{" "}
+                <span className="font-mono font-semibold text-white">
+                  {ownerAddr.slice(0, 6)}…{ownerAddr.slice(-4)}
+                </span>
+              </p>
+            </div>
+          )}
+
           {isExpiringSoon(vu) && (
             <ExpiryWarningBanner validUntilEpoch={vu} variant="banner" />
           )}
@@ -472,17 +491,7 @@ export function PassPage() {
 
             {/* QR section */}
             <div className="px-5 py-5">
-              {!isConnected ? (
-                <div className="rounded-xl border border-outline-variant/20 bg-surface-container-high py-8 text-center">
-                  <p className="text-sm text-on-surface-variant">Connect the wallet that holds this ticket.</p>
-                </div>
-              ) : !isOwner ? (
-                <div className="rounded-xl border border-error/20 bg-error/8 py-6 text-center">
-                  <p className="text-sm text-error">
-                    This wallet is not the ticket holder. Switch to the purchaser wallet.
-                  </p>
-                </div>
-              ) : (
+              {isOwner ? (
                 <div className="flex flex-col items-center gap-4">
                   {/* QR with ring */}
                   <div className="relative">
@@ -537,6 +546,39 @@ export function PassPage() {
                       Refresh now
                     </button>
                   </div>
+                </div>
+              ) : (
+                /* ── Read-only shared pass view (non-owner) ── */
+                <div className="space-y-3">
+                  <div className="rounded-xl border border-outline-variant/20 bg-surface-container-high px-4 py-4 text-center">
+                    <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                        className="text-primary" aria-hidden>
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                      </svg>
+                    </div>
+                    <p className="font-headline text-sm font-semibold text-white">Shared pass preview</p>
+                    <p className="mt-1 text-xs text-on-surface-variant">
+                      QR code is only visible to the ticket holder.
+                    </p>
+                    {ownerAddr && (
+                      <p className="mt-2 font-mono text-[10px] text-on-surface-variant/60">
+                        Held by {ownerAddr.slice(0, 8)}…{ownerAddr.slice(-6)}
+                      </p>
+                    )}
+                  </div>
+                  {!isConnected && (
+                    <p className="text-center text-xs text-on-surface-variant">
+                      Connect as the ticket holder to show the boarding QR.
+                    </p>
+                  )}
+                  {isConnected && !isOwner && (
+                    <p className="text-center text-xs text-on-surface-variant">
+                      Switch to the holder wallet to show the boarding QR.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { usePrivy, useWallets } from "@privy-io/react-auth"
 import { useQuery } from "@tanstack/react-query"
-import { Link, NavLink, Outlet } from "react-router-dom"
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom"
 import { createPublicClient, formatEther, formatUnits, http } from "viem"
 import type { Address } from "viem"
 import { useAccount, useReadContract, useSwitchChain } from "wagmi"
 import { erc20Abi, monadTestnet } from "@chainpass/shared"
 import { env } from "../lib/env"
+import { initAnalytics, trackPageView } from "../lib/analytics"
 import { formatNgn, MON_USD_PRICE, useExchangeRates } from "../lib/prices"
 import { pickEthereumAddressFromUser } from "../lib/privyWallet"
 import { switchToMonadTestnet } from "../lib/switchToMonadTestnet"
@@ -385,6 +386,12 @@ const desktopNavLink =
 
 export function AppLayout() {
   const { address } = useAccount()
+  const location = useLocation()
+
+  // Analytics: init once, track every route change
+  useEffect(() => { initAnalytics() }, [])
+  useEffect(() => { trackPageView(location.pathname) }, [location.pathname])
+
   const restricted = env.gateWallets.size > 0
   const showGate = !restricted || Boolean(address && env.gateWallets.has(address.toLowerCase()))
   const restrictedOps = env.operatorWallets.size > 0

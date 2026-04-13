@@ -1,4 +1,27 @@
 import { Component, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
+
+// Haptic feedback helper (no-op on unsupported browsers/iOS)
+function vibrate(pattern: number | number[]) {
+  try { navigator.vibrate?.(pattern) } catch { /* ignore */ }
+}
+
+// Keep screen awake while scanning
+function useWakeLock(active: boolean) {
+  const lock = useRef<WakeLockSentinel | null>(null)
+  useEffect(() => {
+    if (!active) {
+      lock.current?.release().catch(() => {})
+      lock.current = null
+      return
+    }
+    if (!("wakeLock" in navigator)) return
+    navigator.wakeLock.request("screen").then((l) => { lock.current = l }).catch(() => {})
+    return () => {
+      lock.current?.release().catch(() => {})
+      lock.current = null
+    }
+  }, [active])
+}
 import { Link } from "react-router-dom"
 import { formatUnits, isAddress, parseEther, parseUnits } from "viem"
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
@@ -678,6 +701,30 @@ export function ConductorPage() {
       .catch(() => setApiVerify(null))
   }, [parsed])
 
+  // Keep screen awake while camera is on
+  useWakeLock(cameraOn)
+
+  // Haptic feedback when verification result is determined
+  const checksLoaded = apiVerify !== null && chainOwner !== undefined && validUntil !== undefined && chainRoute !== undefined
+  const isTicketValid = checksLoaded && holderMatches === true && notExpired === true
+  const prevChecksLoaded = useRef(false)
+  useEffect(() => {
+    if (checksLoaded && !prevChecksLoaded.current) {
+      vibrate(isTicketValid ? [80, 40, 80] : [50, 30, 50, 30, 200])
+    }
+    prevChecksLoaded.current = checksLoaded
+  }, [checksLoaded, isTicketValid])
+
+  // Fullscreen valid overlay state
+  const [showValidOverlay, setShowValidOverlay] = useState(false)
+  useEffect(() => {
+    if (isTicketValid && parsed && !burnSuccess) setShowValidOverlay(true)
+    else setShowValidOverlay(false)
+  }, [isTicketValid, parsed, burnSuccess])
+
+  // Route name for valid overlay (best-effort from chain)
+  const validRouteId = chainRoute !== undefined ? String(chainRoute) : undefined
+
   if (!contractAddress) {
     return (
       <div className="mx-auto max-w-md rounded-2xl border border-outline-variant/20 bg-surface-container p-8 text-center text-sm text-on-surface-variant">
@@ -737,6 +784,59 @@ export function ConductorPage() {
 
   return (
     <ConductorErrorBoundary>
+      {/* Fullscreen VALID overlay — shown after scan resolves and ticket is valid */}
+      {showValidOverlay && parsed && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0a1a0f] px-6">
+          {/* Giant check mark */}
+          <div className="relative mb-8 flex h-40 w-40 items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-emerald-500/10 animate-ping" style={{ animationDuration: "2s" }} />
+            <div className="absolute inset-2 rounded-full bg-emerald-500/15" />
+            <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500/40 to-emerald-500/10 shadow-[0_0_64px_rgba(16,185,129,0.35)]">
+              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                className="text-emerald-400" aria-hidden>
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+          </div>
+
+          <p className="font-headline text-[11px] font-bold uppercase tracking-[0.3em] text-emerald-500/70">Ticket valid</p>
+          <h1 className="mt-2 font-headline text-6xl font-black tracking-tight text-emerald-400">VALID</h1>
+
+          {validRouteId && (
+            <p className="mt-3 font-headline text-lg font-semibold text-white/80">
+              Route {validRouteId.slice(0, 8)}…
+            </p>
+          )}
+          <p className="mt-1 font-mono text-sm text-white/40">
+            #{parsed.tokenId.slice(0, 8)}… · {parsed.holder.slice(0, 6)}…{parsed.holder.slice(-4)}
+          </p>
+
+          {/* Burn button */}
+          <button
+            type="button"
+            disabled={burnPending || burnConfirming}
+            onClick={() => { setShowValidOverlay(false); void onBurn() }}
+            className="mt-12 w-full max-w-xs rounded-2xl bg-emerald-500 px-8 py-5 font-headline text-xl font-black text-white shadow-[0_0_32px_rgba(16,185,129,0.4)] transition-all hover:bg-emerald-400 active:scale-[0.97] disabled:opacity-60"
+          >
+            {burnPending || burnConfirming ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                {burnPending ? "Confirm…" : "Burning…"}
+              </span>
+            ) : "Board — Scan ticket"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { setShowValidOverlay(false); setParsed(null); setRawInput(""); setParseErr(null) }}
+            className="mt-4 font-headline text-sm font-semibold text-white/40 hover:text-white/80 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
       {/* scanFile() mount target */}
       <div id={fileRegionId}
         className="pointer-events-none fixed top-0 left-[-9999px] h-px w-px overflow-hidden opacity-0" aria-hidden />
@@ -1475,8 +1575,6 @@ export function ConductorPage() {
 
             {/* Verification panel */}
             {parsed && tokenIdBig !== undefined && (() => {
-              // Determine if all checks have resolved and if any failed
-              const checksLoaded = apiVerify !== null && chainOwner !== undefined && validUntil !== undefined && chainRoute !== undefined
               const isValid = holderMatches && notExpired
               const isInvalid = checksLoaded && !isValid
 

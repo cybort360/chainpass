@@ -9,6 +9,7 @@ import { DEMO_ROUTES } from "../constants/demoRoutes"
 import { fetchRouteLabels } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
+import { trackEvent } from "../lib/analytics"
 import { formatNgn, useExchangeRates } from "../lib/prices"
 import { extractMintedTokenIdFromReceipt } from "../lib/tx"
 import { formatWriteContractError } from "../lib/walletError"
@@ -192,19 +193,23 @@ export function RoutePurchasePage() {
   // Navigate after multi-mint completes (MON path)
   useEffect(() => {
     if (mintedTokenIds.length === 0) return
+    trackEvent("ticket_purchase", { method: "mon", route_id: routeIdParam ?? "", quantity: mintedTokenIds.length })
     if (mintedTokenIds.length === 1) {
       navigate(`/pass/${mintedTokenIds[0].toString()}`)
     } else {
       navigate("/profile")
     }
-  }, [mintedTokenIds, navigate])
+  }, [mintedTokenIds, navigate, routeIdParam])
 
   // Navigate on USDC mint success
   useEffect(() => {
     if (!usdcReceipt || !contractAddress || !usdcSuccess) return
     const tokenId = extractMintedTokenIdFromReceipt(usdcReceipt.logs, contractAddress)
-    if (tokenId !== null) navigate(`/pass/${tokenId.toString()}`)
-  }, [usdcReceipt, usdcSuccess, contractAddress, navigate])
+    if (tokenId !== null) {
+      trackEvent("ticket_purchase", { method: "usdc", route_id: routeIdParam ?? "" })
+      navigate(`/pass/${tokenId.toString()}`)
+    }
+  }, [usdcReceipt, usdcSuccess, contractAddress, navigate, routeIdParam])
 
   // ── Computed display values ─────────────────────────────────────────────────
   const monDisplay = effectivePriceWei !== undefined ? formatEther(effectivePriceWei) : "—"
