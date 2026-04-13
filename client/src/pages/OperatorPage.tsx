@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { formatEther } from "viem"
-import { useReadContract } from "wagmi"
+import { useAccount, useReadContract, useWriteContract } from "wagmi"
 import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
-import { fetchOperatorStats, fetchOperatorTimeseries, type OperatorStats, type TimeseriesBucket } from "../lib/api"
+import { fetchOperatorStats, fetchOperatorTimeseries, fetchRouteLabels, type ApiRouteLabel, type OperatorStats, type TimeseriesBucket } from "../lib/api"
+import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 
 type Period = "24h" | "7d" | "30d"
@@ -307,6 +308,221 @@ function StatCardSkeleton() {
   )
 }
 
+// ─── Group Booking Panel ─────────────────────────────────────────────────────
+
+type MintResult = { address: string; status: "pending" | "success" | "error"; message?: string }
+
+function GroupBookingPanel() {
+  const { address } = useAccount()
+  const contractAddress = getContractAddress()
+
+  const isOperator =
+    env.operatorWallets.size === 0 ||
+    (!!address && env.operatorWallets.has(address.toLowerCase()))
+
+  const [routes, setRoutes] = useState<ApiRouteLabel[]>([])
+  const [selectedRouteId, setSelectedRouteId] = useState("")
+  const [seatClass, setSeatClass] = useState<0 | 1>(0)
+  const [recipientsRaw, setRecipientsRaw] = useState("")
+  const [results, setResults] = useState<MintResult[]>([])
+  const [running, setRunning] = useState(false)
+
+  useEffect(() => {
+    void fetchRouteLabels().then((labels) => {
+      if (labels && labels.length > 0) {
+        setRoutes(labels)
+        setSelectedRouteId(labels[0].routeId)
+      }
+    })
+  }, [])
+
+  const { writeContractAsync } = useWriteContract()
+
+  const parseAddresses = (raw: string): string[] =>
+    raw
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter((s) => /^0x[a-fA-F0-9]{40}$/i.test(s))
+
+  const onMint = async () => {
+    if (!contractAddress || !address || !selectedRouteId) return
+    const addrs = parseAddresses(recipientsRaw)
+    if (addrs.length === 0) return
+
+    setRunning(true)
+    setResults(addrs.map((a) => ({ address: a, status: "pending" })))
+
+    const validUntil = BigInt(Math.floor(Date.now() / 1000) + 86400 * 7)
+    const routeIdBig = BigInt(selectedRouteId)
+
+    for (let i = 0; i < addrs.length; i++) {
+      const to = addrs[i] as `0x${string}`
+      try {
+        await writeContractAsync({
+          address: contractAddress,
+          abi: chainPassTicketAbi,
+          functionName: "mint",
+          args: [to, routeIdBig, validUntil, address],
+        })
+        setResults((prev) =>
+          prev.map((r, idx) => idx === i ? { ...r, status: "success" } : r)
+        )
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.slice(0, 80) : "Failed"
+        setResults((prev) =>
+          prev.map((r, idx) => idx === i ? { ...r, status: "error", message: msg } : r)
+        )
+      }
+    }
+    setRunning(false)
+  }
+
+  if (!isOperator) return null
+
+  const parsedCount = parseAddresses(recipientsRaw).length
+
+  return (
+    <div className="mt-8 overflow-hidden rounded-2xl border border-outline-variant/15 bg-surface-container">
+      <div className="border-b border-outline-variant/15 px-5 py-4">
+        <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-primary">Group Booking</p>
+        <p className="mt-0.5 text-xs text-on-surface-variant">
+          Mint tickets to multiple recipients. Requires MINTER_ROLE on the contract.
+        </p>
+      </div>
+
+      <div className="space-y-4 p-5">
+        {/* Route selector */}
+        <label className="block">
+          <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Route</span>
+          <select
+            className="mt-1.5 w-full rounded-xl border border-outline-variant/25 bg-surface-container-high px-3.5 py-2.5 text-sm text-white focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+            value={selectedRouteId}
+            onChange={(e) => setSelectedRouteId(e.target.value)}
+            disabled={running}
+          >
+            {routes.map((r) => (
+              <option key={r.routeId} value={r.routeId}>
+                {r.name}{r.category ? ` — ${r.category}` : ""}
+              </option>
+            ))}
+            {routes.length === 0 && (
+              <option value="">No routes loaded</option>
+            )}
+          </select>
+        </label>
+
+        {/* Seat class */}
+        <div>
+          <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Seat class</span>
+          <div className="mt-1.5 flex gap-2">
+            <button type="button"
+              onClick={() => setSeatClass(0)}
+              disabled={running}
+              className={`flex flex-1 items-center justify-center rounded-xl border py-2 font-headline text-sm font-semibold transition-all disabled:opacity-50 ${
+                seatClass === 0
+                  ? "border-primary/40 bg-primary/10 text-white"
+                  : "border-outline-variant/20 text-on-surface-variant hover:text-white"
+              }`}
+            >
+              Economy
+            </button>
+            <button type="button"
+              onClick={() => setSeatClass(1)}
+              disabled={running}
+              className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-2 font-headline text-sm font-semibold transition-all disabled:opacity-50 ${
+                seatClass === 1
+                  ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                  : "border-outline-variant/20 text-on-surface-variant hover:text-white"
+              }`}
+            >
+              <span className={seatClass === 1 ? "text-amber-300" : "text-on-surface-variant/50"} aria-hidden>✦</span>
+              Business
+            </button>
+          </div>
+        </div>
+
+        {/* Recipients */}
+        <label className="block">
+          <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+            Recipient addresses
+            {parsedCount > 0 && (
+              <span className="ml-2 normal-case font-normal text-primary">{parsedCount} valid</span>
+            )}
+          </span>
+          <textarea
+            rows={5}
+            className="mt-1.5 w-full rounded-xl border border-outline-variant/25 bg-surface-container-high px-3.5 py-2.5 font-mono text-xs text-white placeholder-on-surface-variant/40 focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors resize-none"
+            placeholder={"0xAbc…\n0xDef…"}
+            value={recipientsRaw}
+            onChange={(e) => setRecipientsRaw(e.target.value)}
+            disabled={running}
+          />
+          <p className="mt-1 text-[10px] text-on-surface-variant/50">One address per line. 0x… format.</p>
+        </label>
+
+        {/* Mint button */}
+        <button
+          type="button"
+          disabled={running || parsedCount === 0 || !selectedRouteId || !contractAddress}
+          onClick={() => void onMint()}
+          className="w-full rounded-2xl bg-primary px-6 py-3.5 font-headline text-sm font-bold text-white shadow-lg transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {running ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              Minting…
+            </span>
+          ) : (
+            `Mint ${parsedCount > 0 ? parsedCount : ""} ticket${parsedCount !== 1 ? "s" : ""}`
+          )}
+        </button>
+
+        {/* Progress */}
+        {results.length > 0 && (
+          <div className="space-y-1.5 rounded-xl border border-outline-variant/15 bg-surface-container-low/40 p-3">
+            {results.map((r) => (
+              <div key={r.address} className="flex items-center gap-2">
+                <span className="shrink-0">
+                  {r.status === "pending" && (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary inline-block" />
+                  )}
+                  {r.status === "success" && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                      className="text-tertiary" aria-hidden>
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                  {r.status === "error" && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                      className="text-error" aria-hidden>
+                      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  )}
+                </span>
+                <span className={`font-mono text-[11px] truncate ${
+                  r.status === "success" ? "text-white" :
+                  r.status === "error" ? "text-error" :
+                  "text-on-surface-variant"
+                }`}>
+                  {r.address.slice(0, 10)}…{r.address.slice(-6)}
+                </span>
+                {r.status === "error" && r.message && (
+                  <span className="ml-auto shrink-0 font-headline text-[10px] text-error/70 truncate max-w-[120px]">{r.message}</span>
+                )}
+                {r.status === "success" && (
+                  <span className="ml-auto shrink-0 font-headline text-[10px] text-tertiary">Minted</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 const REFETCH_MS = 8000
@@ -530,6 +746,8 @@ export function OperatorPage() {
           View contract on MonadVision ↗
         </a>
       </div>
+
+      <GroupBookingPanel />
     </div>
   )
 }

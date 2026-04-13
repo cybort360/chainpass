@@ -6,13 +6,14 @@ import { useAccount, usePublicClient, useReadContract, useWaitForTransactionRece
 import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
 import type { DemoRoute } from "../constants/demoRoutes"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
-import { fetchRouteLabels, fetchRouteRating, type RouteRating } from "../lib/api"
+import { fetchRouteLabels, fetchRouteRating, claimSeat, type RouteRating } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { trackEvent } from "../lib/analytics"
 import { formatNgn, useExchangeRates } from "../lib/prices"
 import { extractMintedTokenIdFromReceipt } from "../lib/tx"
 import { formatWriteContractError } from "../lib/walletError"
+import { SeatMapPicker } from "../components/SeatMapPicker"
 
 type PayMethod = "mon" | "usdc"
 
@@ -65,6 +66,7 @@ export function RoutePurchasePage() {
   const [quantity, setQuantity] = useState(1)
   const [mintProgress, setMintProgress] = useState<{ done: number; total: number } | null>(null)
   const [mintedTokenIds, setMintedTokenIds] = useState<bigint[]>([])
+  const [selectedSeat, setSelectedSeat] = useState<string | null>(null)
   const publicClient = usePublicClient()
 
   // ── Exchange rates ──────────────────────────────────────────────────────────
@@ -256,7 +258,14 @@ export function RoutePurchasePage() {
         const id = extractMintedTokenIdFromReceipt([log], contractAddress)
         if (id !== null) ids.push(id)
       }
-      setMintedTokenIds(ids.length > 0 ? ids : [])
+      if (ids.length > 0) {
+        setMintedTokenIds(ids)
+        if (selectedSeat && ids.length === 1 && routeIdParam) {
+          void claimSeat(ids[0].toString(), routeIdParam, selectedSeat)
+        }
+      } else {
+        setMintedTokenIds([])
+      }
     } finally {
       setMintProgress(null)
     }
@@ -400,7 +409,7 @@ export function RoutePurchasePage() {
             Seat class
           </p>
           <div className="flex gap-2">
-            <button type="button" onClick={() => setSeatClass(0)}
+            <button type="button" onClick={() => { setSeatClass(0); setSelectedSeat(null) }}
               className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-2.5 font-headline text-sm font-semibold transition-all ${
                 seatClass === 0
                   ? "border-primary/40 bg-primary/10 text-white"
@@ -419,6 +428,17 @@ export function RoutePurchasePage() {
             </button>
           </div>
         </div>
+
+        {/* Seat picker — Business class only, single ticket */}
+        {seatClass === 1 && quantity === 1 && routeIdParam && (
+          <div className="border-b border-outline-variant/15 px-4 py-4">
+            <SeatMapPicker
+              routeId={routeIdParam}
+              selectedSeat={selectedSeat}
+              onSelect={setSelectedSeat}
+            />
+          </div>
+        )}
 
         {/* Price section */}
         <div className="bg-gradient-to-br from-primary/15 to-transparent p-6 pb-5">
@@ -502,7 +522,7 @@ export function RoutePurchasePage() {
             <button
               type="button"
               disabled={quantity <= 1}
-              onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+              onClick={() => { setQuantity((q) => Math.max(1, q - 1)); if (seatClass === 1) setSelectedSeat(null) }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high font-bold text-white disabled:opacity-30 hover:border-primary/40 transition-colors"
               aria-label="Decrease quantity"
             >
@@ -514,7 +534,7 @@ export function RoutePurchasePage() {
             <button
               type="button"
               disabled={quantity >= 5}
-              onClick={() => setQuantity((q) => Math.min(5, q + 1))}
+              onClick={() => { setQuantity((q) => Math.min(5, q + 1)); if (seatClass === 1) setSelectedSeat(null) }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high font-bold text-white disabled:opacity-30 hover:border-primary/40 transition-colors"
               aria-label="Increase quantity"
             >

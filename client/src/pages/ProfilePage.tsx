@@ -254,6 +254,33 @@ export function ProfilePage() {
     (historyPage + 1) * HISTORY_PAGE_SIZE,
   )
 
+  const downloadHistoryCSV = useCallback(() => {
+    if (historyItems.length === 0) return
+    const headers = ["Type", "Route", "Seat Class", "Token ID", "Date", "Tx Hash"]
+    const rows = historyItems.map((item) => {
+      const row = item.data
+      const routeName = routeMetaForRouteId(row.route_id ?? undefined)?.name ??
+        (row.route_id ? `Route #${row.route_id}` : "Transit pass")
+      const type = item.type === "expired" ? "Expired" : "Used"
+      const date = item.type === "expired"
+        ? (row.valid_until_epoch ? new Date(Number(row.valid_until_epoch) * 1000).toISOString().slice(0, 10) : "")
+        : (row.created_at ? new Date(row.created_at).toISOString().slice(0, 10) : "")
+      const seatClass = row.seat_class ?? "Economy"
+      const txHash = "tx_hash" in row ? (row.tx_hash ?? "") : ""
+      return [type, routeName, seatClass, row.token_id, date, txHash]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(",")
+    })
+    const csv = [headers.join(","), ...rows].join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `chainpass-history-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [historyItems])
+
   return (
     <div className="mx-auto max-w-lg">
       {/* Header */}
@@ -565,6 +592,19 @@ export function ProfilePage() {
             </div>
           ) : (
             <>
+              <div className="mb-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={downloadHistoryCSV}
+                  className="flex items-center gap-1.5 rounded-lg border border-outline-variant/25 bg-surface-container px-3 py-1.5 font-headline text-xs font-semibold text-on-surface-variant transition-colors hover:border-primary/30 hover:text-primary"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  Export CSV
+                </button>
+              </div>
               <div className="relative">
                 {/* Vertical timeline line */}
                 <div className="absolute left-[19px] top-3 bottom-3 w-px bg-outline-variant/20" aria-hidden />

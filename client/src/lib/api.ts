@@ -283,3 +283,32 @@ export async function fetchRouteRating(routeId: string): Promise<RouteRating | n
     return null
   }
 }
+
+export async function fetchOccupiedSeats(routeId: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/seats/${encodeURIComponent(routeId)}`)
+    if (!res.ok) return []
+    const data = (await res.json()) as { occupied?: string[] }
+    return data.occupied ?? []
+  } catch { return [] }
+}
+
+export async function claimSeat(tokenId: string, routeId: string, seatNumber: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/seats`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tokenId, routeId, seatNumber }),
+    })
+    return res.ok
+  } catch { return false }
+}
+
+export async function fetchSeatAssignment(tokenId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/seats/assignment/${encodeURIComponent(tokenId)}`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { seatNumber?: string | null }
+    return data.seatNumber ?? null
+  } catch { return null }
+}

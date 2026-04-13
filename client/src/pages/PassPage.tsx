@@ -6,7 +6,7 @@ import { QRCodeSVG } from "qrcode.react"
 import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
 import { getContractAddress } from "../lib/contract"
 import { routeMetaForRouteId, shortenNumericId } from "../lib/passDisplay"
-import { requestQrPayload, submitRating, type QrPayload } from "../lib/api"
+import { requestQrPayload, submitRating, fetchSeatAssignment, type QrPayload } from "../lib/api"
 import { useOfflineQr } from "../hooks/useOfflineQr"
 import { useNotifications } from "../hooks/useNotifications"
 import { ExpiryWarningBanner } from "../components/ui/ExpiryWarningBanner"
@@ -162,6 +162,12 @@ export function PassPage() {
     query: { enabled: !!contractAddress && !!tokenIdStr },
   })
   const seatClass = (seatClassRaw as number | undefined) === 1 ? "Business" : "Economy"
+
+  const [assignedSeat, setAssignedSeat] = useState<string | null>(null)
+  useEffect(() => {
+    if (!tokenIdStr || seatClass !== "Business") return
+    void fetchSeatAssignment(tokenIdStr).then(setAssignedSeat)
+  }, [tokenIdStr, seatClass])
 
   // Persist route/time info so we can show it on the "Trip complete" screen after burn
   const burnedInfoRef = useRef<{ routeName: string; usedAt: Date } | null>(null)
@@ -486,6 +492,11 @@ export function PassPage() {
                   <p className={`mt-1 font-headline text-xs font-semibold ${seatClass === "Business" ? "text-amber-300" : "text-white"}`}>
                     {seatClass === "Business" ? "✦ Business" : "Economy"}
                   </p>
+                  {seatClass === "Business" && assignedSeat && (
+                    <p className="mt-0.5 font-headline text-[10px] font-semibold text-amber-300/70">
+                      Seat {assignedSeat}
+                    </p>
+                  )}
                 </div>
                 <div className="border-x border-outline-variant/15">
                   <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">

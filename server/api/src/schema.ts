@@ -64,3 +64,14 @@ CREATE TABLE IF NOT EXISTS route_ratings (
 );
 CREATE INDEX IF NOT EXISTS idx_route_ratings_route_id ON route_ratings(route_id);
 `;
+
+export const SEAT_ASSIGNMENTS_INIT_SQL = `
+CREATE TABLE IF NOT EXISTS seat_assignments (
+  id SERIAL PRIMARY KEY,
+  route_id TEXT NOT NULL,
+  token_id TEXT NOT NULL UNIQUE,
+  seat_number TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_seat_assignments_route_id ON seat_assignments(route_id);
+`;

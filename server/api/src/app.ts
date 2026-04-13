@@ -7,6 +7,7 @@ import { createQrRouter } from "./routes/qr.js";
 import { createRatingsRouter } from "./routes/ratings.js";
 import { createRiderRouter } from "./routes/rider.js";
 import { createRoutesRouter } from "./routes/routes.js";
+import { createSeatsRouter } from "./routes/seats.js";
 
 export function createApp(): Express {
   const app = express();
@@ -36,6 +37,7 @@ export function createApp(): Express {
   app.use("/api/v1/rider", createRiderRouter());
   app.use("/api/v1", createRatingsRouter());
   app.use("/api/v1", createRoutesRouter());
+  app.use("/api/v1", createSeatsRouter());
 
   return app;
 }
