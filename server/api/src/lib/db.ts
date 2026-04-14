@@ -55,5 +55,20 @@ export async function ensureRouteLabelsTable(): Promise<void> {
   await pool.query(SEAT_RESERVATIONS_INIT_SQL);
   await pool.query(TRIPS_INIT_SQL);
   await pool.query(TICKET_TRIPS_INIT_SQL);
+
+  // One-time cleanup: remove any seat_assignments rows whose token was burned
+  // on-chain. These accumulate when the indexer processes burns without clearing
+  // the seat (fixed in indexer, but historical rows need a one-time purge).
+  // ticket_events is owned by the indexer — skip safely if it doesn't exist yet.
+  try {
+    await pool.query(`
+      DELETE FROM seat_assignments
+      WHERE token_id IN (
+        SELECT DISTINCT token_id FROM ticket_events WHERE event_type = 'burn'
+      )
+    `);
+  } catch {
+    // ticket_events table not yet created by the indexer — nothing to clean up
+  }
 }
 
