@@ -146,13 +146,15 @@ export function createSeatsRouter(): Router {
         if (capacity !== null) {
           // UNION deduplicates seats that briefly appear in both tables (race window
           // between INSERT seat_assignments and DELETE seat_reservations at claim time).
+          // NOTE: $1 is referenced twice in the query but `pg` with pgbouncer requires
+          // the parameter array length to match the highest $N, not the reference count.
           const occupiedRes = await pool.query<{ count: string }>(
             `SELECT COUNT(*) AS count FROM (
                SELECT seat_number FROM seat_assignments WHERE route_id = $1
                UNION
                SELECT seat_number FROM seat_reservations WHERE route_id = $1 AND expires_at > NOW()
              ) AS occupied`,
-            [routeId, routeId],
+            [routeId],
           );
           const occupied = parseInt(occupiedRes.rows[0]?.count ?? "0", 10);
           if (occupied >= capacity) {
