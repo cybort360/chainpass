@@ -4,7 +4,7 @@ import type { CoachClassConfig, VehicleType } from "../lib/api"
 import { env } from "../lib/env"
 
 /** Fallback poll interval — SSE handles real-time; polling is just a safety net */
-const POLL_MS = 30_000
+const POLL_MS = 10_000
 
 type Props = {
   routeId: string

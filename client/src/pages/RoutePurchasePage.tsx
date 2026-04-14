@@ -188,6 +188,21 @@ export function RoutePurchasePage() {
   // (the user's own reservation makes the seat appear in "occupied", which would
   // otherwise clear selectedSeat before the mint completes and lose the claim).
   const seatToClaimRef = useRef<string | null>(null)
+
+  // Release the seat reservation when the user navigates away without completing payment.
+  // Uses refs so the cleanup always sees the latest values regardless of when it runs.
+  const releaseOnUnmountRef = useRef<{ routeId: string; seat: string } | null>(null)
+  useEffect(() => {
+    releaseOnUnmountRef.current = seatToClaimRef.current && routeIdParam
+      ? { routeId: routeIdParam, seat: seatToClaimRef.current }
+      : null
+  })
+  useEffect(() => {
+    return () => {
+      const target = releaseOnUnmountRef.current
+      if (target) void releaseSeat(target.routeId, target.seat)
+    }
+  }, [])
   const publicClient = usePublicClient()
 
   // ── Exchange rates ──────────────────────────────────────────────────────────
@@ -883,7 +898,7 @@ export function RoutePurchasePage() {
             <button
               type="button"
               disabled={quantity <= 1}
-              onClick={() => { if (seatClass === 1 && selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setQuantity((q) => Math.max(1, q - 1)); if (seatClass === 1) setSelectedSeat(null) }}
+              onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setQuantity((q) => Math.max(1, q - 1)); setSelectedSeat(null); seatToClaimRef.current = null; setReservedAt(null) }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high font-bold text-white disabled:opacity-30 hover:border-primary/40 transition-colors"
               aria-label="Decrease quantity"
             >
@@ -895,7 +910,7 @@ export function RoutePurchasePage() {
             <button
               type="button"
               disabled={quantity >= 5}
-              onClick={() => { if (seatClass === 1 && selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setQuantity((q) => Math.min(5, q + 1)); if (seatClass === 1) setSelectedSeat(null) }}
+              onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setQuantity((q) => Math.min(5, q + 1)); setSelectedSeat(null); seatToClaimRef.current = null; setReservedAt(null) }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high font-bold text-white disabled:opacity-30 hover:border-primary/40 transition-colors"
               aria-label="Increase quantity"
             >

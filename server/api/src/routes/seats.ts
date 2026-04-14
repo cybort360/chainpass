@@ -170,23 +170,22 @@ export function createSeatsRouter(): Router {
         res.status(409).json({ error: "seat already taken" }); return;
       }
       const expiresAt = new Date(Date.now() + RESERVATION_TTL_MINUTES * 60 * 1000);
-      // Upsert: if someone else already has a live reservation on this seat, reject
-      const existing = await pool.query(
-        `SELECT 1 FROM seat_reservations
-         WHERE route_id = $1 AND seat_number = $2 AND expires_at > NOW()`,
-        [routeId, seatNumber],
-      );
-      if (existing.rowCount && existing.rowCount > 0) {
-        res.status(409).json({ error: "seat is being held by another passenger" }); return;
-      }
-      // Insert or refresh (e.g. user re-selected same seat)
-      await pool.query(
+      // Atomic: insert the reservation, or overwrite it only if the existing row has
+      // already expired (expires_at <= NOW).  If an active reservation exists for a
+      // different passenger the WHERE clause fails → rowCount = 0 → 409.
+      // This single statement replaces the old non-atomic check-then-upsert which
+      // allowed two concurrent requests to both succeed (race condition).
+      const inserted = await pool.query(
         `INSERT INTO seat_reservations (route_id, seat_number, expires_at)
          VALUES ($1, $2, $3)
-         ON CONFLICT (route_id, seat_number)
-         DO UPDATE SET expires_at = EXCLUDED.expires_at`,
+         ON CONFLICT (route_id, seat_number) DO UPDATE
+           SET expires_at = EXCLUDED.expires_at
+           WHERE seat_reservations.expires_at <= NOW()`,
         [routeId, seatNumber, expiresAt],
       );
+      if (!inserted.rowCount || inserted.rowCount === 0) {
+        res.status(409).json({ error: "seat is being held by another passenger" }); return;
+      }
       seatNotify(routeId)
       res.json({ ok: true, expiresAt: expiresAt.toISOString() });
     } catch (err) {
@@ -223,11 +222,14 @@ export function createSeatsRouter(): Router {
         }
         res.json({ ok: true, seatNumber }); return;
       }
-      // Write permanent assignment
+      // Write permanent assignment.
+      // No conflict target: catches both UNIQUE(token_id) and UNIQUE(route_id, seat_number)
+      // so a concurrent claim racing past the pre-check above silently no-ops instead of
+      // throwing an unhandled constraint error.
       await pool.query(
         `INSERT INTO seat_assignments (route_id, token_id, seat_number)
          VALUES ($1, $2, $3)
-         ON CONFLICT (token_id) DO NOTHING`,
+         ON CONFLICT DO NOTHING`,
         [routeId, tokenId, seatNumber],
       );
       // Clean up the reservation (no longer needed)
