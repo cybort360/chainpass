@@ -278,8 +278,9 @@ export function createRoutesRouter(): Router {
         capacity = row.total_seats;
       }
 
-      // Count sold (permanent assignments) and reserved (held, not yet minted)
-      const [soldRes, reservedRes] = await Promise.all([
+      // Count seats using UNION to avoid double-counting seats that briefly
+      // appear in both tables during the claim window (INSERT + DELETE race).
+      const [soldRes, reservedRes, occupiedRes] = await Promise.all([
         pool.query<{ count: string }>(
           `SELECT COUNT(*) AS count FROM seat_assignments WHERE route_id = $1`,
           [routeIdStr],
@@ -288,12 +289,21 @@ export function createRoutesRouter(): Router {
           `SELECT COUNT(*) AS count FROM seat_reservations WHERE route_id = $1 AND expires_at > NOW()`,
           [routeIdStr],
         ),
+        pool.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM (
+             SELECT seat_number FROM seat_assignments WHERE route_id = $1
+             UNION
+             SELECT seat_number FROM seat_reservations WHERE route_id = $1 AND expires_at > NOW()
+           ) AS occupied`,
+          [routeIdStr, routeIdStr],
+        ),
       ]);
 
       const sold     = parseInt(soldRes.rows[0]?.count ?? "0", 10);
       const reserved = parseInt(reservedRes.rows[0]?.count ?? "0", 10);
-      const available = capacity !== null ? Math.max(0, capacity - sold - reserved) : null;
-      const soldOut   = capacity !== null && sold + reserved >= capacity;
+      const occupied = parseInt(occupiedRes.rows[0]?.count ?? "0", 10);
+      const available = capacity !== null ? Math.max(0, capacity - occupied) : null;
+      const soldOut   = capacity !== null && occupied >= capacity;
 
       res.json({ capacity, sold, reserved, available, soldOut });
     } catch (err) {

@@ -973,12 +973,10 @@ export function ConductorPage() {
                     </div>
                     {offlineResult === true && (
                       <div className="border-t border-emerald-500/15 px-5 py-4">
-                        <button type="button"
-                          disabled={burnPending || burnConfirming || chainRoute === undefined}
-                          onClick={() => void onBurn()}
-                          className="w-full rounded-2xl bg-error/80 px-6 py-4 font-headline text-base font-bold text-white transition-all hover:bg-error disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">
-                          {burnPending || burnConfirming ? "Burning…" : "Burn ticket (offline)"}
-                        </button>
+                        <p className="text-xs text-emerald-400/70 text-center">
+                          ✓ Ticket verified — allow boarding.
+                          Reconnect to internet to burn on-chain.
+                        </p>
                       </div>
                     )}
                   </div>
