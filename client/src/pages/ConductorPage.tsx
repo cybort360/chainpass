@@ -161,13 +161,16 @@ export function ConductorPage() {
 
   const checkingAccess = checkingBurnerAccess
 
-  const { data: chainOwner } = useReadContract({
+  const { data: chainOwner, error: ownerError } = useReadContract({
     address: contractAddress,
     abi: chainPassTicketAbi,
     functionName: "ownerOf",
     args: tokenIdBig !== undefined ? [tokenIdBig] : undefined,
     query: { enabled: !!contractAddress && tokenIdBig !== undefined },
   })
+  // ownerOf reverts when the token no longer exists (burned). Treat any read
+  // error as "already boarded" so the conductor sees a clear message.
+  const isAlreadyBurned = ownerError !== null && ownerError !== undefined && tokenIdBig !== undefined
 
   const { data: chainRoute } = useReadContract({
     address: contractAddress,
@@ -465,6 +468,37 @@ export function ConductorPage() {
 
   return (
     <ConductorErrorBoundary>
+      {/* Fullscreen ALREADY-BURNED overlay */}
+      {isAlreadyBurned && parsed && !burnSuccess && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#1a0a0a] px-6 force-white">
+          <div className="relative mb-8 flex h-40 w-40 items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-amber-500/10" />
+            <div className="absolute inset-2 rounded-full bg-amber-500/15" />
+            <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-amber-500/40 to-amber-500/10 shadow-[0_0_64px_rgba(245,158,11,0.35)]">
+              <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                className="text-amber-400" aria-hidden>
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </div>
+          </div>
+          <p className="font-headline text-[11px] font-bold uppercase tracking-[0.3em] text-amber-500/70">Already boarded</p>
+          <h1 className="mt-2 font-headline text-5xl font-black tracking-tight text-amber-400">USED</h1>
+          <p className="mt-3 max-w-xs text-center text-sm leading-relaxed text-white/60">
+            This ticket has already been scanned and burned. It cannot be used to board again.
+          </p>
+          <p className="mt-2 font-mono text-xs text-white/30">#{parsed.tokenId.slice(0, 10)}…</p>
+          <button
+            type="button"
+            onClick={() => { setParsed(null); setRawInput(""); setParseErr(null); resetBurn() }}
+            className="btn-dark-cta mt-10 w-full max-w-xs rounded-full bg-white px-8 py-4 font-headline text-base font-bold text-zinc-900 shadow-lg transition-all hover:bg-white/90 active:scale-[0.97]"
+          >
+            Scan next ticket
+          </button>
+        </div>
+      )}
+
       {/* Fullscreen VALID overlay — shown after scan resolves and ticket is valid */}
       {showValidOverlay && parsed && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0a1a0f] px-6 force-white">

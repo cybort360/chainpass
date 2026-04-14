@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom"
 import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { monadTestnet, chainPassTicketAbi } from "@chainpass/shared"
 
-import { fetchMyPasses, fetchRouteLabels, type MyPassesResponse } from "../lib/api"
+import { fetchMyPasses, fetchRouteLabels, fetchSeatAssignment, type MyPassesResponse } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { fetchActivePassesFromChain, fetchBurnedPassesFromChain } from "../lib/onchainPasses"
@@ -62,6 +62,21 @@ export function ProfilePage() {
   const [err, setErr] = useState<string | null>(null)
   const [tab, setTab] = useState<TabId>("active")
   const [historyPage, setHistoryPage] = useState(0)
+  const [seatAssignments, setSeatAssignments] = useState<Record<string, string | null>>({})
+
+  // ── Seat assignments ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!data?.active.length) return
+    const tokenIds = data.active.map((p) => p.token_id).filter(Boolean)
+    if (tokenIds.length === 0) return
+    void Promise.all(tokenIds.map((id) => fetchSeatAssignment(id).then((seat) => ({ id, seat })))).then(
+      (results) => {
+        const map: Record<string, string | null> = {}
+        for (const { id, seat } of results) map[id] = seat
+        setSeatAssignments(map)
+      },
+    )
+  }, [data?.active])
 
   // ── Notifications ─────────────────────────────────────────────────────────
   const { permission: notifPermission, requestPermission, scheduleExpiryNotification } = useNotifications()
@@ -541,10 +556,10 @@ export function ProfilePage() {
                         </div>
                         <div className="px-3">
                           <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
-                            Block
+                            Seat
                           </p>
                           <p className="mt-1 font-mono text-xs text-white">
-                            {row.block_number ?? "Live"}
+                            {seatAssignments[row.token_id] ?? "—"}
                           </p>
                         </div>
                       </div>

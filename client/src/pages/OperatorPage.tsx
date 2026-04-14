@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { formatEther, formatUnits, isAddress, keccak256, parseAbiItem, parseEther, parseUnits, toBytes } from "viem"
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { chainPassTicketAbi, monadTestnet, newRouteIdDecimalFromUuid } from "@chainpass/shared"
-import { fetchOperatorStats, fetchOperatorTimeseries, fetchRouteLabels, registerRouteLabel, type ApiRouteLabel, type CoachClassConfig, type OperatorStats, type TimeseriesBucket } from "../lib/api"
+import { deleteRouteLabel, fetchOperatorStats, fetchOperatorTimeseries, fetchRouteLabels, registerRouteLabel, updateRouteLabel, type ApiRouteLabel, type CoachClassConfig, type OperatorStats, type TimeseriesBucket } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { formatWriteContractError } from "../lib/walletError"
@@ -921,6 +921,66 @@ export function OperatorPage() {
     })
   }
 
+  // ── Edit / delete route state ──────────────────────────────────────────────
+  const [editRoutes, setEditRoutes] = useState<ApiRouteLabel[]>([])
+  const [editingRouteId, setEditingRouteId] = useState<string | null>(null)
+  const [editName, setEditName] = useState("")
+  const [editCategory, setEditCategory] = useState("")
+  const [editDetail, setEditDetail] = useState("")
+  const [editSchedule, setEditSchedule] = useState("")
+  const [editSaving, setEditSaving] = useState(false)
+  const [editMsg, setEditMsg] = useState<string | null>(null)
+  const [deletingRouteId, setDeletingRouteId] = useState<string | null>(null)
+  const [deleteInProgress, setDeleteInProgress] = useState(false)
+
+  useEffect(() => {
+    void fetchRouteLabels().then((labels) => { if (labels) setEditRoutes(labels) })
+  }, [])
+
+  const startEdit = (r: ApiRouteLabel) => {
+    setEditingRouteId(r.routeId)
+    setEditName(r.name)
+    setEditCategory(r.category)
+    setEditDetail(r.detail ?? "")
+    setEditSchedule(r.schedule ?? "")
+    setEditMsg(null)
+  }
+
+  const cancelEdit = () => { setEditingRouteId(null); setEditMsg(null) }
+
+  const saveEdit = async () => {
+    if (!editingRouteId) return
+    setEditSaving(true)
+    setEditMsg(null)
+    const result = await updateRouteLabel(editingRouteId, {
+      name: editName.trim(),
+      category: editCategory.trim(),
+      detail: editDetail.trim() || null,
+      schedule: editSchedule.trim() || null,
+    })
+    setEditSaving(false)
+    if (result.ok) {
+      setEditRoutes((prev) => prev.map((r) => r.routeId === editingRouteId ? result.route : r))
+      setEditingRouteId(null)
+    } else {
+      setEditMsg(`Error: ${result.error}`)
+    }
+  }
+
+  const confirmDelete = async (routeId: string) => {
+    setDeleteInProgress(true)
+    const result = await deleteRouteLabel(routeId)
+    setDeleteInProgress(false)
+    if (result.ok) {
+      setEditRoutes((prev) => prev.filter((r) => r.routeId !== routeId))
+      setDeletingRouteId(null)
+      if (editingRouteId === routeId) setEditingRouteId(null)
+    } else {
+      setDeletingRouteId(null)
+      setEditMsg(`Delete failed: ${result.error}`)
+    }
+  }
+
   const [stats, setStats] = useState<OperatorStats | null>(null)
   const [timeseries, setTimeseries] = useState<TimeseriesBucket[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1246,6 +1306,96 @@ export function OperatorPage() {
               {regFormErr && <p className="text-xs text-error">{regFormErr}</p>}
               {regLabelMsg && <p className="text-xs text-tertiary">{regLabelMsg}</p>}
             </div>
+          )}
+        </div>
+      </details>
+
+      {/* Edit / delete routes */}
+      <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+        <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors">
+          Edit routes
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+            Admin only
+          </span>
+        </summary>
+        <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4">
+          {editRoutes.length === 0 ? (
+            <p className="text-xs text-on-surface-variant">No routes registered yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {editRoutes.map((r) => (
+                <li key={r.routeId}>
+                  {editingRouteId === r.routeId ? (
+                    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="block">
+                          <span className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/70">Route name</span>
+                          <input type="text" className={inputClass} value={editName} maxLength={100}
+                            onChange={(e) => setEditName(e.target.value)} />
+                        </label>
+                        <label className="block">
+                          <span className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/70">Category</span>
+                          <input type="text" className={inputClass} value={editCategory} maxLength={60}
+                            onChange={(e) => setEditCategory(e.target.value)} />
+                        </label>
+                      </div>
+                      <label className="block">
+                        <span className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/70">Detail (optional)</span>
+                        <input type="text" className={inputClass} value={editDetail} maxLength={200}
+                          onChange={(e) => setEditDetail(e.target.value)} placeholder="Short description" />
+                      </label>
+                      <label className="block">
+                        <span className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/70">Schedule (optional)</span>
+                        <input type="text" className={inputClass} value={editSchedule} maxLength={200}
+                          onChange={(e) => setEditSchedule(e.target.value)} placeholder="e.g. Mon–Fri 06:00–22:00" />
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button type="button" disabled={editSaving || !editName.trim()}
+                          onClick={() => void saveEdit()}
+                          className="rounded-lg bg-primary px-4 py-2 font-headline text-xs font-bold text-white transition-all hover:brightness-110 disabled:opacity-50">
+                          {editSaving ? "Saving…" : "Save"}
+                        </button>
+                        <button type="button" disabled={editSaving}
+                          onClick={cancelEdit}
+                          className="rounded-lg border border-outline-variant/25 px-4 py-2 font-headline text-xs font-semibold text-on-surface-variant transition-colors hover:text-white">
+                          Cancel
+                        </button>
+                        {editMsg && <p className="text-xs text-error">{editMsg}</p>}
+                      </div>
+                    </div>
+                  ) : deletingRouteId === r.routeId ? (
+                    <div className="flex items-center gap-3 rounded-xl border border-error/30 bg-error/8 px-4 py-3">
+                      <p className="flex-1 text-xs text-error">Delete <span className="font-semibold">{r.name}</span>? This cannot be undone.</p>
+                      <button type="button" disabled={deleteInProgress}
+                        onClick={() => void confirmDelete(r.routeId)}
+                        className="shrink-0 rounded-lg bg-error/80 px-3 py-1.5 font-headline text-xs font-bold text-white hover:bg-error disabled:opacity-50">
+                        {deleteInProgress ? "Deleting…" : "Confirm"}
+                      </button>
+                      <button type="button" disabled={deleteInProgress}
+                        onClick={() => setDeletingRouteId(null)}
+                        className="shrink-0 rounded-lg border border-outline-variant/25 px-3 py-1.5 font-headline text-xs font-semibold text-on-surface-variant hover:text-white">
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 rounded-xl border border-outline-variant/15 px-4 py-2.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-headline text-sm font-semibold text-white">{r.name}</p>
+                        <p className="truncate text-xs text-on-surface-variant">{r.category}{r.detail ? ` · ${r.detail}` : ""}</p>
+                      </div>
+                      <button type="button" onClick={() => startEdit(r)}
+                        className="shrink-0 rounded-lg border border-outline-variant/20 px-3 py-1.5 font-headline text-xs font-semibold text-on-surface-variant transition-colors hover:border-primary/30 hover:text-white">
+                        Edit
+                      </button>
+                      <button type="button" onClick={() => setDeletingRouteId(r.routeId)}
+                        className="shrink-0 rounded-lg border border-error/20 px-3 py-1.5 font-headline text-xs font-semibold text-error/70 transition-colors hover:border-error/40 hover:text-error">
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </details>

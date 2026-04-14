@@ -1183,6 +1183,24 @@ export const chainPassTicketAbi = [
   },
   {
     "type": "event",
+    "name": "RouteFirstClassPriceSet",
+    "inputs": [
+      { "name": "routeId",   "type": "uint256", "indexed": true,  "internalType": "uint256" },
+      { "name": "weiAmount", "type": "uint256", "indexed": false, "internalType": "uint256" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RouteFirstClassUsdcPriceSet",
+    "inputs": [
+      { "name": "routeId", "type": "uint256", "indexed": true,  "internalType": "uint256" },
+      { "name": "amount",  "type": "uint256", "indexed": false, "internalType": "uint256" }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Transfer",
     "inputs": [
       {
@@ -1536,6 +1554,40 @@ export const chainPassTicketAbi = [
   {
     "type": "function",
     "name": "setRouteBusinessUsdcPrice",
+    "inputs": [
+      { "name": "routeId", "type": "uint256", "internalType": "uint256" },
+      { "name": "amount",  "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "routeFirstClassPriceWei",
+    "inputs": [{ "name": "routeId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "routeFirstClassPriceUsdc",
+    "inputs": [{ "name": "routeId", "type": "uint256", "internalType": "uint256" }],
+    "outputs": [{ "name": "", "type": "uint256", "internalType": "uint256" }],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setRouteFirstClassPrice",
+    "inputs": [
+      { "name": "routeId",   "type": "uint256", "internalType": "uint256" },
+      { "name": "weiAmount", "type": "uint256", "internalType": "uint256" }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRouteFirstClassUsdcPrice",
     "inputs": [
       { "name": "routeId", "type": "uint256", "internalType": "uint256" },
       { "name": "amount",  "type": "uint256", "internalType": "uint256" }

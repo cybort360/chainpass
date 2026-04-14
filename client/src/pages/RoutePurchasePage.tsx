@@ -18,6 +18,50 @@ import { SeatMapPicker } from "../components/SeatMapPicker"
 
 type PayMethod = "mon" | "usdc"
 
+const HOLD_DURATION_MS = 10 * 60 * 1000 // 10 minutes
+
+function SeatHoldCountdown({ reservedAt, onExpired }: { reservedAt: number; onExpired: () => void }) {
+  const [secsLeft, setSecsLeft] = useState(() => {
+    const elapsed = Date.now() - reservedAt
+    return Math.max(0, Math.floor((HOLD_DURATION_MS - elapsed) / 1000))
+  })
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const elapsed = Date.now() - reservedAt
+      const remaining = Math.max(0, Math.floor((HOLD_DURATION_MS - elapsed) / 1000))
+      setSecsLeft(remaining)
+      if (remaining === 0) {
+        window.clearInterval(id)
+        onExpired()
+      }
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [reservedAt, onExpired])
+
+  const mins = Math.floor(secsLeft / 60)
+  const secs = secsLeft % 60
+  const display = `${mins}:${String(secs).padStart(2, "0")}`
+  const isUrgent = secsLeft <= 60
+
+  return (
+    <div className={`mt-3 flex items-center gap-2 rounded-xl border px-3 py-2 ${
+      isUrgent ? "border-amber-400/40 bg-amber-400/10" : "border-outline-variant/20 bg-surface-container-high/60"
+    }`}>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        className={`shrink-0 ${isUrgent ? "text-amber-400" : "text-on-surface-variant/60"}`} aria-hidden>
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+      <p className={`font-headline text-xs ${isUrgent ? "text-amber-400" : "text-on-surface-variant"}`}>
+        Seat held for{" "}
+        <span className={`font-bold tabular-nums ${isUrgent ? "text-amber-400" : "text-white"}`}>{display}</span>
+        {isUrgent ? " — complete payment now" : " — complete payment to confirm"}
+      </p>
+    </div>
+  )
+}
+
 const USDC_DECIMALS = 6
 
 function parseRouteIdParam(raw: string | undefined): bigint | undefined {
@@ -102,6 +146,8 @@ export function RoutePurchasePage() {
   const [mintedTokenIds, setMintedTokenIds] = useState<bigint[]>([])
   const [selectedSeat, setSelectedSeat] = useState<string | null>(null)
   const [seatConflict, setSeatConflict] = useState(false)
+  const [seatClaimFailed, setSeatClaimFailed] = useState(false)
+  const [reservedAt, setReservedAt] = useState<number | null>(null) // ms timestamp when hold started
   // Mirrors selectedSeat for stale-closure reads
   const selectedSeatRef = useRef<string | null>(null)
   useEffect(() => { selectedSeatRef.current = selectedSeat }, [selectedSeat])
@@ -149,7 +195,22 @@ export function RoutePurchasePage() {
     const b = typeof routeBusinessWei === "bigint" ? routeBusinessWei : undefined
     return b !== undefined && b > 0n ? b : priceWei * 2n
   }, [priceWei, routeBusinessWei])
-  const effectivePriceWei = seatClass === 1 ? businessPriceWei : priceWei
+
+  // ── First Class MON price ─────────────────────────────────────────────────
+  const { data: routeFirstClassWei } = useReadContract({
+    address: contractAddress,
+    abi: chainPassTicketAbi,
+    functionName: "routeFirstClassPriceWei",
+    args: [routeIdBig ?? 0n],
+    query: { enabled: !!contractAddress && routeIdBig !== undefined },
+  })
+  const firstClassPriceWei = useMemo(() => {
+    if (priceWei === undefined) return undefined
+    const f = typeof routeFirstClassWei === "bigint" ? routeFirstClassWei : undefined
+    return f !== undefined && f > 0n ? f : priceWei * 3n
+  }, [priceWei, routeFirstClassWei])
+
+  const effectivePriceWei = seatClass === 2 ? firstClassPriceWei : seatClass === 1 ? businessPriceWei : priceWei
 
   // ── USDC pricing ───────────────────────────────────────────────────────────
   const { data: onChainUsdcToken } = useReadContract({
@@ -199,7 +260,22 @@ export function RoutePurchasePage() {
     const b = typeof routeBusinessUsdc === "bigint" ? routeBusinessUsdc : undefined
     return b !== undefined && b > 0n ? b : priceUsdc * 2n
   }, [priceUsdc, routeBusinessUsdc])
-  const effectivePriceUsdc = seatClass === 1 ? businessPriceUsdc : priceUsdc
+
+  // ── First Class USDC price ────────────────────────────────────────────────
+  const { data: routeFirstClassUsdc } = useReadContract({
+    address: contractAddress,
+    abi: chainPassTicketAbi,
+    functionName: "routeFirstClassPriceUsdc",
+    args: [routeIdBig ?? 0n],
+    query: { enabled: !!contractAddress && routeIdBig !== undefined && usdcEnabled },
+  })
+  const firstClassPriceUsdc = useMemo(() => {
+    if (priceUsdc === undefined) return undefined
+    const f = typeof routeFirstClassUsdc === "bigint" ? routeFirstClassUsdc : undefined
+    return f !== undefined && f > 0n ? f : priceUsdc * 3n
+  }, [priceUsdc, routeFirstClassUsdc])
+
+  const effectivePriceUsdc = seatClass === 2 ? firstClassPriceUsdc : seatClass === 1 ? businessPriceUsdc : priceUsdc
 
   // ── USDC allowance ─────────────────────────────────────────────────────────
   const { data: allowanceRaw, refetch: refetchAllowance } = useReadContract({
@@ -262,7 +338,8 @@ export function RoutePurchasePage() {
       const seatToClaim = seatToClaimRef.current
       const doNavigate = async () => {
         if (seatToClaim && routeIdParam) {
-          await claimSeat(tokenId.toString(), routeIdParam, seatToClaim)
+          const claimed = await claimSeat(tokenId.toString(), routeIdParam, seatToClaim)
+          if (!claimed) setSeatClaimFailed(true)
           seatToClaimRef.current = null
         }
         navigate(`/pass/${tokenId.toString()}`)
@@ -307,10 +384,12 @@ export function RoutePurchasePage() {
         // Reservation succeeded — record for claiming after mint even if UI state
         // gets cleared by the "occupied" polling in SeatMapPicker
         seatToClaimRef.current = seat
+        setReservedAt(Date.now())
       }
     } else {
       // Explicit deselect
       seatToClaimRef.current = null
+      setReservedAt(null)
     }
   }
 
@@ -347,7 +426,8 @@ export function RoutePurchasePage() {
         // appeared in the occupied set.
         const seatToClaim = seatToClaimRef.current
         if (seatToClaim && ids.length === 1 && routeIdParam) {
-          await claimSeat(ids[0].toString(), routeIdParam, seatToClaim)
+          const claimed = await claimSeat(ids[0].toString(), routeIdParam, seatToClaim)
+          if (!claimed) setSeatClaimFailed(true)
           seatToClaimRef.current = null
         }
         setMintedTokenIds(ids)
@@ -592,6 +672,19 @@ export function RoutePurchasePage() {
                 </p>
               </div>
             )}
+            {seatClaimFailed && (
+              <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  className="mt-0.5 shrink-0 text-amber-400" aria-hidden>
+                  <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <p className="font-headline text-xs font-semibold text-amber-400">
+                  Ticket purchased — but seat assignment failed to save. Please contact support with your token ID so your seat can be recorded manually.
+                </p>
+              </div>
+            )}
             <SeatMapPicker
               routeId={routeIdParam}
               selectedSeat={selectedSeat}
@@ -603,6 +696,15 @@ export function RoutePurchasePage() {
               seatsPerCoach={routeConfig?.seatsPerCoach}
               totalSeats={routeConfig?.totalSeats}
             />
+            {selectedSeat && reservedAt !== null && (
+              <SeatHoldCountdown reservedAt={reservedAt} onExpired={() => {
+                setSelectedSeat(null)
+                seatToClaimRef.current = null
+                setReservedAt(null)
+                setSeatConflict(true)
+                setTimeout(() => setSeatConflict(false), 5000)
+              }} />
+            )}
           </div>
         )}
 

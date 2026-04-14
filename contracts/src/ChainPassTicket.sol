@@ -60,7 +60,7 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
 
     // ─── Seat class ───────────────────────────────────────────────────────────
 
-    enum SeatClass { Economy, Business }
+    enum SeatClass { Economy, Business, FirstClass }
 
     /// @notice Per-token seat class. Defaults to Economy (0) if unset.
     mapping(uint256 tokenId => SeatClass) public seatClassOf;
@@ -70,6 +70,12 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
 
     /// @notice Per-route Business USDC price override. 0 = 2× economy USDC price.
     mapping(uint256 routeId => uint256) public routeBusinessPriceUsdc;
+
+    /// @notice Per-route First Class price override (MON wei). 0 = 3× economy price.
+    mapping(uint256 routeId => uint256) public routeFirstClassPriceWei;
+
+    /// @notice Per-route First Class USDC price override. 0 = 3× economy USDC price.
+    mapping(uint256 routeId => uint256) public routeFirstClassPriceUsdc;
 
     // ─── Token metadata ───────────────────────────────────────────────────────
 
@@ -123,6 +129,8 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     );
     event RouteBusinessPriceSet(uint256 indexed routeId, uint256 weiAmount);
     event RouteBusinessUsdcPriceSet(uint256 indexed routeId, uint256 amount);
+    event RouteFirstClassPriceSet(uint256 indexed routeId, uint256 weiAmount);
+    event RouteFirstClassUsdcPriceSet(uint256 indexed routeId, uint256 amount);
     event TicketBurned(address indexed from, uint256 indexed tokenId, uint256 routeId);
     event OperatorApproved(address indexed operator, bool approved);
     event RideCompleted(address indexed rider, uint256 newCount);
@@ -206,6 +214,18 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     function setRouteBusinessUsdcPrice(uint256 routeId, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         routeBusinessPriceUsdc[routeId] = amount;
         emit RouteBusinessUsdcPriceSet(routeId, amount);
+    }
+
+    /// @notice Set per-route First Class MON price (wei). 0 = 3× economy price.
+    function setRouteFirstClassPrice(uint256 routeId, uint256 weiAmount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        routeFirstClassPriceWei[routeId] = weiAmount;
+        emit RouteFirstClassPriceSet(routeId, weiAmount);
+    }
+
+    /// @notice Set per-route First Class USDC price. 0 = 3× economy USDC price.
+    function setRouteFirstClassUsdcPrice(uint256 routeId, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        routeFirstClassPriceUsdc[routeId] = amount;
+        emit RouteFirstClassUsdcPriceSet(routeId, amount);
     }
 
     /// @notice Returns resolved (mon, usdc) price for a given route + seat class.
@@ -387,6 +407,10 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     function _resolveMonPrice(uint256 routeId, SeatClass cls) internal view returns (uint256) {
         uint256 econ = routeMintPriceWei[routeId] > 0 ? routeMintPriceWei[routeId] : mintPriceWei;
         if (cls == SeatClass.Economy) return econ;
+        if (cls == SeatClass.FirstClass) {
+            uint256 fc = routeFirstClassPriceWei[routeId];
+            return fc > 0 ? fc : econ * 3;
+        }
         uint256 biz = routeBusinessPriceWei[routeId];
         return biz > 0 ? biz : econ * 2;
     }
@@ -394,6 +418,10 @@ contract ChainPassTicket is ERC721Enumerable, AccessControl {
     function _resolveUsdcPrice(uint256 routeId, SeatClass cls) internal view returns (uint256) {
         uint256 econ = routeMintPriceUsdc[routeId] > 0 ? routeMintPriceUsdc[routeId] : mintPriceUsdc;
         if (cls == SeatClass.Economy) return econ;
+        if (cls == SeatClass.FirstClass) {
+            uint256 fc = routeFirstClassPriceUsdc[routeId];
+            return fc > 0 ? fc : econ * 3;
+        }
         uint256 biz = routeBusinessPriceUsdc[routeId];
         return biz > 0 ? biz : econ * 2;
     }

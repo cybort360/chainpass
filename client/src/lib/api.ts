@@ -384,15 +384,31 @@ export async function fetchOccupiedSeats(routeId: string): Promise<string[]> {
   } catch { return [] }
 }
 
-export async function claimSeat(tokenId: string, routeId: string, seatNumber: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${env.apiUrl}/api/v1/seats`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tokenId, routeId, seatNumber }),
-    })
-    return res.ok
-  } catch { return false }
+/** Claim a seat post-mint. Retries up to `maxAttempts` times with exponential backoff. */
+export async function claimSeat(
+  tokenId: string,
+  routeId: string,
+  seatNumber: string,
+  maxAttempts = 4,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const res = await fetch(`${env.apiUrl}/api/v1/seats`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tokenId, routeId, seatNumber }),
+      })
+      if (res.ok) return true
+      // 409 = already claimed — treat as success (idempotent)
+      if (res.status === 409) return true
+      // 4xx (other) — don't retry
+      if (res.status >= 400 && res.status < 500) return false
+    } catch { /* network error — retry */ }
+    if (attempt < maxAttempts - 1) {
+      await new Promise((r) => setTimeout(r, 500 * 2 ** attempt)) // 500ms, 1s, 2s
+    }
+  }
+  return false
 }
 
 export async function fetchSeatAssignment(tokenId: string): Promise<string | null> {
