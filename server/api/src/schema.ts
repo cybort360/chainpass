@@ -128,3 +128,42 @@ CREATE TABLE IF NOT EXISTS seat_reservations (
 );
 CREATE INDEX IF NOT EXISTS idx_seat_reservations_route_id ON seat_reservations(route_id);
 `;
+
+/**
+ * Scheduled departures for a route.
+ *
+ * status:
+ *   scheduled — future, not yet open for boarding
+ *   boarding  — gate open, conductor scanning tickets
+ *   departed  — in transit, no new boarding
+ *   arrived   — journey complete
+ *   cancelled — trip will not run
+ */
+export const TRIPS_INIT_SQL = `
+CREATE TABLE IF NOT EXISTS trips (
+  id          SERIAL PRIMARY KEY,
+  route_id    TEXT        NOT NULL,
+  departure_at TIMESTAMPTZ NOT NULL,
+  arrival_at   TIMESTAMPTZ NOT NULL,
+  status      TEXT        NOT NULL DEFAULT 'scheduled'
+                CHECK (status IN ('scheduled','boarding','departed','arrived','cancelled')),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_trips_route_id     ON trips(route_id);
+CREATE INDEX IF NOT EXISTS idx_trips_departure_at ON trips(departure_at);
+`;
+
+/**
+ * Links a minted token to the specific trip it was purchased for.
+ * Written after successful mint (same pattern as seat_assignments).
+ */
+export const TICKET_TRIPS_INIT_SQL = `
+CREATE TABLE IF NOT EXISTS ticket_trips (
+  id         SERIAL PRIMARY KEY,
+  token_id   TEXT    NOT NULL UNIQUE,
+  trip_id    INTEGER NOT NULL,
+  route_id   TEXT    NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_trips_trip_id ON ticket_trips(trip_id);
+`;

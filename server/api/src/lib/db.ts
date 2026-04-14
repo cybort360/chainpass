@@ -10,6 +10,8 @@ import {
   ROUTE_RATINGS_INIT_SQL,
   SEAT_ASSIGNMENTS_INIT_SQL,
   SEAT_RESERVATIONS_INIT_SQL,
+  TRIPS_INIT_SQL,
+  TICKET_TRIPS_INIT_SQL,
 } from "../schema.js";
 
 let pool: pg.Pool | null = null;
@@ -49,5 +51,7 @@ export async function ensureRouteLabelsTable(): Promise<void> {
   await pool.query(ROUTE_RATINGS_INIT_SQL);
   await pool.query(SEAT_ASSIGNMENTS_INIT_SQL);
   await pool.query(SEAT_RESERVATIONS_INIT_SQL);
+  await pool.query(TRIPS_INIT_SQL);
+  await pool.query(TICKET_TRIPS_INIT_SQL);
 }
 

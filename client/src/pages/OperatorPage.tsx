@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { formatEther, formatUnits, isAddress, keccak256, parseAbiItem, parseEther, parseUnits, toBytes } from "viem"
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { chainPassTicketAbi, monadTestnet, newRouteIdDecimalFromUuid } from "@chainpass/shared"
-import { deleteRouteLabel, fetchOperatorStats, fetchOperatorTimeseries, fetchRouteLabels, registerRouteLabel, updateRouteLabel, type ApiRouteLabel, type CoachClassConfig, type OperatorStats, type TimeseriesBucket } from "../lib/api"
+import { createTrip, deleteTrip, deleteRouteLabel, fetchOperatorStats, fetchOperatorTimeseries, fetchRouteCapacity, fetchRouteLabels, fetchTrips, registerRouteLabel, updateRouteLabel, updateTripStatus, type ApiRouteLabel, type ApiTrip, type CoachClassConfig, type OperatorStats, type RouteCapacity, type TimeseriesBucket, type TripStatus } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { formatWriteContractError } from "../lib/walletError"
@@ -921,6 +921,82 @@ export function OperatorPage() {
     })
   }
 
+  // ── Trip scheduling state ────────────────────────────────────────────────────
+  const [tripRouteId, setTripRouteId] = useState("")
+  const [trips, setTrips] = useState<ApiTrip[]>([])
+  const [tripsLoading, setTripsLoading] = useState(false)
+  const [tripDeparture, setTripDeparture] = useState("")
+  const [tripArrival, setTripArrival] = useState("")
+  const [tripFormErr, setTripFormErr] = useState<string | null>(null)
+  const [tripSaving, setTripSaving] = useState(false)
+  const [tripMsg, setTripMsg] = useState<string | null>(null)
+  const [deletingTripId, setDeletingTripId] = useState<number | null>(null)
+  const [tripDeleteInProgress, setTripDeleteInProgress] = useState(false)
+
+  const loadTrips = async (routeId: string) => {
+    if (!routeId) { setTrips([]); return }
+    setTripsLoading(true)
+    const result = await fetchTrips(routeId)
+    setTrips(result)
+    setTripsLoading(false)
+  }
+
+  const onTripRouteChange = (routeId: string) => {
+    setTripRouteId(routeId)
+    setTripFormErr(null)
+    setTripMsg(null)
+    void loadTrips(routeId)
+  }
+
+  const onCreateTrip = async () => {
+    setTripFormErr(null)
+    setTripMsg(null)
+    if (!tripRouteId) { setTripFormErr("Select a route first."); return }
+    if (!tripDeparture) { setTripFormErr("Departure date/time is required."); return }
+    if (!tripArrival)   { setTripFormErr("Arrival date/time is required."); return }
+    if (new Date(tripArrival) <= new Date(tripDeparture)) {
+      setTripFormErr("Arrival must be after departure."); return
+    }
+    setTripSaving(true)
+    const result = await createTrip({
+      routeId: tripRouteId,
+      departureAt: new Date(tripDeparture).toISOString(),
+      arrivalAt: new Date(tripArrival).toISOString(),
+    })
+    setTripSaving(false)
+    if (result.ok) {
+      setTrips((prev) => [...prev, result.trip].sort(
+        (a, b) => new Date(a.departureAt).getTime() - new Date(b.departureAt).getTime()
+      ))
+      setTripDeparture("")
+      setTripArrival("")
+      setTripMsg("Trip scheduled.")
+      setTimeout(() => setTripMsg(null), 3000)
+    } else {
+      setTripFormErr(result.error)
+    }
+  }
+
+  const onTripStatusChange = async (tripId: number, status: TripStatus) => {
+    const result = await updateTripStatus(tripId, status)
+    if (result.ok) {
+      setTrips((prev) => prev.map((t) => t.id === tripId ? result.trip : t))
+    }
+  }
+
+  const onDeleteTrip = async (tripId: number) => {
+    setTripDeleteInProgress(true)
+    const result = await deleteTrip(tripId)
+    setTripDeleteInProgress(false)
+    if (result.ok) {
+      setTrips((prev) => prev.filter((t) => t.id !== tripId))
+      setDeletingTripId(null)
+    } else {
+      setDeletingTripId(null)
+      setTripFormErr(result.error)
+    }
+  }
+
   // ── Edit / delete route state ──────────────────────────────────────────────
   const [editRoutes, setEditRoutes] = useState<ApiRouteLabel[]>([])
   const [editingRouteId, setEditingRouteId] = useState<string | null>(null)
@@ -932,9 +1008,25 @@ export function OperatorPage() {
   const [editMsg, setEditMsg] = useState<string | null>(null)
   const [deletingRouteId, setDeletingRouteId] = useState<string | null>(null)
   const [deleteInProgress, setDeleteInProgress] = useState(false)
+  const [routeCapacities, setRouteCapacities] = useState<Record<string, RouteCapacity>>({})
 
   useEffect(() => {
-    void fetchRouteLabels().then((labels) => { if (labels) setEditRoutes(labels) })
+    void fetchRouteLabels().then((labels) => {
+      if (!labels) return
+      setEditRoutes(labels)
+      // Load capacity for each route in parallel
+      void Promise.all(
+        labels.map(async (r) => {
+          const cap = await fetchRouteCapacity(r.routeId)
+          if (cap) return [r.routeId, cap] as [string, RouteCapacity]
+          return null
+        }),
+      ).then((entries) => {
+        const map: Record<string, RouteCapacity> = {}
+        for (const e of entries) { if (e) map[e[0]] = e[1] }
+        setRouteCapacities(map)
+      })
+    })
   }, [])
 
   const startEdit = (r: ApiRouteLabel) => {
@@ -1382,6 +1474,30 @@ export function OperatorPage() {
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-headline text-sm font-semibold text-white">{r.name}</p>
                         <p className="truncate text-xs text-on-surface-variant">{r.category}{r.detail ? ` · ${r.detail}` : ""}</p>
+                        {(() => {
+                          const cap = routeCapacities[r.routeId]
+                          if (!cap || cap.capacity === null) return null
+                          const pct = Math.min(100, ((cap.sold + cap.reserved) / cap.capacity) * 100)
+                          return (
+                            <div className="mt-1.5">
+                              <div className="mb-1 flex items-center justify-between">
+                                <span className="font-headline text-[9px] font-bold uppercase tracking-wider text-on-surface-variant/60">
+                                  {cap.sold} / {cap.capacity} sold
+                                  {cap.reserved > 0 ? ` · ${cap.reserved} held` : ""}
+                                </span>
+                                {cap.soldOut && (
+                                  <span className="font-headline text-[9px] font-bold uppercase tracking-wider text-error">SOLD OUT</span>
+                                )}
+                              </div>
+                              <div className="h-1 w-full overflow-hidden rounded-full bg-surface-container-high">
+                                <div
+                                  className={`h-full rounded-full transition-all ${cap.soldOut ? "bg-error" : pct > 80 ? "bg-amber-400" : "bg-primary"}`}
+                                  style={{ width: `${pct.toFixed(1)}%` }}
+                                />
+                              </div>
+                            </div>
+                          )
+                        })()}
                       </div>
                       <button type="button" onClick={() => startEdit(r)}
                         className="shrink-0 rounded-lg border border-outline-variant/20 px-3 py-1.5 font-headline text-xs font-semibold text-on-surface-variant transition-colors hover:border-primary/30 hover:text-white">
@@ -1396,6 +1512,133 @@ export function OperatorPage() {
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      </details>
+
+      {/* Schedule trips */}
+      <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+        <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors"
+          onClick={() => { if (!tripRouteId && editRoutes.length > 0) onTripRouteChange(editRoutes[0].routeId) }}>
+          Schedule trips
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+            Admin only
+          </span>
+        </summary>
+        <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4 space-y-5">
+
+          {/* Route picker */}
+          <label className="block">
+            <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Route</span>
+            <select
+              className="mt-1.5 w-full rounded-xl border border-outline-variant/25 bg-surface-container-high px-3.5 py-2.5 text-sm text-white focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+              value={tripRouteId}
+              onChange={(e) => onTripRouteChange(e.target.value)}
+            >
+              <option value="">Select a route…</option>
+              {editRoutes.map((r) => (
+                <option key={r.routeId} value={r.routeId}>{r.name}</option>
+              ))}
+            </select>
+          </label>
+
+          {/* New trip form */}
+          {tripRouteId && (
+            <div className="rounded-xl border border-outline-variant/15 bg-surface-container-low/40 p-4 space-y-3">
+              <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">New trip</p>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/70">Departure</span>
+                  <input type="datetime-local" className={inputClass}
+                    value={tripDeparture} onChange={(e) => setTripDeparture(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/70">Arrival</span>
+                  <input type="datetime-local" className={inputClass}
+                    value={tripArrival} onChange={(e) => setTripArrival(e.target.value)} />
+                </label>
+              </div>
+              <div className="flex items-center gap-3">
+                <button type="button" disabled={tripSaving}
+                  onClick={() => void onCreateTrip()}
+                  className="rounded-lg bg-primary px-4 py-2 font-headline text-xs font-bold text-white hover:brightness-110 disabled:opacity-50">
+                  {tripSaving ? "Scheduling…" : "Schedule trip"}
+                </button>
+                {tripMsg && <p className="text-xs text-tertiary">{tripMsg}</p>}
+                {tripFormErr && <p className="text-xs text-error">{tripFormErr}</p>}
+              </div>
+            </div>
+          )}
+
+          {/* Trip list */}
+          {tripRouteId && (
+            tripsLoading ? (
+              <p className="text-xs text-on-surface-variant/60">Loading trips…</p>
+            ) : trips.length === 0 ? (
+              <p className="text-xs text-on-surface-variant/60">No trips scheduled yet.</p>
+            ) : (
+              <ul className="space-y-2">
+                {trips.map((trip) => {
+                  const dep = new Date(trip.departureAt)
+                  const arr = new Date(trip.arrivalAt)
+                  const fmtOpts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+                  const statusColors: Record<TripStatus, string> = {
+                    scheduled: "text-on-surface-variant border-outline-variant/20",
+                    boarding:  "text-tertiary border-tertiary/30",
+                    departed:  "text-primary border-primary/30",
+                    arrived:   "text-on-surface-variant/50 border-outline-variant/15",
+                    cancelled: "text-error/70 border-error/20",
+                  }
+                  return (
+                    <li key={trip.id}>
+                      {deletingTripId === trip.id ? (
+                        <div className="flex items-center gap-3 rounded-xl border border-error/30 bg-error/8 px-4 py-3">
+                          <p className="flex-1 text-xs text-error">Delete this trip? Tickets already linked cannot be recovered.</p>
+                          <button type="button" disabled={tripDeleteInProgress}
+                            onClick={() => void onDeleteTrip(trip.id)}
+                            className="shrink-0 rounded-lg bg-error/80 px-3 py-1.5 font-headline text-xs font-bold text-white hover:bg-error disabled:opacity-50">
+                            {tripDeleteInProgress ? "Deleting…" : "Confirm"}
+                          </button>
+                          <button type="button" onClick={() => setDeletingTripId(null)}
+                            className="shrink-0 rounded-lg border border-outline-variant/25 px-3 py-1.5 font-headline text-xs font-semibold text-on-surface-variant hover:text-white">
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-outline-variant/15 px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-headline text-sm font-semibold text-white">
+                                {dep.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                              </p>
+                              <p className="text-xs text-on-surface-variant">
+                                {dep.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                                {" → "}
+                                {arr.toLocaleTimeString(undefined, fmtOpts)}
+                              </p>
+                            </div>
+                            {/* Status selector */}
+                            <select
+                              value={trip.status}
+                              onChange={(e) => void onTripStatusChange(trip.id, e.target.value as TripStatus)}
+                              className={`shrink-0 appearance-none rounded-lg border px-2.5 py-1 font-headline text-[10px] font-bold uppercase tracking-widest bg-transparent cursor-pointer focus:outline-none ${statusColors[trip.status]}`}
+                            >
+                              {(["scheduled","boarding","departed","arrived","cancelled"] as TripStatus[]).map((s) => (
+                                <option key={s} value={s} className="bg-surface-container text-white normal-case">{s}</option>
+                              ))}
+                            </select>
+                            <button type="button" onClick={() => setDeletingTripId(trip.id)}
+                              className="shrink-0 rounded-lg border border-error/20 px-2.5 py-1 font-headline text-xs font-semibold text-error/70 hover:border-error/40 hover:text-error">
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )
           )}
         </div>
       </details>

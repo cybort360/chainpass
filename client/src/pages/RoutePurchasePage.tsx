@@ -7,7 +7,7 @@ import { useAccount, usePublicClient, useReadContract, useWaitForTransactionRece
 import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
 import type { DemoRoute } from "../constants/demoRoutes"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
-import { fetchRouteLabels, fetchRouteRating, claimSeat, reserveSeat, releaseSeat, routeHasClasses, routeHasSeats, type RouteRating } from "../lib/api"
+import { fetchRouteLabels, fetchRouteRating, fetchTrips, fetchRouteCapacity, claimSeat, linkTokenToTrip, reserveSeat, releaseSeat, routeHasClasses, routeHasSeats, type ApiTrip, type RouteCapacity, type RouteRating } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { trackEvent } from "../lib/analytics"
@@ -102,6 +102,38 @@ export function RoutePurchasePage() {
     if (!routeIdParam || !apiLabels) return null
     return apiLabels.find((r) => r.routeId === routeIdParam) ?? null
   }, [routeIdParam, apiLabels])
+
+  // ── Trip selection ────────────────────────────────────────────────────────
+  const [availableTrips, setAvailableTrips] = useState<ApiTrip[]>([])
+  const [selectedTripId, setSelectedTripId] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!routeIdParam) return
+    void fetchTrips(routeIdParam).then((trips) => {
+      // Only show upcoming / boarding trips
+      const now = Date.now()
+      const relevant = trips.filter(
+        (t) => t.status !== "cancelled" && t.status !== "arrived" &&
+               new Date(t.arrivalAt).getTime() > now
+      )
+      setAvailableTrips(relevant)
+      // Auto-select the soonest boarding or scheduled trip
+      if (relevant.length > 0) setSelectedTripId(relevant[0].id)
+    })
+  }, [routeIdParam])
+
+  // ── Capacity / sold-out ──────────────────────────────────────────────────
+  const [routeCapacity, setRouteCapacity] = useState<RouteCapacity | null>(null)
+  useEffect(() => {
+    if (!routeIdParam) return
+    void fetchRouteCapacity(routeIdParam).then(setRouteCapacity)
+    // Refresh every 30 s so near-sold-out routes update without full reload
+    const id = setInterval(() => {
+      void fetchRouteCapacity(routeIdParam).then(setRouteCapacity)
+    }, 30_000)
+    return () => clearInterval(id)
+  }, [routeIdParam])
+  const isSoldOut = routeCapacity?.soldOut === true
 
   const hasClasses = routeHasClasses(routeConfig)   // only interstate trains
   const hasSeats   = routeHasSeats(routeConfig)     // trains (coaches) or buses (totalSeats)
@@ -342,6 +374,9 @@ export function RoutePurchasePage() {
           if (!claimed) setSeatClaimFailed(true)
           seatToClaimRef.current = null
         }
+        if (selectedTripId !== null && routeIdParam) {
+          await linkTokenToTrip(tokenId.toString(), selectedTripId, routeIdParam)
+        }
         navigate(`/pass/${tokenId.toString()}`)
       }
       void doNavigate()
@@ -431,6 +466,9 @@ export function RoutePurchasePage() {
           const claimed = await claimSeat(ids[0].toString(), routeIdParam, seatToClaim)
           if (!claimed) setSeatClaimFailed(true)
           seatToClaimRef.current = null
+        }
+        if (selectedTripId !== null && ids.length === 1 && routeIdParam) {
+          await linkTokenToTrip(ids[0].toString(), selectedTripId, routeIdParam)
         }
         setMintedTokenIds(ids)
       } else {
@@ -579,6 +617,59 @@ export function RoutePurchasePage() {
           )}
         </div>
       </div>
+
+      {/* Trip selector */}
+      {availableTrips.length > 0 && (
+        <div className="mt-5 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+          <div className="border-b border-outline-variant/15 px-4 py-3">
+            <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+              Select departure
+            </p>
+          </div>
+          <div className="divide-y divide-outline-variant/10">
+            {availableTrips.map((trip) => {
+              const dep = new Date(trip.departureAt)
+              const arr = new Date(trip.arrivalAt)
+              const isSelected = selectedTripId === trip.id
+              const statusBadge: Record<string, string> = {
+                boarding:  "border-tertiary/30 bg-tertiary/10 text-tertiary",
+                scheduled: "border-outline-variant/20 bg-surface-container text-on-surface-variant",
+                departed:  "border-primary/20 bg-primary/8 text-primary/70",
+              }
+              const badge = statusBadge[trip.status] ?? statusBadge.scheduled
+              return (
+                <button key={trip.id} type="button"
+                  onClick={() => setSelectedTripId(trip.id)}
+                  className={`flex w-full items-center gap-4 px-4 py-3 text-left transition-colors ${
+                    isSelected ? "bg-primary/8" : "hover:bg-surface-container-high/50"
+                  }`}>
+                  {/* Radio dot */}
+                  <div className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
+                    isSelected ? "border-primary bg-primary" : "border-outline-variant/40"
+                  }`}>
+                    {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-headline text-sm font-semibold text-white">
+                      {dep.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                      {" · "}
+                      {dep.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                      {" → "}
+                      {arr.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                    <p className="mt-0.5 text-xs text-on-surface-variant">
+                      {Math.round((arr.getTime() - dep.getTime()) / 60000)} min journey
+                    </p>
+                  </div>
+                  <span className={`shrink-0 rounded-full border px-2.5 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest ${badge}`}>
+                    {trip.status}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Purchase card */}
       <div className="mt-6 overflow-hidden rounded-3xl border border-outline-variant/20 bg-surface-container shadow-lg">
@@ -826,9 +917,47 @@ export function RoutePurchasePage() {
           </p>
         </div>
 
+        {/* Capacity bar */}
+        {routeCapacity && routeCapacity.capacity !== null && (
+          <div className="border-t border-outline-variant/10 px-5 py-3.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
+                Availability
+              </p>
+              <p className={`font-headline text-[10px] font-bold ${isSoldOut ? "text-error" : "text-on-surface-variant"}`}>
+                {isSoldOut
+                  ? "SOLD OUT"
+                  : `${routeCapacity.available} of ${routeCapacity.capacity} seats left`}
+              </p>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-container-high">
+              <div
+                className={`h-full rounded-full transition-all ${isSoldOut ? "bg-error" : "bg-primary"}`}
+                style={{ width: `${Math.min(100, ((routeCapacity.sold + routeCapacity.reserved) / routeCapacity.capacity) * 100).toFixed(1)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* CTA section */}
         <div className="border-t border-outline-variant/15 px-5 py-5 space-y-3">
-          {!authenticated ? (
+          {isSoldOut ? (
+            <div className="overflow-hidden rounded-2xl border border-error/30 bg-error/8">
+              <div className="flex items-center gap-3 px-5 py-5">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-error/15">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-error" aria-hidden>
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-headline text-sm font-bold text-error">Sold out</p>
+                  <p className="mt-0.5 text-xs text-on-surface-variant">All seats are taken for this route. Check other routes or try again later.</p>
+                </div>
+              </div>
+            </div>
+          ) : !authenticated ? (
             <div className="rounded-xl bg-surface-container-high px-4 py-3 text-center">
               <p className="font-headline text-sm font-semibold text-on-surface-variant">
                 Connect your wallet to purchase

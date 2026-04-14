@@ -419,3 +419,174 @@ export async function fetchSeatAssignment(tokenId: string): Promise<string | nul
     return data.seatNumber ?? null
   } catch { return null }
 }
+
+// ─── Trips ───────────────────────────────────────────────────────────────────
+
+export type TripStatus = "scheduled" | "boarding" | "departed" | "arrived" | "cancelled"
+
+export type ApiTrip = {
+  id: number
+  routeId: string
+  departureAt: string   // ISO 8601
+  arrivalAt: string     // ISO 8601
+  status: TripStatus
+  createdAt: string
+}
+
+/** Raw snake_case row from the API — normalised by tripFromRow. */
+type TripRow = {
+  id: number
+  route_id: string
+  departure_at: string
+  arrival_at: string
+  status: TripStatus
+  created_at: string
+}
+
+function tripFromRow(row: TripRow): ApiTrip {
+  return {
+    id: row.id,
+    routeId: row.route_id,
+    departureAt: row.departure_at,
+    arrivalAt: row.arrival_at,
+    status: row.status,
+    createdAt: row.created_at,
+  }
+}
+
+export async function fetchTrips(routeId: string): Promise<ApiTrip[]> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/trips?routeId=${encodeURIComponent(routeId)}`)
+    if (!res.ok) return []
+    const data = (await res.json()) as { trips?: TripRow[] }
+    return (data.trips ?? []).map(tripFromRow)
+  } catch { return [] }
+}
+
+// ── Capacity ───────────────────────────────────────────────────────────────
+
+export type RouteCapacity = {
+  capacity: number | null
+  sold: number
+  reserved: number
+  available: number | null
+  soldOut: boolean
+}
+
+export async function fetchRouteCapacity(routeId: string): Promise<RouteCapacity | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}/capacity`)
+    if (!res.ok) return null
+    return (await res.json()) as RouteCapacity
+  } catch { return null }
+}
+
+/** Fetch all trips matching a status (e.g. "boarding") — used for offline manifest pre-load. */
+export async function fetchTripsByStatus(status: string): Promise<ApiTrip[]> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/trips?status=${encodeURIComponent(status)}`)
+    if (!res.ok) return []
+    const data = (await res.json()) as { trips?: TripRow[] }
+    return (data.trips ?? []).map(tripFromRow)
+  } catch { return [] }
+}
+
+export async function fetchTripById(tripId: number): Promise<ApiTrip | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/trips/${tripId}`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { trip?: TripRow }
+    return data.trip ? tripFromRow(data.trip) : null
+  } catch { return null }
+}
+
+export async function fetchTripForToken(tokenId: string): Promise<ApiTrip | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/trips/token/${encodeURIComponent(tokenId)}`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { trip?: TripRow | null }
+    return data.trip ? tripFromRow(data.trip) : null
+  } catch { return null }
+}
+
+/** Fetch the full set of token IDs booked on a trip (for offline manifest caching). */
+export async function fetchTripManifest(tripId: number): Promise<string[]> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/trips/${tripId}/manifest`)
+    if (!res.ok) return []
+    const data = (await res.json()) as { tokenIds?: string[] }
+    return data.tokenIds ?? []
+  } catch { return [] }
+}
+
+export type CreateTripResult =
+  | { ok: true; trip: ApiTrip }
+  | { ok: false; error: string }
+
+export async function createTrip(payload: {
+  routeId: string
+  departureAt: string
+  arrivalAt: string
+}): Promise<CreateTripResult> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/trips`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        routeId: payload.routeId,
+        departureAt: payload.departureAt,
+        arrivalAt: payload.arrivalAt,
+      }),
+    })
+    const data = (await res.json().catch(() => ({}))) as { trip?: TripRow; error?: string }
+    if (res.ok && data.trip) return { ok: true, trip: tripFromRow(data.trip) }
+    return { ok: false, error: data.error ?? `request failed (${res.status})` }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "network error" }
+  }
+}
+
+export async function updateTripStatus(
+  tripId: number,
+  status: TripStatus,
+): Promise<{ ok: true; trip: ApiTrip } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/trips/${tripId}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    })
+    const data = (await res.json().catch(() => ({}))) as { trip?: TripRow; error?: string }
+    if (res.ok && data.trip) return { ok: true, trip: tripFromRow(data.trip) }
+    return { ok: false, error: data.error ?? `request failed (${res.status})` }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "network error" }
+  }
+}
+
+export async function deleteTrip(tripId: number): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/trips/${tripId}`, { method: "DELETE" })
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    if (res.ok) return { ok: true }
+    return { ok: false, error: data.error ?? `request failed (${res.status})` }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "network error" }
+  }
+}
+
+/** Link a minted token to the trip it was purchased for. Called post-mint. */
+export async function linkTokenToTrip(
+  tokenId: string,
+  tripId: number,
+  routeId: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/trips/link`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tokenId, tripId, routeId }),
+    })
+    return res.ok
+  } catch { return false }
+}

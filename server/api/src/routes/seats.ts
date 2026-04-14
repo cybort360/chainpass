@@ -1,6 +1,26 @@
 import { Router } from "express";
 import { getPool } from "../lib/db.js";
 
+type CoachClassConfig = { count: number; rows: number; leftCols: number; rightCols: number };
+
+/** Compute total seat capacity for a route from its DB fields. Returns null if undefined. */
+function computeCapacity(row: {
+  coaches: number | null;
+  seats_per_coach: number | null;
+  total_seats: number | null;
+  coach_classes: CoachClassConfig[] | null;
+}): number | null {
+  if (row.coach_classes && Array.isArray(row.coach_classes) && row.coach_classes.length > 0) {
+    return (row.coach_classes as CoachClassConfig[]).reduce(
+      (s, cc) => s + cc.count * cc.rows * (cc.leftCols + cc.rightCols),
+      0,
+    );
+  }
+  if (row.coaches && row.seats_per_coach) return row.coaches * row.seats_per_coach;
+  if (row.total_seats) return row.total_seats;
+  return null;
+}
+
 /** Reservation TTL in minutes — covers signing + block confirmation time. */
 const RESERVATION_TTL_MINUTES = 10;
 
@@ -82,6 +102,30 @@ export function createSeatsRouter(): Router {
     }
     try {
       const pool = getPool();
+
+      // ── Overbooking check: reject if route is at capacity ──
+      const routeRow = await pool.query<{
+        coaches: number | null; seats_per_coach: number | null;
+        total_seats: number | null; coach_classes: CoachClassConfig[] | null;
+      }>(
+        `SELECT coaches, seats_per_coach, total_seats, coach_classes FROM route_labels WHERE route_id = $1`,
+        [routeId],
+      );
+      if (routeRow.rows[0]) {
+        const capacity = computeCapacity(routeRow.rows[0]);
+        if (capacity !== null) {
+          const [soldRes, reservedRes] = await Promise.all([
+            pool.query<{ count: string }>(`SELECT COUNT(*) AS count FROM seat_assignments WHERE route_id = $1`, [routeId]),
+            pool.query<{ count: string }>(`SELECT COUNT(*) AS count FROM seat_reservations WHERE route_id = $1 AND expires_at > NOW()`, [routeId]),
+          ]);
+          const sold     = parseInt(soldRes.rows[0]?.count ?? "0", 10);
+          const reserved = parseInt(reservedRes.rows[0]?.count ?? "0", 10);
+          if (sold + reserved >= capacity) {
+            res.status(409).json({ error: "SOLD_OUT" }); return;
+          }
+        }
+      }
+
       // Reject if already permanently assigned
       const taken = await pool.query(
         `SELECT 1 FROM seat_assignments WHERE route_id = $1 AND seat_number = $2`,

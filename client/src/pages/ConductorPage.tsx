@@ -28,8 +28,38 @@ import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteCont
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode"
 import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
 import { getContractAddress } from "../lib/contract"
-import { verifyQrPayload, type QrPayload } from "../lib/api"
+import { verifyQrPayload, fetchTripForToken, fetchTripsByStatus, fetchTripManifest, type QrPayload, type ApiTrip } from "../lib/api"
 import { formatWriteContractError } from "../lib/walletError"
+
+// ── IndexedDB offline manifest helpers ────────────────────────────────────
+const IDB_NAME  = "chainpass-conductor"
+const IDB_STORE = "manifests"
+
+async function idbOpen(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1)
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE)
+    req.onsuccess = () => resolve(req.result)
+    req.onerror   = () => reject(req.error)
+  })
+}
+async function idbSet(key: string, value: unknown): Promise<void> {
+  const db = await idbOpen()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite")
+    tx.objectStore(IDB_STORE).put(value, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror    = () => reject(tx.error)
+  })
+}
+async function idbGet<T>(key: string): Promise<T | undefined> {
+  const db = await idbOpen()
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE).get(key)
+    req.onsuccess = () => resolve(req.result as T | undefined)
+    req.onerror   = () => reject(req.error)
+  })
+}
 
 /** Safari on iPhone/iPad: different camera + decoder behavior than Chrome/Android. */
 function isIosLike(): boolean {
@@ -385,12 +415,97 @@ export function ConductorPage() {
       .catch(() => setApiVerify(null))
   }, [parsed])
 
+  // ── Trip validation ────────────────────────────────────────────────────
+  const [tripForToken, setTripForToken] = useState<ApiTrip | null>(null)
+  const [tripLoading, setTripLoading] = useState(false)
+  useEffect(() => {
+    if (!parsed) { setTripForToken(null); setTripLoading(false); return }
+    setTripLoading(true)
+    void fetchTripForToken(parsed.tokenId)
+      .then((t) => setTripForToken(t))
+      .catch(() => setTripForToken(null))
+      .finally(() => setTripLoading(false))
+  }, [parsed])
+
+  /** null = no trip linked (backward compat = pass). ApiTrip = check status. */
+  const isTripValid: boolean =
+    tripForToken === null
+      ? true
+      : tripForToken.status === "boarding" || tripForToken.status === "departed"
+
+  // ── Online / offline detection ────────────────────────────────────────
+  const [isOnline, setIsOnline] = useState(navigator.onLine)
+  useEffect(() => {
+    const up   = () => setIsOnline(true)
+    const down = () => setIsOnline(false)
+    window.addEventListener("online",  up)
+    window.addEventListener("offline", down)
+    return () => { window.removeEventListener("online", up); window.removeEventListener("offline", down) }
+  }, [])
+
+  // ── Offline manifest: cache all boarding-trip token IDs into IndexedDB ──
+  const [manifestCached, setManifestCached] = useState(false)
+  const [manifestLoading, setManifestLoading] = useState(false)
+  const cacheManifest = useCallback(async () => {
+    setManifestLoading(true)
+    try {
+      const boardingTrips = await fetchTripsByStatus("boarding")
+      for (const trip of boardingTrips) {
+        const tokenIds = await fetchTripManifest(trip.id)
+        await idbSet(`manifest-${trip.id}`, { tripId: trip.id, tokenIds, cachedAt: Date.now() })
+      }
+      setManifestCached(true)
+    } catch {
+      // silently fail — network may already be gone
+    } finally {
+      setManifestLoading(false)
+    }
+  }, [])
+
+  // Auto-cache once on mount if online
+  useEffect(() => {
+    if (isOnline) void cacheManifest()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Offline token verification ────────────────────────────────────────
+  const [offlineResult, setOfflineResult] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!parsed || isOnline) { setOfflineResult(null); return }
+    void (async () => {
+      try {
+        const db = await idbOpen()
+        // Search all cached manifests for this token ID
+        const keys: IDBValidKey[] = await new Promise((resolve, reject) => {
+          const req = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE).getAllKeys()
+          req.onsuccess = () => resolve(req.result as IDBValidKey[])
+          req.onerror   = () => reject(req.error)
+        })
+        for (const key of keys) {
+          const entry = await idbGet<{ tripId: number; tokenIds: string[] }>(String(key))
+          if (entry?.tokenIds.includes(parsed.tokenId)) {
+            setOfflineResult(true)
+            return
+          }
+        }
+        setOfflineResult(false)
+      } catch {
+        setOfflineResult(false)
+      }
+    })()
+  }, [parsed, isOnline])
+
   // Keep screen awake while camera is on
   useWakeLock(cameraOn)
 
   // Haptic feedback when verification result is determined
-  const checksLoaded = apiVerify !== null && chainOwner !== undefined && validUntil !== undefined && chainRoute !== undefined
-  const isTicketValid = checksLoaded && holderMatches === true && notExpired === true
+  const checksLoaded =
+    apiVerify !== null &&
+    chainOwner !== undefined &&
+    validUntil !== undefined &&
+    chainRoute !== undefined &&
+    !tripLoading
+  const isTicketValid = checksLoaded && holderMatches === true && notExpired === true && isTripValid
   const prevChecksLoaded = useRef(false)
   useEffect(() => {
     if (checksLoaded && !prevChecksLoaded.current) {
@@ -523,6 +638,15 @@ export function ConductorPage() {
               Route {validRouteId.slice(0, 8)}…
             </p>
           )}
+          {tripForToken && (
+            <p className="mt-1 font-headline text-sm font-semibold text-emerald-400/80">
+              {new Date(tripForToken.departureAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {" → "}
+              {new Date(tripForToken.arrivalAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              {" · "}
+              {tripForToken.status.toUpperCase()}
+            </p>
+          )}
           <p className="mt-1 font-mono text-sm text-white/40">
             #{parsed.tokenId.slice(0, 8)}… · {parsed.holder.slice(0, 6)}…{parsed.holder.slice(-4)}
           </p>
@@ -560,7 +684,7 @@ export function ConductorPage() {
         {pageHeader}
 
         {/* Role badge */}
-        <div className={`mb-6 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-headline text-xs font-semibold ${
+        <div className={`mb-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-headline text-xs font-semibold ${
           showGateScanner
             ? "border-tertiary/30 bg-tertiary/8 text-tertiary"
             : "border-error/30 bg-error/8 text-error"
@@ -568,6 +692,47 @@ export function ConductorPage() {
           <span className={`h-1.5 w-1.5 rounded-full ${showGateScanner ? "bg-tertiary" : "bg-error"}`} aria-hidden />
           {showGateScanner ? "BURNER_ROLE active — ready to scan" : "No BURNER_ROLE — read-only"}
         </div>
+
+        {/* Offline / online status banner */}
+        {!isOnline ? (
+          <div className="mb-4 flex items-center justify-between rounded-2xl border border-amber-500/30 bg-amber-500/8 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" aria-hidden />
+              <span className="font-headline text-xs font-bold uppercase tracking-widest text-amber-400">Offline mode</span>
+              <span className="text-xs text-amber-400/70">— using cached manifest</span>
+            </div>
+            {offlineResult !== null && (
+              <span className={`font-headline text-xs font-bold ${offlineResult ? "text-emerald-400" : "text-error"}`}>
+                {offlineResult ? "✓ In manifest" : "✗ Not found"}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+              <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Online</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => void cacheManifest()}
+              disabled={manifestLoading}
+              className="flex items-center gap-1.5 rounded-lg border border-outline-variant/25 bg-surface-container px-3 py-1.5 font-headline text-[11px] font-semibold text-on-surface-variant transition-colors hover:border-primary/30 hover:text-white disabled:opacity-50"
+            >
+              {manifestLoading ? (
+                <span className="h-3 w-3 animate-spin rounded-full border border-outline-variant border-t-primary" />
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              )}
+              {manifestCached ? "Re-cache manifest" : "Cache manifest"}
+            </button>
+          </div>
+        )}
 
         {/* No burner role warning */}
         {!showGateScanner && (
@@ -789,6 +954,37 @@ export function ConductorPage() {
 
             {/* Verification panel */}
             {parsed && tokenIdBig !== undefined && (() => {
+              // Offline mode: only use the manifest check
+              if (!isOnline) {
+                return (
+                  <div className={`overflow-hidden rounded-2xl border ${offlineResult === true ? "border-emerald-500/30 bg-surface-container" : offlineResult === false ? "border-error/30 bg-surface-container" : "border-outline-variant/20 bg-surface-container"}`}>
+                    <div className="px-5 py-4">
+                      <p className="font-headline text-xs font-bold uppercase tracking-widest text-amber-400">Offline verification</p>
+                      {offlineResult === null && (
+                        <p className="mt-1 text-sm text-on-surface-variant">Checking cached manifest…</p>
+                      )}
+                      {offlineResult === true && (
+                        <p className="mt-1 font-semibold text-emerald-400">✓ Token found in cached manifest</p>
+                      )}
+                      {offlineResult === false && (
+                        <p className="mt-1 font-semibold text-error">✗ Token not in any cached manifest — cannot verify offline</p>
+                      )}
+                      <p className="mt-2 font-mono text-xs text-on-surface-variant">#{parsed.tokenId.slice(0, 10)}…</p>
+                    </div>
+                    {offlineResult === true && (
+                      <div className="border-t border-emerald-500/15 px-5 py-4">
+                        <button type="button"
+                          disabled={burnPending || burnConfirming || chainRoute === undefined}
+                          onClick={() => void onBurn()}
+                          className="w-full rounded-2xl bg-error/80 px-6 py-4 font-headline text-base font-bold text-white transition-all hover:bg-error disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">
+                          {burnPending || burnConfirming ? "Burning…" : "Burn ticket (offline)"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
               const isValid = holderMatches && notExpired
               const isInvalid = checksLoaded && !isValid
 
@@ -798,6 +994,11 @@ export function ConductorPage() {
                 if (apiVerify === false) reasons.push("QR signature is invalid or expired")
                 if (!holderMatches) reasons.push("Ticket holder does not match wallet on-chain")
                 if (!notExpired) reasons.push("Ticket has expired")
+                if (!isTripValid) reasons.push(
+                  tripForToken
+                    ? `Trip is ${tripForToken.status} — not currently boarding or in transit`
+                    : "No active trip window for this ticket"
+                )
               }
 
               return (
@@ -894,6 +1095,22 @@ export function ConductorPage() {
                       ok: chainRoute !== undefined,
                       text: chainRoute !== undefined ? String(chainRoute) : "Loading…",
                     },
+                    {
+                      label: "Trip active",
+                      status: tripLoading
+                        ? "pending"
+                        : tripForToken === null
+                          ? "ok"
+                          : isTripValid ? "ok" : "fail",
+                      ok: !tripLoading && isTripValid,
+                      text: tripLoading
+                        ? "Checking…"
+                        : tripForToken === null
+                          ? "No trip (open ticket)"
+                          : isTripValid
+                            ? `${tripForToken.status} · ${new Date(tripForToken.departureAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} → ${new Date(tripForToken.arrivalAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                            : `Trip ${tripForToken.status} — not active`,
+                    },
                   ].map((item) => (
                     <li key={item.label} className="flex items-center justify-between px-5 py-3">
                       <span className="text-sm text-on-surface-variant">{item.label}</span>
@@ -913,7 +1130,7 @@ export function ConductorPage() {
                 <div className="border-t border-outline-variant/15 p-5">
                   {/* ── Burn button ── */}
                   <button type="button"
-                    disabled={!holderMatches || !notExpired || burnPending || burnConfirming || chainRoute === undefined}
+                    disabled={!holderMatches || !notExpired || !isTripValid || burnPending || burnConfirming || chainRoute === undefined || tripLoading}
                     onClick={() => void onBurn()}
                     className="w-full rounded-2xl bg-error/80 px-6 py-4 font-headline text-base font-bold text-white transition-all hover:bg-error hover:shadow-[0_0_24px_rgba(255,110,132,0.3)] disabled:cursor-not-allowed disabled:opacity-40 active:scale-[0.98]">
                     {burnPending || burnConfirming ? (

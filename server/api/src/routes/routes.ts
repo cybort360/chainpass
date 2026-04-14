@@ -237,6 +237,71 @@ export function createRoutesRouter(): Router {
     }
   });
 
+  // GET /routes/:routeId/capacity — sold + reserved tickets vs. route capacity
+  r.get("/routes/:routeId/capacity", async (req, res) => {
+    if (!process.env.DATABASE_URL) {
+      res.json({ capacity: null, sold: 0, reserved: 0, available: null, soldOut: false });
+      return;
+    }
+    try {
+      const pool = getPool();
+      const routeIdStr = String(req.params.routeId).trim();
+
+      // Fetch route capacity fields
+      const routeRow = await pool.query<{
+        coaches: number | null;
+        seats_per_coach: number | null;
+        total_seats: number | null;
+        coach_classes: CoachClassConfig[] | null;
+      }>(
+        `SELECT coaches, seats_per_coach, total_seats, coach_classes
+         FROM route_labels WHERE route_id = $1`,
+        [routeIdStr],
+      );
+
+      if (!routeRow.rows[0]) {
+        res.status(404).json({ error: "route not found" }); return;
+      }
+
+      const row = routeRow.rows[0];
+      let capacity: number | null = null;
+
+      if (row.coach_classes && Array.isArray(row.coach_classes) && row.coach_classes.length > 0) {
+        // New-style: sum coach class seats
+        capacity = (row.coach_classes as CoachClassConfig[]).reduce(
+          (sum, cc) => sum + cc.count * cc.rows * (cc.leftCols + cc.rightCols),
+          0,
+        );
+      } else if (row.coaches && row.seats_per_coach) {
+        capacity = row.coaches * row.seats_per_coach;
+      } else if (row.total_seats) {
+        capacity = row.total_seats;
+      }
+
+      // Count sold (permanent assignments) and reserved (held, not yet minted)
+      const [soldRes, reservedRes] = await Promise.all([
+        pool.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM seat_assignments WHERE route_id = $1`,
+          [routeIdStr],
+        ),
+        pool.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM seat_reservations WHERE route_id = $1 AND expires_at > NOW()`,
+          [routeIdStr],
+        ),
+      ]);
+
+      const sold     = parseInt(soldRes.rows[0]?.count ?? "0", 10);
+      const reserved = parseInt(reservedRes.rows[0]?.count ?? "0", 10);
+      const available = capacity !== null ? Math.max(0, capacity - sold - reserved) : null;
+      const soldOut   = capacity !== null && sold + reserved >= capacity;
+
+      res.json({ capacity, sold, reserved, available, soldOut });
+    } catch (err) {
+      console.error("[routes capacity GET]", err);
+      res.status(500).json({ error: "failed to fetch capacity" });
+    }
+  });
+
   r.post("/routes", async (req, res) => {
     if (!process.env.DATABASE_URL) {
       res.status(503).json({ error: "database is not configured (DATABASE_URL)" });
