@@ -38,15 +38,15 @@ function SeatBtn({
   return (
     <button
       type="button"
-      disabled={occupied}
+      disabled={occupied && !selected}
       onClick={onClick}
-      title={occupied ? `${id} – taken` : selected ? `${id} – your selection` : id}
+      title={selected ? `${id} – your selection` : occupied ? `${id} – taken` : id}
       className={`flex h-8 w-8 items-center justify-center rounded-md font-headline text-[9px] font-bold transition-all
         ${
-          occupied
-            ? "cursor-not-allowed bg-surface-container-high/40 text-on-surface-variant/25 line-through"
-            : selected
+          selected
             ? "bg-primary text-white shadow-[0_0_12px_rgba(110,84,255,0.6)] ring-2 ring-primary/60"
+            : occupied
+            ? "cursor-not-allowed bg-surface-container-high/40 text-on-surface-variant/25 line-through"
             : "border border-outline-variant/30 bg-surface-container-high text-on-surface-variant hover:border-primary/40 hover:bg-primary/10 hover:text-white"
         }`}
     >
@@ -241,12 +241,6 @@ export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, co
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeId])
-
-  // If the selected seat is now taken by someone else, deselect it
-  useEffect(() => {
-    if (selectedSeat && occupied.has(selectedSeat)) onSelect(null)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [occupied])
 
   const toggle = (id: string) => onSelect(selectedSeat === id ? null : id)
 

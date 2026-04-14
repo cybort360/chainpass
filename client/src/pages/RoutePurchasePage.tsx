@@ -365,7 +365,10 @@ export function RoutePurchasePage() {
   const onSeatSelect = async (seat: string | null) => {
     setSeatConflict(false)
 
-    // Release the previously held seat if switching or deselecting
+    // Don't allow seat changes while a mint is in progress
+    if (monPending || mintProgress !== null) return
+
+    // Release the previously held seat when switching to a different one
     if (selectedSeat && selectedSeat !== seat && routeIdParam) {
       void releaseSeat(routeIdParam, selectedSeat)
     }
@@ -378,16 +381,15 @@ export function RoutePurchasePage() {
         // Another passenger just grabbed it — deselect and warn
         setSelectedSeat(null)
         seatToClaimRef.current = null
+        setReservedAt(null)
         setSeatConflict(true)
         setTimeout(() => setSeatConflict(false), 4000)
       } else if (result.ok) {
-        // Reservation succeeded — record for claiming after mint even if UI state
-        // gets cleared by the "occupied" polling in SeatMapPicker
         seatToClaimRef.current = seat
         setReservedAt(Date.now())
       }
     } else {
-      // Explicit deselect
+      // User explicitly deselected (seat=null) — clear claim target
       seatToClaimRef.current = null
       setReservedAt(null)
     }
