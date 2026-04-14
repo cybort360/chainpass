@@ -102,9 +102,14 @@ export function RoutePurchasePage() {
   const [mintedTokenIds, setMintedTokenIds] = useState<bigint[]>([])
   const [selectedSeat, setSelectedSeat] = useState<string | null>(null)
   const [seatConflict, setSeatConflict] = useState(false)
-  // Ref so async effects (USDC) can read the latest selectedSeat without stale closure
+  // Mirrors selectedSeat for stale-closure reads
   const selectedSeatRef = useRef<string | null>(null)
   useEffect(() => { selectedSeatRef.current = selectedSeat }, [selectedSeat])
+  // Persists the reserved seat for claiming after mint.
+  // Deliberately NOT cleared when the SeatMapPicker auto-deselects due to polling
+  // (the user's own reservation makes the seat appear in "occupied", which would
+  // otherwise clear selectedSeat before the mint completes and lose the claim).
+  const seatToClaimRef = useRef<string | null>(null)
   const publicClient = usePublicClient()
 
   // ── Exchange rates ──────────────────────────────────────────────────────────
@@ -253,11 +258,12 @@ export function RoutePurchasePage() {
     const tokenId = extractMintedTokenIdFromReceipt(usdcReceipt.logs, contractAddress)
     if (tokenId !== null) {
       trackEvent("ticket_purchase", { method: "usdc", route_id: routeIdParam ?? "" })
-      const seat = selectedSeatRef.current
+      // Use seatToClaimRef — never cleared by polling, unlike selectedSeatRef
+      const seatToClaim = seatToClaimRef.current
       const doNavigate = async () => {
-        // Claim seat permanently before navigating away
-        if (seat && routeIdParam) {
-          await claimSeat(tokenId.toString(), routeIdParam, seat)
+        if (seatToClaim && routeIdParam) {
+          await claimSeat(tokenId.toString(), routeIdParam, seatToClaim)
+          seatToClaimRef.current = null
         }
         navigate(`/pass/${tokenId.toString()}`)
       }
@@ -294,9 +300,17 @@ export function RoutePurchasePage() {
       if (!result.ok && result.conflict) {
         // Another passenger just grabbed it — deselect and warn
         setSelectedSeat(null)
+        seatToClaimRef.current = null
         setSeatConflict(true)
         setTimeout(() => setSeatConflict(false), 4000)
+      } else if (result.ok) {
+        // Reservation succeeded — record for claiming after mint even if UI state
+        // gets cleared by the "occupied" polling in SeatMapPicker
+        seatToClaimRef.current = seat
       }
+    } else {
+      // Explicit deselect
+      seatToClaimRef.current = null
     }
   }
 
@@ -327,9 +341,14 @@ export function RoutePurchasePage() {
         if (id !== null) ids.push(id)
       }
       if (ids.length > 0) {
-        // Claim seat BEFORE navigating so it's permanently locked
-        if (selectedSeatRef.current && ids.length === 1 && routeIdParam) {
-          await claimSeat(ids[0].toString(), routeIdParam, selectedSeatRef.current)
+        // Claim seat BEFORE navigating so it's permanently locked.
+        // Use seatToClaimRef (not selectedSeatRef) because the SeatMapPicker
+        // polling may have cleared selectedSeat after the user's own reservation
+        // appeared in the occupied set.
+        const seatToClaim = seatToClaimRef.current
+        if (seatToClaim && ids.length === 1 && routeIdParam) {
+          await claimSeat(ids[0].toString(), routeIdParam, seatToClaim)
+          seatToClaimRef.current = null
         }
         setMintedTokenIds(ids)
       } else {
