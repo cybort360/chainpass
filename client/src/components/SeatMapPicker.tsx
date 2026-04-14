@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react"
 import { fetchOccupiedSeats } from "../lib/api"
 import type { CoachClassConfig, VehicleType } from "../lib/api"
+import { env } from "../lib/env"
 
-/** Poll interval — keeps the map fresh as other passengers pick seats */
-const POLL_MS = 5_000
+/** Fallback poll interval — SSE handles real-time; polling is just a safety net */
+const POLL_MS = 30_000
 
 type Props = {
   routeId: string
@@ -240,6 +241,17 @@ export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, co
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId])
+
+  // SSE: server pushes "seats-changed" whenever any client reserves, releases, or claims
+  useEffect(() => {
+    const es = new EventSource(
+      `${env.apiUrl}/api/v1/seats/stream/${encodeURIComponent(routeId)}`,
+    )
+    es.addEventListener("seats-changed", () => {
+      void fetchOccupiedSeats(routeId).then((seats) => setOccupied(new Set(seats)))
+    })
+    return () => es.close()
   }, [routeId])
 
   const toggle = (id: string) => onSelect(selectedSeat === id ? null : id)

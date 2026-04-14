@@ -1,5 +1,21 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { getPool } from "../lib/db.js";
+
+// ── SSE seat-change broadcaster ────────────────────────────────────────────
+const seatSubs = new Map<string, Set<Response>>()
+function seatSubAdd(routeId: string, res: Response): void {
+  if (!seatSubs.has(routeId)) seatSubs.set(routeId, new Set())
+  seatSubs.get(routeId)!.add(res)
+}
+function seatSubRemove(routeId: string, res: Response): void {
+  seatSubs.get(routeId)?.delete(res)
+}
+/** Push a "seats-changed" event to every browser watching this route. */
+export function seatNotify(routeId: string): void {
+  const subs = seatSubs.get(routeId)
+  if (!subs?.size) return
+  for (const res of subs) res.write("event: seats-changed\ndata: {}\n\n")
+}
 
 type CoachClassConfig = { count: number; rows: number; leftCols: number; rightCols: number };
 
@@ -26,6 +42,19 @@ const RESERVATION_TTL_MINUTES = 10;
 
 export function createSeatsRouter(): Router {
   const r = Router();
+
+  // GET /seats/stream/:routeId — SSE stream; pushes "seats-changed" on every reserve/release/claim
+  r.get("/seats/stream/:routeId", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream")
+    res.setHeader("Cache-Control", "no-cache")
+    res.setHeader("Connection", "keep-alive")
+    res.flushHeaders()
+    const routeId = req.params.routeId
+    seatSubAdd(routeId, res)
+    // Keep-alive comment every 25 s (proxy / load-balancer idle timeout guard)
+    const ping = setInterval(() => res.write(": ping\n\n"), 25_000)
+    req.on("close", () => { clearInterval(ping); seatSubRemove(routeId, res) })
+  })
 
   // GET /seats/assignment/:tokenId — permanent seat for a specific token
   r.get("/seats/assignment/:tokenId", async (req, res) => {
@@ -83,6 +112,7 @@ export function createSeatsRouter(): Router {
         `DELETE FROM seat_reservations WHERE route_id = $1 AND seat_number = $2`,
         [routeId, seatNumber],
       );
+      seatNotify(routeId)
       res.json({ ok: true });
     } catch (err) {
       console.error("[seats release]", err);
@@ -157,6 +187,7 @@ export function createSeatsRouter(): Router {
          DO UPDATE SET expires_at = EXCLUDED.expires_at`,
         [routeId, seatNumber, expiresAt],
       );
+      seatNotify(routeId)
       res.json({ ok: true, expiresAt: expiresAt.toISOString() });
     } catch (err) {
       console.error("[seats reserve]", err);
@@ -204,6 +235,7 @@ export function createSeatsRouter(): Router {
         `DELETE FROM seat_reservations WHERE route_id = $1 AND seat_number = $2`,
         [routeId, seatNumber],
       );
+      seatNotify(routeId)
       res.json({ ok: true, seatNumber });
     } catch (err) {
       console.error("[seats POST]", err);
