@@ -8,14 +8,27 @@ export type ApiRouteLabel = {
   schedule?: string | null
 }
 
+const ROUTES_CACHE_KEY = "chainpass_routes_cache"
+
+function readRoutesCache(): ApiRouteLabel[] | null {
+  try {
+    const raw = localStorage.getItem(ROUTES_CACHE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as ApiRouteLabel[]
+  } catch { return null }
+}
+
 export async function fetchRouteLabels(): Promise<ApiRouteLabel[] | null> {
   try {
     const res = await fetch(`${env.apiUrl}/api/v1/routes`)
-    if (!res.ok) return null
+    if (!res.ok) return readRoutesCache()
     const data = (await res.json()) as { routes?: ApiRouteLabel[] }
-    return data.routes ?? []
+    const routes = data.routes ?? []
+    // Persist for offline use
+    try { localStorage.setItem(ROUTES_CACHE_KEY, JSON.stringify(routes)) } catch {}
+    return routes
   } catch {
-    return null
+    return readRoutesCache()
   }
 }
 

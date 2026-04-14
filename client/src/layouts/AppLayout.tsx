@@ -12,6 +12,8 @@ import { initAnalytics, trackPageView } from "../lib/analytics"
 import { formatNgn, MON_USD_PRICE, useExchangeRates } from "../lib/prices"
 import { pickEthereumAddressFromUser } from "../lib/privyWallet"
 import { switchToMonadTestnet } from "../lib/switchToMonadTestnet"
+import { useOnlineStatus } from "../hooks/useOnlineStatus"
+import { useTheme } from "../hooks/useTheme"
 
 function caip2ToChainId(caip: string | undefined): number | undefined {
   if (!caip) return undefined
@@ -388,6 +390,8 @@ const desktopNavLink =
 export function AppLayout() {
   const { address } = useAccount()
   const location = useLocation()
+  const isOnline = useOnlineStatus()
+  const { theme, toggle: toggleTheme } = useTheme()
 
   // Analytics: init once, track every route change
   useEffect(() => { initAnalytics() }, [])
@@ -425,6 +429,27 @@ export function AppLayout() {
             {showOps && <NavLink to="/admin" className={desktopNavLink}>Admin</NavLink>}
           </nav>
 
+          {/* Theme toggle */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="shrink-0 flex items-center justify-center rounded-xl border border-outline-variant/25 bg-surface-container p-2 text-on-surface-variant transition-colors hover:border-primary/30 hover:text-primary"
+          >
+            {theme === "dark" ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+            )}
+          </button>
+
           {/* Wallet */}
           <div className="ml-auto shrink-0">
             <HeaderWalletControls />
@@ -433,6 +458,16 @@ export function AppLayout() {
         {/* Gradient rule */}
         <div className="h-px w-full bg-gradient-to-r from-primary/15 via-primary/30 to-tertiary/15" aria-hidden />
       </header>
+
+      {/* Offline banner */}
+      {!isOnline && (
+        <div className="sticky top-[57px] z-30 flex items-center justify-center gap-2 bg-amber-500/90 px-4 py-2 text-center text-xs font-semibold text-black backdrop-blur-sm">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/>
+          </svg>
+          You're offline — showing cached data. QR codes may be expired.
+        </div>
+      )}
 
       {/* Page content */}
       <main className="flex-1 px-4 py-8 pb-[calc(60px+2rem)] sm:px-8 md:py-10 md:pb-10">

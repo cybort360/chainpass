@@ -157,3 +157,50 @@
     mask-image: radial-gradient(ellipse 85% 70% at 50% 40%, black 20%, transparent 70%);
   }
 }
+
+/* ── Light theme overrides ── */
+[data-theme="light"] {
+  --color-background: #f8f7ff;
+  --color-surface: #f8f7ff;
+  --color-surface-dim: #ede9f9;
+  --color-surface-bright: #ffffff;
+  --color-surface-variant: #ede9f9;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f3f0fd;
+  --color-surface-container: #ede9f9;
+  --color-surface-container-high: #e6e2f4;
+  --color-surface-container-highest: #dedad0;
+  --color-on-surface: #1a1728;
+  --color-on-surface-variant: #56526a;
+  --color-outline: #8a8698;
+  --color-outline-variant: #cac7d8;
+  --color-inverse-surface: #1c1b22;
+  --color-inverse-on-surface: #f2eff9;
+}
+
+[data-theme="light"] .glass-card {
+  background: rgba(248, 247, 255, 0.85);
+}
+
+[data-theme="light"] .skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-container) 25%,
+    var(--color-surface-container-high) 50%,
+    var(--color-surface-container) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+[data-theme="light"] .ticket-perforated::before,
+[data-theme="light"] .ticket-perforated::after {
+  background: var(--color-surface);
+}
+
+[data-theme="light"] .landing-mesh {
+  background:
+    radial-gradient(ellipse 80% 50% at 20% -10%, rgba(110, 84, 255, 0.12), transparent 55%),
+    radial-gradient(ellipse 60% 45% at 85% 15%, rgba(57, 27, 151, 0.10), transparent 50%),
+    radial-gradient(ellipse 70% 40% at 50% 100%, rgba(161, 250, 255, 0.04), transparent 45%);
+}

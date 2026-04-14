@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { usePrivy } from "@privy-io/react-auth"
+import { useShareRoute } from "../hooks/useShareRoute"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { formatEther, formatUnits } from "viem"
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
@@ -31,6 +32,7 @@ export function RoutePurchasePage() {
   const { isConnected, address } = useAccount()
 
   const routeIdBig = useMemo(() => parseRouteIdParam(routeIdParam), [routeIdParam])
+  const { shareRoute, copied: shareCopied } = useShareRoute()
 
   const [apiLabels, setApiLabels] = useState<Awaited<ReturnType<typeof fetchRouteLabels>> | undefined>(undefined)
   useEffect(() => { void fetchRouteLabels().then(setApiLabels) }, [])
@@ -385,6 +387,28 @@ export function RoutePurchasePage() {
         {routeMeta?.detail && (
           <p className="mt-1.5 text-sm text-on-surface-variant">{routeMeta.detail}</p>
         )}
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void shareRoute(routeIdParam ?? "", routeMeta?.name ?? "")}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant/25 bg-surface-container px-2.5 py-1 font-headline text-xs text-on-surface-variant transition-colors hover:border-primary/30 hover:text-primary"
+          >
+            {shareCopied ? (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12"/></svg>
+                Copied!
+              </>
+            ) : (
+              <>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                </svg>
+                Share
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Purchase card */}
