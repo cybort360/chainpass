@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { usePrivy } from "@privy-io/react-auth"
 import { useShareRoute } from "../hooks/useShareRoute"
 import { Link, useNavigate, useParams } from "react-router-dom"
@@ -70,6 +70,9 @@ export function RoutePurchasePage() {
   const [mintedTokenIds, setMintedTokenIds] = useState<bigint[]>([])
   const [selectedSeat, setSelectedSeat] = useState<string | null>(null)
   const [seatConflict, setSeatConflict] = useState(false)
+  // Ref so async effects (USDC) can read the latest selectedSeat without stale closure
+  const selectedSeatRef = useRef<string | null>(null)
+  useEffect(() => { selectedSeatRef.current = selectedSeat }, [selectedSeat])
   const publicClient = usePublicClient()
 
   // ── Exchange rates ──────────────────────────────────────────────────────────
@@ -218,7 +221,15 @@ export function RoutePurchasePage() {
     const tokenId = extractMintedTokenIdFromReceipt(usdcReceipt.logs, contractAddress)
     if (tokenId !== null) {
       trackEvent("ticket_purchase", { method: "usdc", route_id: routeIdParam ?? "" })
-      navigate(`/pass/${tokenId.toString()}`)
+      const seat = selectedSeatRef.current
+      const doNavigate = async () => {
+        // Claim seat permanently before navigating away
+        if (seat && routeIdParam) {
+          await claimSeat(tokenId.toString(), routeIdParam, seat)
+        }
+        navigate(`/pass/${tokenId.toString()}`)
+      }
+      void doNavigate()
     }
   }, [usdcReceipt, usdcSuccess, contractAddress, navigate, routeIdParam])
 
@@ -284,10 +295,11 @@ export function RoutePurchasePage() {
         if (id !== null) ids.push(id)
       }
       if (ids.length > 0) {
-        setMintedTokenIds(ids)
-        if (selectedSeat && ids.length === 1 && routeIdParam) {
-          void claimSeat(ids[0].toString(), routeIdParam, selectedSeat)
+        // Claim seat BEFORE navigating so it's permanently locked
+        if (selectedSeatRef.current && ids.length === 1 && routeIdParam) {
+          await claimSeat(ids[0].toString(), routeIdParam, selectedSeatRef.current)
         }
+        setMintedTokenIds(ids)
       } else {
         setMintedTokenIds([])
       }
