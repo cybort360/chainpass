@@ -118,6 +118,14 @@ async function insertBurn(args: {
       args.fromAddr,
     ],
   );
+  // Free the seat so it can be resold — a burned ticket no longer owns a seat.
+  // This is the root cause fix: without this, every conductor burn permanently
+  // locked the seat in seat_assignments, causing the "sold seats not greying out
+  // after a burn" bug to compound indefinitely.
+  await pool.query(
+    `DELETE FROM seat_assignments WHERE token_id = $1`,
+    [args.tokenId],
+  );
 }
 
 async function processRange(fromBlock: bigint, toBlock: bigint): Promise<void> {

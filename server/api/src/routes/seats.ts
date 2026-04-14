@@ -220,6 +220,7 @@ export function createSeatsRouter(): Router {
         if (existingToken !== tokenId) {
           res.status(409).json({ error: "seat already taken by another ticket" }); return;
         }
+        seatNotify(routeId);
         res.json({ ok: true, seatNumber }); return;
       }
       // Write permanent assignment.

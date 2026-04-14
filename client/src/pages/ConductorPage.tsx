@@ -800,7 +800,7 @@ export function ConductorPage() {
             {/* CTA */}
             <button
               type="button"
-              onClick={() => { setParsed(null); setRawInput(""); setParseErr(null); resetBurn() }}
+              onClick={() => { setParsed(null); setRawInput(""); setParseErr(null); resetBurn(); setCameraOn(true); }}
               className="btn-dark-cta mt-8 w-full max-w-xs rounded-full bg-white px-8 py-4 font-headline text-base font-bold text-zinc-900 shadow-lg transition-all hover:bg-white/90 active:scale-[0.97]"
             >
               Scan next ticket
@@ -854,7 +854,7 @@ export function ConductorPage() {
             </button>
             <button
               type="button"
-              onClick={() => { setParsed(null); setRawInput(""); setParseErr(null); resetBurn() }}
+              onClick={() => { setParsed(null); setRawInput(""); setParseErr(null); resetBurn(); setCameraOn(true); }}
               className="mt-4 font-headline text-sm font-semibold text-on-surface-variant underline underline-offset-4 hover:text-white"
             >
               Scan different ticket
