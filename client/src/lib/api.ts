@@ -284,6 +284,19 @@ export async function fetchRouteRating(routeId: string): Promise<RouteRating | n
   }
 }
 
+/** Temporarily hold a seat for ~10 minutes while the passenger completes payment. */
+export async function reserveSeat(routeId: string, seatNumber: string): Promise<{ ok: boolean; conflict: boolean }> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/seats/reserve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routeId, seatNumber }),
+    })
+    if (res.status === 409) return { ok: false, conflict: true }
+    return { ok: res.ok, conflict: false }
+  } catch { return { ok: false, conflict: false } }
+}
+
 export async function fetchOccupiedSeats(routeId: string): Promise<string[]> {
   try {
     const res = await fetch(`${env.apiUrl}/api/v1/seats/${encodeURIComponent(routeId)}`)

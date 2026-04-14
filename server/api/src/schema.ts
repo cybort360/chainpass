@@ -75,3 +75,20 @@ CREATE TABLE IF NOT EXISTS seat_assignments (
 );
 CREATE INDEX IF NOT EXISTS idx_seat_assignments_route_id ON seat_assignments(route_id);
 `;
+
+/**
+ * Temporary seat holds — created when a passenger selects a seat, expire after 10 minutes.
+ * Makes the seat appear "taken" to all other users while payment is in progress.
+ * Confirmed into seat_assignments on successful mint; expired rows ignored automatically.
+ */
+export const SEAT_RESERVATIONS_INIT_SQL = `
+CREATE TABLE IF NOT EXISTS seat_reservations (
+  id SERIAL PRIMARY KEY,
+  route_id TEXT NOT NULL,
+  seat_number TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(route_id, seat_number)
+);
+CREATE INDEX IF NOT EXISTS idx_seat_reservations_route_id ON seat_reservations(route_id);
+`;

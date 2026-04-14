@@ -6,7 +6,7 @@ import { useAccount, usePublicClient, useReadContract, useWaitForTransactionRece
 import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
 import type { DemoRoute } from "../constants/demoRoutes"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
-import { fetchRouteLabels, fetchRouteRating, claimSeat, type RouteRating } from "../lib/api"
+import { fetchRouteLabels, fetchRouteRating, claimSeat, reserveSeat, type RouteRating } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { trackEvent } from "../lib/analytics"
@@ -67,6 +67,7 @@ export function RoutePurchasePage() {
   const [mintProgress, setMintProgress] = useState<{ done: number; total: number } | null>(null)
   const [mintedTokenIds, setMintedTokenIds] = useState<bigint[]>([])
   const [selectedSeat, setSelectedSeat] = useState<string | null>(null)
+  const [seatConflict, setSeatConflict] = useState(false)
   const publicClient = usePublicClient()
 
   // ── Exchange rates ──────────────────────────────────────────────────────────
@@ -231,6 +232,21 @@ export function RoutePurchasePage() {
   const usdcNgn = effectivePriceUsdc !== undefined && effectivePriceUsdc > 0n
     ? formatNgn(ngnForUsdc(Number(formatUnits(effectivePriceUsdc, USDC_DECIMALS))))
     : null
+
+  // ── Seat selection handler — reserves immediately on tap ───────────────────
+  const onSeatSelect = async (seat: string | null) => {
+    setSeatConflict(false)
+    setSelectedSeat(seat)
+    if (seat && routeIdParam) {
+      const result = await reserveSeat(routeIdParam, seat)
+      if (!result.ok && result.conflict) {
+        // Another passenger just grabbed it — deselect and warn
+        setSelectedSeat(null)
+        setSeatConflict(true)
+        setTimeout(() => setSeatConflict(false), 4000)
+      }
+    }
+  }
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const onPayMon = async () => {
@@ -432,10 +448,22 @@ export function RoutePurchasePage() {
         {/* Seat picker — Business class only, single ticket */}
         {seatClass === 1 && quantity === 1 && routeIdParam && (
           <div className="border-b border-outline-variant/15 px-4 py-4">
+            {seatConflict && (
+              <div className="mb-3 flex items-center gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  className="shrink-0 text-error" aria-hidden>
+                  <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <p className="font-headline text-xs font-semibold text-error">
+                  That seat was just taken — please pick another.
+                </p>
+              </div>
+            )}
             <SeatMapPicker
               routeId={routeIdParam}
               selectedSeat={selectedSeat}
-              onSelect={setSelectedSeat}
+              onSelect={(seat) => { void onSeatSelect(seat) }}
             />
           </div>
         )}
