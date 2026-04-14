@@ -466,13 +466,12 @@ export function RoutesPage() {
   const [editingRoute, setEditingRoute] = useState<RouteRow | null>(null)
   const [deletingRoute, setDeletingRoute] = useState<RouteRow | null>(null)
   const [sortMode, setSortMode] = useState<"name" | "popular">("name")
-  const { shareRoute, copied: shareCopied } = useShareRoute()
-  const [copiedRouteId, setCopiedRouteId] = useState<string | null>(null)
+  const { shareRoute, shareState, shareUrl, clearShareUrl } = useShareRoute()
+  const [shareRouteId, setShareRouteId] = useState<string | null>(null)
 
   const handleShare = async (routeId: string, name: string) => {
-    setCopiedRouteId(routeId)
+    setShareRouteId(routeId)
     await shareRoute(routeId, name)
-    setTimeout(() => setCopiedRouteId(null), 2000)
   }
 
   const contractAddress = getContractAddress()
@@ -924,23 +923,42 @@ export function RoutesPage() {
                             <path d="M5 12h14M12 5l7 7-7 7" />
                           </svg>
                         </Link>
-                        <button
-                          type="button"
-                          aria-label={`Share ${r.name}`}
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleShare(r.routeId, r.name) }}
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-on-surface-variant/40 transition-colors hover:text-primary"
-                        >
-                          {copiedRouteId === r.routeId && shareCopied ? (
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                              <polyline points="20 6 9 17 4 12"/>
-                            </svg>
-                          ) : (
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                              <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-                            </svg>
+                        <div className="relative flex flex-col items-end gap-1">
+                          <button
+                            type="button"
+                            aria-label={`Share ${r.name}`}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleShare(r.routeId, r.name) }}
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-on-surface-variant/40 transition-colors hover:text-primary"
+                          >
+                            {shareRouteId === r.routeId && shareState === "copied" ? (
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary" aria-hidden>
+                                <polyline points="20 6 9 17 4 12"/>
+                              </svg>
+                            ) : (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                              </svg>
+                            )}
+                          </button>
+                          {/* Manual copy fallback when clipboard is blocked */}
+                          {shareRouteId === r.routeId && shareState === "error" && shareUrl && (
+                            <div className="absolute right-0 top-9 z-20 flex w-64 items-center gap-2 rounded-xl border border-outline-variant/30 bg-surface-container-highest px-3 py-2 shadow-lg">
+                              <input
+                                readOnly
+                                value={shareUrl}
+                                onFocus={(e) => e.target.select()}
+                                className="min-w-0 flex-1 bg-transparent font-mono text-[10px] text-on-surface-variant outline-none"
+                              />
+                              <button type="button" onClick={(e) => { e.stopPropagation(); clearShareUrl(); setShareRouteId(null) }}
+                                className="shrink-0 text-on-surface-variant/50 hover:text-on-surface-variant">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                              </button>
+                            </div>
                           )}
-                        </button>
+                        </div>
                       </div>
 
                     </div>

@@ -32,7 +32,7 @@ export function RoutePurchasePage() {
   const { isConnected, address } = useAccount()
 
   const routeIdBig = useMemo(() => parseRouteIdParam(routeIdParam), [routeIdParam])
-  const { shareRoute, copied: shareCopied } = useShareRoute()
+  const { shareRoute, shareState, shareUrl, clearShareUrl } = useShareRoute()
 
   const [apiLabels, setApiLabels] = useState<Awaited<ReturnType<typeof fetchRouteLabels>> | undefined>(undefined)
   useEffect(() => { void fetchRouteLabels().then(setApiLabels) }, [])
@@ -406,16 +406,16 @@ export function RoutePurchasePage() {
         {routeMeta?.detail && (
           <p className="mt-1.5 text-sm text-on-surface-variant">{routeMeta.detail}</p>
         )}
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3 flex flex-col gap-2">
           <button
             type="button"
             onClick={() => void shareRoute(routeIdParam ?? "", routeMeta?.name ?? "")}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant/25 bg-surface-container px-2.5 py-1 font-headline text-xs text-on-surface-variant transition-colors hover:border-primary/30 hover:text-primary"
+            className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-outline-variant/25 bg-surface-container px-2.5 py-1 font-headline text-xs text-on-surface-variant transition-colors hover:border-primary/30 hover:text-primary"
           >
-            {shareCopied ? (
+            {shareState === "copied" ? (
               <>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><polyline points="20 6 9 17 4 12"/></svg>
-                Copied!
+                Link copied!
               </>
             ) : (
               <>
@@ -423,10 +423,27 @@ export function RoutePurchasePage() {
                   <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
                   <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
                 </svg>
-                Share
+                Share route
               </>
             )}
           </button>
+          {/* Fallback: manual copy input when clipboard is unavailable */}
+          {shareState === "error" && shareUrl && (
+            <div className="flex items-center gap-2 rounded-xl border border-outline-variant/25 bg-surface-container-high px-3 py-2">
+              <input
+                readOnly
+                value={shareUrl}
+                onFocus={(e) => e.target.select()}
+                className="min-w-0 flex-1 bg-transparent font-mono text-xs text-on-surface-variant outline-none"
+              />
+              <button type="button" onClick={clearShareUrl}
+                className="shrink-0 text-on-surface-variant/50 hover:text-on-surface-variant">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
