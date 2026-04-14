@@ -54,6 +54,25 @@ export const ROUTE_LABELS_MIGRATE_SCHEDULE_SQL = `
 ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS schedule TEXT CHECK (schedule IS NULL OR char_length(schedule) <= 120);
 `;
 
+/**
+ * Vehicle type + seat configuration columns (idempotent).
+ *
+ * vehicle_type: 'train' | 'bus' | 'light_rail'
+ * is_interstate: true for cross-state routes
+ * coaches / seats_per_coach: train layout (total capacity = coaches × seats_per_coach)
+ * total_seats: bus seat count
+ *
+ * Derived rule enforced by the application (not a DB constraint to keep migrations simple):
+ *   has_classes = vehicle_type = 'train' AND is_interstate = true
+ */
+export const ROUTE_LABELS_MIGRATE_VEHICLE_SQL = `
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS vehicle_type TEXT;
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS is_interstate BOOLEAN;
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS coaches INTEGER;
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS seats_per_coach INTEGER;
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS total_seats INTEGER;
+`;
+
 export const ROUTE_RATINGS_INIT_SQL = `
 CREATE TABLE IF NOT EXISTS route_ratings (
   id SERIAL PRIMARY KEY,

@@ -7,7 +7,7 @@ import { useAccount, usePublicClient, useReadContract, useWaitForTransactionRece
 import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
 import type { DemoRoute } from "../constants/demoRoutes"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
-import { fetchRouteLabels, fetchRouteRating, claimSeat, reserveSeat, releaseSeat, type RouteRating } from "../lib/api"
+import { fetchRouteLabels, fetchRouteRating, claimSeat, reserveSeat, releaseSeat, routeHasClasses, routeHasSeats, type RouteRating } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { trackEvent } from "../lib/analytics"
@@ -53,6 +53,15 @@ export function RoutePurchasePage() {
     return { routeId: row.routeId, category: row.category || "General", name: row.name, detail: row.detail ?? "" }
   }, [routeIdParam, apiLabels])
 
+  // Full route config (vehicle type + seat layout) from API labels
+  const routeConfig = useMemo(() => {
+    if (!routeIdParam || !apiLabels) return null
+    return apiLabels.find((r) => r.routeId === routeIdParam) ?? null
+  }, [routeIdParam, apiLabels])
+
+  const hasClasses = routeHasClasses(routeConfig)   // only interstate trains
+  const hasSeats   = routeHasSeats(routeConfig)     // trains (coaches) or buses (totalSeats)
+
   const metaLoading =
     routeIdParam !== undefined &&
     routeMeta === undefined &&
@@ -64,7 +73,7 @@ export function RoutePurchasePage() {
   const usdcEnabled = Boolean(usdcAddress)
 
   const [payMethod, setPayMethod] = useState<PayMethod>("mon")
-  const [seatClass, setSeatClass] = useState<0 | 1>(0) // 0=Economy, 1=Business
+  const [seatClass, setSeatClass] = useState<0 | 1 | 2>(0) // 0=Economy, 1=Business, 2=First Class (trains only)
   const [quantity, setQuantity] = useState(1)
   const [mintProgress, setMintProgress] = useState<{ done: number; total: number } | null>(null)
   const [mintedTokenIds, setMintedTokenIds] = useState<bigint[]>([])
@@ -479,34 +488,52 @@ export function RoutePurchasePage() {
           </div>
         )}
 
-        {/* Seat class selector */}
-        <div className="border-b border-outline-variant/15 px-4 py-3">
-          <p className="mb-2 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
-            Seat class
-          </p>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(0); setSelectedSeat(null) }}
-              className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-2.5 font-headline text-sm font-semibold transition-all ${
-                seatClass === 0
-                  ? "border-primary/40 bg-primary/10 text-white"
-                  : "border-outline-variant/20 text-on-surface-variant hover:text-white"
-              }`}>
-              Economy
-            </button>
-            <button type="button" onClick={() => setSeatClass(1)}
-              className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-2.5 font-headline text-sm font-semibold transition-all ${
-                seatClass === 1
-                  ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
-                  : "border-outline-variant/20 text-on-surface-variant hover:text-white"
-              }`}>
-              <span className={seatClass === 1 ? "text-amber-300" : "text-on-surface-variant/50"} aria-hidden>✦</span>
-              Business
-            </button>
+        {/* Seat class selector — interstate trains only */}
+        {hasClasses && (
+          <div className="border-b border-outline-variant/15 px-4 py-3">
+            <p className="mb-2 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
+              Seat class
+            </p>
+            <div className="flex gap-2">
+              {/* First Class */}
+              <button type="button"
+                onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(2); setSelectedSeat(null) }}
+                className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
+                  seatClass === 2
+                    ? "border-violet-400/40 bg-violet-400/10 text-violet-300"
+                    : "border-outline-variant/20 text-on-surface-variant hover:text-white"
+                }`}>
+                <span aria-hidden>💎</span>
+                <span>First</span>
+              </button>
+              {/* Business */}
+              <button type="button"
+                onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(1); setSelectedSeat(null) }}
+                className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
+                  seatClass === 1
+                    ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                    : "border-outline-variant/20 text-on-surface-variant hover:text-white"
+                }`}>
+                <span aria-hidden>✦</span>
+                <span>Business</span>
+              </button>
+              {/* Economy */}
+              <button type="button"
+                onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(0); setSelectedSeat(null) }}
+                className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
+                  seatClass === 0
+                    ? "border-primary/40 bg-primary/10 text-white"
+                    : "border-outline-variant/20 text-on-surface-variant hover:text-white"
+                }`}>
+                <span aria-hidden>🪑</span>
+                <span>Economy</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Seat picker — Business class only, single ticket */}
-        {seatClass === 1 && quantity === 1 && routeIdParam && (
+        {/* Seat picker — trains and buses with seat config, single ticket */}
+        {hasSeats && quantity === 1 && routeIdParam && (
           <div className="border-b border-outline-variant/15 px-4 py-4">
             {seatConflict && (
               <div className="mb-3 flex items-center gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
@@ -524,6 +551,10 @@ export function RoutePurchasePage() {
               routeId={routeIdParam}
               selectedSeat={selectedSeat}
               onSelect={(seat) => { void onSeatSelect(seat) }}
+              vehicleType={routeConfig?.vehicleType}
+              coaches={routeConfig?.coaches}
+              seatsPerCoach={routeConfig?.seatsPerCoach}
+              totalSeats={routeConfig?.totalSeats}
             />
           </div>
         )}

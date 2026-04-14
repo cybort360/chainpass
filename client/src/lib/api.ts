@@ -1,11 +1,35 @@
 import { env } from "./env"
 
+export type VehicleType = "train" | "bus" | "light_rail"
+
 export type ApiRouteLabel = {
   routeId: string
   name: string
   detail: string | null
   category: string
   schedule?: string | null
+  vehicleType?: VehicleType | null
+  isInterstate?: boolean | null
+  /** Train only: number of coaches */
+  coaches?: number | null
+  /** Train only: seats per coach */
+  seatsPerCoach?: number | null
+  /** Bus only: total seat count */
+  totalSeats?: number | null
+}
+
+/** True only for interstate trains — the only route type with seat classes */
+export function routeHasClasses(r: ApiRouteLabel | null | undefined): boolean {
+  return r?.vehicleType === "train" && r?.isInterstate === true
+}
+
+/** True if passengers pick a specific seat (train or bus with configured seats) */
+export function routeHasSeats(r: ApiRouteLabel | null | undefined): boolean {
+  if (!r?.vehicleType) return false
+  if (r.vehicleType === "light_rail") return false
+  if (r.vehicleType === "train") return !!(r.coaches && r.seatsPerCoach)
+  if (r.vehicleType === "bus") return !!(r.totalSeats)
+  return false
 }
 
 const ROUTES_CACHE_KEY = "chainpass_routes_cache"
@@ -49,6 +73,11 @@ export async function registerRouteLabel(payload: {
   schedule?: string | null
   /** When set, API appends to config/nigeria-routes.json (server filesystem). */
   priceMon?: number
+  vehicleType?: VehicleType | null
+  isInterstate?: boolean | null
+  coaches?: number | null
+  seatsPerCoach?: number | null
+  totalSeats?: number | null
 }): Promise<RegisterRouteLabelResult> {
   try {
     const body: Record<string, unknown> = {
@@ -65,6 +94,11 @@ export async function registerRouteLabel(payload: {
     if (payload.priceMon !== undefined && Number.isFinite(payload.priceMon)) {
       body.priceMon = payload.priceMon
     }
+    if (payload.vehicleType) body.vehicleType = payload.vehicleType
+    if (payload.isInterstate !== undefined && payload.isInterstate !== null) body.isInterstate = payload.isInterstate
+    if (payload.coaches) body.coaches = payload.coaches
+    if (payload.seatsPerCoach) body.seatsPerCoach = payload.seatsPerCoach
+    if (payload.totalSeats) body.totalSeats = payload.totalSeats
     const res = await fetch(`${env.apiUrl}/api/v1/routes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -569,6 +569,12 @@ export function OperatorPage() {
   const [regPriceMon, setRegPriceMon] = useState("")
   const [regFormErr, setRegFormErr] = useState<string | null>(null)
   const [regLabelMsg, setRegLabelMsg] = useState<string | null>(null)
+  // Vehicle type config
+  const [regVehicleType, setRegVehicleType] = useState<"train" | "bus" | "light_rail">("bus")
+  const [regIsInterstate, setRegIsInterstate] = useState(true)
+  const [regCoaches, setRegCoaches] = useState("")
+  const [regSeatsPerCoach, setRegSeatsPerCoach] = useState("")
+  const [regTotalSeats, setRegTotalSeats] = useState("")
 
   const {
     data: routePriceHash,
@@ -622,12 +628,24 @@ export function OperatorPage() {
     const detail = regDetail.trim()
     const monNum = Number(regPriceMon.trim())
     const priceMon = Number.isFinite(monNum) && monNum >= 0 ? monNum : undefined
+    // Derived: trains are always interstate; light rail is always intrastate
+    const effectiveVehicleType = regVehicleType
+    const effectiveIsInterstate = regVehicleType === "train" ? true : regVehicleType === "light_rail" ? false : regIsInterstate
+    const coachesNum = regVehicleType === "train" ? parseInt(regCoaches) || null : null
+    const seatsPerCoachNum = regVehicleType === "train" ? parseInt(regSeatsPerCoach) || null : null
+    const totalSeatsNum = regVehicleType === "bus" ? parseInt(regTotalSeats) || null : null
+
     void registerRouteLabel({
       routeId: rid,
       name,
       category,
       detail: detail || null,
       priceMon,
+      vehicleType: effectiveVehicleType,
+      isInterstate: effectiveIsInterstate,
+      coaches: coachesNum,
+      seatsPerCoach: seatsPerCoachNum,
+      totalSeats: totalSeatsNum,
     }).then((result) => {
       if (result.ok) {
         const fileOk = result.nigeriaRoutesFile?.ok === true
@@ -655,7 +673,8 @@ export function OperatorPage() {
         setRegLabelMsg(null)
       }
     })
-  }, [routePriceSuccess, routePriceHash, regName, regCategory, regDetail, regPriceMon])
+  }, [routePriceSuccess, routePriceHash, regName, regCategory, regDetail, regPriceMon,
+      regVehicleType, regIsInterstate, regCoaches, regSeatsPerCoach, regTotalSeats])
 
   // ── MON price config ──────────────────────────────────────────────────────
   const { data: currentMonPrice, refetch: refetchMonPrice } = useReadContract({
@@ -1021,12 +1040,122 @@ export function OperatorPage() {
           {isAdmin !== true ? (
             <p className="text-sm text-on-surface-variant">Connect an admin wallet to enable this form.</p>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-4">
+
+              {/* ── Vehicle type selector ── */}
+              <div>
+                <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                  Vehicle type
+                </span>
+                <div className="mt-1.5 flex gap-2">
+                  {(["train", "bus", "light_rail"] as const).map((vt) => (
+                    <button key={vt} type="button"
+                      onClick={() => {
+                        setRegVehicleType(vt)
+                        // Trains are always interstate; light rail always intrastate
+                        if (vt === "train") setRegIsInterstate(true)
+                        if (vt === "light_rail") setRegIsInterstate(false)
+                      }}
+                      className={`flex-1 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
+                        regVehicleType === vt
+                          ? "border-primary/40 bg-primary/10 text-white"
+                          : "border-outline-variant/20 text-on-surface-variant hover:border-primary/20 hover:text-white"
+                      }`}>
+                      {vt === "train" ? "🚂 Train" : vt === "bus" ? "🚌 Bus" : "🚈 Light Rail"}
+                    </button>
+                  ))}
+                </div>
+                {/* Context tag */}
+                <p className="mt-1.5 text-[10px] text-on-surface-variant/60">
+                  {regVehicleType === "train" && "Interstate · First Class / Business / Economy classes · coach-based seat map"}
+                  {regVehicleType === "bus" && "Interstate or intrastate · no seat classes · numbered seats"}
+                  {regVehicleType === "light_rail" && "Intrastate only · no classes · no seat configuration"}
+                </p>
+              </div>
+
+              {/* ── Bus: Interstate / Intrastate toggle ── */}
+              {regVehicleType === "bus" && (
+                <div>
+                  <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                    Travel scope
+                  </span>
+                  <div className="mt-1.5 flex gap-2">
+                    {([true, false] as const).map((interstate) => (
+                      <button key={String(interstate)} type="button"
+                        onClick={() => setRegIsInterstate(interstate)}
+                        className={`flex-1 rounded-xl border py-2 font-headline text-xs font-semibold transition-all ${
+                          regIsInterstate === interstate
+                            ? "border-primary/40 bg-primary/10 text-white"
+                            : "border-outline-variant/20 text-on-surface-variant hover:border-primary/20 hover:text-white"
+                        }`}>
+                        {interstate ? "Interstate" : "Intrastate"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Train: coaches + seats per coach ── */}
+              {regVehicleType === "train" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                      No. of coaches
+                    </span>
+                    <input type="number" min="1" max="30" className={`${inputClass} font-mono`}
+                      value={regCoaches} onChange={(e) => setRegCoaches(e.target.value)}
+                      placeholder="e.g. 6" />
+                  </label>
+                  <label className="block">
+                    <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                      Seats per coach
+                    </span>
+                    <input type="number" min="1" max="100" className={`${inputClass} font-mono`}
+                      value={regSeatsPerCoach} onChange={(e) => setRegSeatsPerCoach(e.target.value)}
+                      placeholder="e.g. 48" />
+                  </label>
+                  {regCoaches && regSeatsPerCoach && (
+                    <p className="col-span-2 text-[10px] text-on-surface-variant/60">
+                      Total capacity: {parseInt(regCoaches) * parseInt(regSeatsPerCoach)} seats across {regCoaches} coaches
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* ── Bus: total seats ── */}
+              {regVehicleType === "bus" && (
+                <label className="block">
+                  <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                    Total seats
+                  </span>
+                  <input type="number" min="1" max="100" className={`${inputClass} font-mono w-40`}
+                    value={regTotalSeats} onChange={(e) => setRegTotalSeats(e.target.value)}
+                    placeholder="e.g. 54" />
+                </label>
+              )}
+
+              {/* ── Light rail: info ── */}
+              {regVehicleType === "light_rail" && (
+                <div className="flex items-start gap-2 rounded-xl border border-outline-variant/15 bg-surface-container-high px-4 py-3">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                    className="mt-0.5 shrink-0 text-on-surface-variant/50" aria-hidden>
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  <p className="text-xs text-on-surface-variant/70">
+                    Light rail operates within a single state. No seat configuration or class system — passengers board any available space.
+                  </p>
+                </div>
+              )}
+
+              <div className="border-t border-outline-variant/10 pt-1" />
+
+              {/* ── Route details ── */}
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">
                   <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Category</span>
                   <input type="text" className={inputClass} value={regCategory} maxLength={60}
-                    onChange={(e) => setRegCategory(e.target.value)} placeholder="e.g. Abuja & FCT" />
+                    onChange={(e) => setRegCategory(e.target.value)} placeholder="e.g. Lagos Metro" />
                 </label>
                 <label className="block">
                   <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Mint price (MON)</span>

@@ -35,8 +35,15 @@ export function createRoutesRouter(): Router {
         detail: string | null;
         category: string;
         schedule: string | null;
+        vehicle_type: string | null;
+        is_interstate: boolean | null;
+        coaches: number | null;
+        seats_per_coach: number | null;
+        total_seats: number | null;
       }>(
-        `SELECT route_id, name, detail, category, schedule FROM route_labels
+        `SELECT route_id, name, detail, category, schedule,
+                vehicle_type, is_interstate, coaches, seats_per_coach, total_seats
+         FROM route_labels
          ORDER BY category, route_id::numeric`,
       );
       res.json({
@@ -46,6 +53,11 @@ export function createRoutesRouter(): Router {
           detail: row.detail,
           category: row.category,
           schedule: row.schedule,
+          vehicleType: row.vehicle_type,
+          isInterstate: row.is_interstate,
+          coaches: row.coaches,
+          seatsPerCoach: row.seats_per_coach,
+          totalSeats: row.total_seats,
         })),
       });
     } catch (err) {
@@ -87,6 +99,19 @@ export function createRoutesRouter(): Router {
           : typeof scheduleRaw === "string"
             ? scheduleRaw.trim() || null
             : undefined;
+    const vehicleTypeRaw = body?.vehicleType;
+    const vehicleType =
+      vehicleTypeRaw === undefined ? undefined :
+      vehicleTypeRaw === null ? null :
+      ["train","bus","light_rail"].includes(String(vehicleTypeRaw)) ? String(vehicleTypeRaw) : undefined;
+    const isInterstate = body?.isInterstate === undefined ? undefined :
+      body.isInterstate === null ? null : Boolean(body.isInterstate);
+    const coaches = body?.coaches === undefined ? undefined :
+      body.coaches === null ? null : Number(body.coaches) > 0 ? Math.floor(Number(body.coaches)) : undefined;
+    const seatsPerCoach = body?.seatsPerCoach === undefined ? undefined :
+      body.seatsPerCoach === null ? null : Number(body.seatsPerCoach) > 0 ? Math.floor(Number(body.seatsPerCoach)) : undefined;
+    const totalSeats = body?.totalSeats === undefined ? undefined :
+      body.totalSeats === null ? null : Number(body.totalSeats) > 0 ? Math.floor(Number(body.totalSeats)) : undefined;
 
     if (name !== undefined && name.length > 100) {
       res.status(400).json({ error: "name must be 100 characters or fewer" });
@@ -112,6 +137,11 @@ export function createRoutesRouter(): Router {
     if (category !== undefined) { vals.push(category); sets.push(`category = $${vals.length}`); }
     if (detail !== undefined) { vals.push(detail); sets.push(`detail = $${vals.length}`); }
     if (schedule !== undefined) { vals.push(schedule); sets.push(`schedule = $${vals.length}`); }
+    if (vehicleType !== undefined) { vals.push(vehicleType); sets.push(`vehicle_type = $${vals.length}`); }
+    if (isInterstate !== undefined) { vals.push(isInterstate); sets.push(`is_interstate = $${vals.length}`); }
+    if (coaches !== undefined) { vals.push(coaches); sets.push(`coaches = $${vals.length}`); }
+    if (seatsPerCoach !== undefined) { vals.push(seatsPerCoach); sets.push(`seats_per_coach = $${vals.length}`); }
+    if (totalSeats !== undefined) { vals.push(totalSeats); sets.push(`total_seats = $${vals.length}`); }
 
     if (sets.length === 0) {
       res.status(400).json({ error: "no fields to update" });
@@ -124,15 +154,25 @@ export function createRoutesRouter(): Router {
     try {
       const pool = getPool();
       const result = await pool.query(
-        `UPDATE route_labels SET ${setClause} WHERE route_id = $${vals.length} RETURNING route_id, name, detail, category, schedule`,
+        `UPDATE route_labels SET ${setClause} WHERE route_id = $${vals.length}
+         RETURNING route_id, name, detail, category, schedule,
+                   vehicle_type, is_interstate, coaches, seats_per_coach, total_seats`,
         vals,
       );
       if (result.rowCount === 0) {
         res.status(404).json({ error: "route not found" });
         return;
       }
-      const row = result.rows[0] as { route_id: string; name: string; detail: string | null; category: string; schedule: string | null };
-      res.json({ route: { routeId: row.route_id, name: row.name, detail: row.detail, category: row.category, schedule: row.schedule } });
+      const row = result.rows[0] as {
+        route_id: string; name: string; detail: string | null; category: string; schedule: string | null;
+        vehicle_type: string | null; is_interstate: boolean | null; coaches: number | null;
+        seats_per_coach: number | null; total_seats: number | null;
+      };
+      res.json({ route: {
+        routeId: row.route_id, name: row.name, detail: row.detail, category: row.category, schedule: row.schedule,
+        vehicleType: row.vehicle_type, isInterstate: row.is_interstate,
+        coaches: row.coaches, seatsPerCoach: row.seats_per_coach, totalSeats: row.total_seats,
+      } });
     } catch (err) {
       console.error("[routes PUT]", err);
       res.status(500).json({ error: "failed to update route" });
@@ -193,6 +233,27 @@ export function createRoutesRouter(): Router {
           ? schedulePostRaw.trim() || null
           : null;
 
+    // Vehicle / seat config
+    const vehicleTypeRaw = body?.vehicleType;
+    const vehicleType: string | null =
+      vehicleTypeRaw !== undefined && ["train","bus","light_rail"].includes(String(vehicleTypeRaw))
+        ? String(vehicleTypeRaw) : null;
+    const isInterstate: boolean | null =
+      body?.isInterstate !== undefined && body.isInterstate !== null
+        ? Boolean(body.isInterstate) : null;
+    const coachesRaw = body?.coaches;
+    const coaches: number | null =
+      coachesRaw !== undefined && coachesRaw !== null && Number(coachesRaw) > 0
+        ? Math.floor(Number(coachesRaw)) : null;
+    const seatsPerCoachRaw = body?.seatsPerCoach;
+    const seatsPerCoach: number | null =
+      seatsPerCoachRaw !== undefined && seatsPerCoachRaw !== null && Number(seatsPerCoachRaw) > 0
+        ? Math.floor(Number(seatsPerCoachRaw)) : null;
+    const totalSeatsRaw = body?.totalSeats;
+    const totalSeats: number | null =
+      totalSeatsRaw !== undefined && totalSeatsRaw !== null && Number(totalSeatsRaw) > 0
+        ? Math.floor(Number(totalSeatsRaw)) : null;
+
     const priceMonRaw = body?.priceMon;
     let priceMon: number | undefined;
     if (priceMonRaw !== undefined && priceMonRaw !== null) {
@@ -241,9 +302,12 @@ export function createRoutesRouter(): Router {
     try {
       const pool = getPool();
       await pool.query(
-        `INSERT INTO route_labels (route_id, name, detail, category, schedule)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [String(routeId), name, detail, category, schedulePost],
+        `INSERT INTO route_labels
+           (route_id, name, detail, category, schedule,
+            vehicle_type, is_interstate, coaches, seats_per_coach, total_seats)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [String(routeId), name, detail, category, schedulePost,
+         vehicleType, isInterstate, coaches, seatsPerCoach, totalSeats],
       );
 
       let nigeriaRoutesFile: { ok: true } | { ok: false; reason: string } | undefined;
@@ -267,6 +331,11 @@ export function createRoutesRouter(): Router {
           detail,
           category,
           schedule: schedulePost,
+          vehicleType,
+          isInterstate,
+          coaches,
+          seatsPerCoach,
+          totalSeats,
         },
         ...(nigeriaRoutesFile !== undefined ? { nigeriaRoutesFile } : {}),
       });
