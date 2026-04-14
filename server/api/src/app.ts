@@ -30,6 +30,7 @@ export function createApp(): Express {
       stack: "express",
       runtime: "node",
       shared: CHAINPASS_SHARED_VERSION,
+      database: !!process.env.DATABASE_URL,
     });
   });
 
