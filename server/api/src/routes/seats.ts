@@ -209,36 +209,92 @@ export function createSeatsRouter(): Router {
     }
     try {
       const pool = getPool();
-      // Check no other token already owns this seat permanently
-      const existing = await pool.query(
-        `SELECT token_id FROM seat_assignments WHERE route_id = $1 AND seat_number = $2`,
-        [routeId, seatNumber],
+
+      // Fetch any rows that conflict with our intended (route_id, seat_number) OR token_id.
+      // One round-trip surfaces every possible conflict so we can branch cleanly.
+      const existing = await pool.query<{ token_id: string; seat_number: string }>(
+        `SELECT token_id, seat_number FROM seat_assignments
+         WHERE (route_id = $1 AND seat_number = $2) OR token_id = $3`,
+        [routeId, seatNumber, tokenId],
       );
-      if (existing.rowCount && existing.rowCount > 0) {
-        const existingToken = (existing.rows[0] as { token_id: string }).token_id;
-        // Idempotent: same token confirming again is fine
-        if (existingToken !== tokenId) {
-          res.status(409).json({ error: "seat already taken by another ticket" }); return;
-        }
+
+      // Idempotent: this exact (token, seat) pair already exists — success.
+      const exactMatch = existing.rows.find(
+        (r) => r.token_id === tokenId && r.seat_number === seatNumber,
+      );
+      if (exactMatch) {
+        console.log(`[seats POST] idempotent tokenId=${tokenId} seat=${seatNumber}`);
         seatNotify(routeId);
         res.json({ ok: true, seatNumber }); return;
       }
-      // Write permanent assignment.
-      // No conflict target: catches both UNIQUE(token_id) and UNIQUE(route_id, seat_number)
-      // so a concurrent claim racing past the pre-check above silently no-ops instead of
-      // throwing an unhandled constraint error.
-      await pool.query(
+
+      // Token already owns a *different* seat — should never happen in normal flow.
+      const tokenMismatch = existing.rows.find(
+        (r) => r.token_id === tokenId && r.seat_number !== seatNumber,
+      );
+      if (tokenMismatch) {
+        console.warn(
+          `[seats POST] token ${tokenId} already has seat ${tokenMismatch.seat_number}, refusing to re-claim ${seatNumber}`,
+        );
+        res.status(409).json({ error: "token already has a different seat" }); return;
+      }
+
+      // Another token owns this (route, seat). Check if it's a ghost from a burned
+      // ticket — in which case we auto-reassign. Otherwise it's truly held.
+      const seatTaken = existing.rows.find(
+        (r) => r.seat_number === seatNumber && r.token_id !== tokenId,
+      );
+      if (seatTaken) {
+        let ghost = false;
+        try {
+          const burnCheck = await pool.query<{ cnt: string }>(
+            `SELECT COUNT(*)::text AS cnt FROM ticket_events
+             WHERE token_id = $1 AND event_type = 'burn'`,
+            [seatTaken.token_id],
+          );
+          ghost = Number(burnCheck.rows[0]?.cnt ?? "0") > 0;
+        } catch { /* ticket_events may not exist — treat as not-ghost */ }
+
+        if (!ghost) {
+          console.warn(
+            `[seats POST] seat ${seatNumber} route ${routeId} held by active token ${seatTaken.token_id}`,
+          );
+          res.status(409).json({ error: "seat already taken by another ticket" }); return;
+        }
+        console.log(
+          `[seats POST] clearing ghost ${seatTaken.token_id} to assign ${tokenId} → seat ${seatNumber}`,
+        );
+        await pool.query(
+          `DELETE FROM seat_assignments WHERE token_id = $1`,
+          [seatTaken.token_id],
+        );
+        // Fall through to INSERT
+      }
+
+      // Write the permanent assignment. RETURNING id lets us detect a silent no-op
+      // (e.g. a concurrent writer beat us to the UNIQUE constraint) and surface it
+      // as 500 so the client's retry loop kicks in instead of treating it as success.
+      const inserted = await pool.query<{ id: number }>(
         `INSERT INTO seat_assignments (route_id, token_id, seat_number)
          VALUES ($1, $2, $3)
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT DO NOTHING
+         RETURNING id`,
         [routeId, tokenId, seatNumber],
       );
+      if (!inserted.rowCount) {
+        console.error(
+          `[seats POST] insert silently failed token=${tokenId} route=${routeId} seat=${seatNumber}`,
+        );
+        res.status(500).json({ error: "claim did not persist — please retry" }); return;
+      }
+
       // Clean up the reservation (no longer needed)
       await pool.query(
         `DELETE FROM seat_reservations WHERE route_id = $1 AND seat_number = $2`,
         [routeId, seatNumber],
       );
-      seatNotify(routeId)
+      console.log(`[seats POST] claimed token=${tokenId} route=${routeId} seat=${seatNumber}`);
+      seatNotify(routeId);
       res.json({ ok: true, seatNumber });
     } catch (err) {
       console.error("[seats POST]", err);

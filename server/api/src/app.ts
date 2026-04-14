@@ -2,6 +2,7 @@ import { CHAINPASS_SHARED_VERSION } from "@chainpass/shared";
 import cors from "cors";
 import express, { type Express } from "express";
 import morgan from "morgan";
+import { getPool } from "./lib/db.js";
 import { createOperatorRouter } from "./routes/operator.js";
 import { createQrRouter } from "./routes/qr.js";
 import { createRatingsRouter } from "./routes/ratings.js";
@@ -23,14 +24,28 @@ export function createApp(): Express {
   );
   app.use(express.json());
 
-  app.get("/health", (_req, res) => {
+  app.get("/health", async (_req, res) => {
+    // Actually ping the DB — `databaseConnected` confirms the pool can round-trip.
+    // `databaseConfigured` tells us only whether DATABASE_URL is set.
+    let databaseConnected = false;
+    let databaseError: string | null = null;
+    if (process.env.DATABASE_URL?.trim()) {
+      try {
+        await getPool().query("SELECT 1");
+        databaseConnected = true;
+      } catch (err) {
+        databaseError = err instanceof Error ? err.message : String(err);
+      }
+    }
     res.json({
       ok: true,
       service: "chainpass-api",
       stack: "express",
       runtime: "node",
       shared: CHAINPASS_SHARED_VERSION,
-      database: !!process.env.DATABASE_URL,
+      databaseConfigured: !!process.env.DATABASE_URL,
+      databaseConnected,
+      databaseError,
     });
   });
 
