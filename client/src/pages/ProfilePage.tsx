@@ -397,7 +397,7 @@ export function ProfilePage() {
                 type="button"
                 disabled={!claimRouteId || claimPending || claimConfirming}
                 onClick={() => void onClaim()}
-                className="w-full rounded-2xl bg-white px-6 py-4 font-headline text-base font-bold text-zinc-900 shadow-lg transition-all hover:bg-white/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="btn-dark-cta w-full rounded-2xl bg-white px-6 py-4 font-headline text-base font-bold text-zinc-900 shadow-lg transition-all hover:bg-white/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {claimPending ? (
                   <span className="flex items-center justify-center gap-2">

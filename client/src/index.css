@@ -282,3 +282,23 @@
 [data-theme="light"] .text-glow {
   --color-white: #ffffff;
 }
+
+/* bg-white must stay truly white in light mode:
+   - QR code container needs a white background to be scannable
+   - Other bg-white elements likewise need real white */
+[data-theme="light"] .bg-white {
+  background-color: #ffffff !important;
+}
+
+/* "Hero" CTA buttons (white-pill style designed for dark backgrounds).
+   In dark mode they render as bright white pills.
+   In light mode the white bg would blend into the surface, so we swap
+   them to the primary gradient with white text instead. */
+.btn-dark-cta {
+  /* dark mode: inherits bg-white + text-zinc-900 from sibling classes */
+}
+[data-theme="light"] .btn-dark-cta {
+  background: linear-gradient(135deg, var(--color-primary-dim), var(--color-primary)) !important;
+  --color-white: #ffffff;
+  color: #ffffff !important;
+}
