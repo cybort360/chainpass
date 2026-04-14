@@ -48,6 +48,28 @@ export function createSeatsRouter(): Router {
     }
   });
 
+  // DELETE /seats/reserve — release a hold when passenger deselects
+  r.delete("/seats/reserve", async (req, res) => {
+    if (!process.env.DATABASE_URL) { res.json({ ok: true }); return; }
+    const body = req.body as Record<string, unknown>;
+    const routeId = typeof body.routeId === "string" ? body.routeId.trim() : "";
+    const seatNumber = typeof body.seatNumber === "string" ? body.seatNumber.trim() : "";
+    if (!routeId || !seatNumber) {
+      res.status(400).json({ error: "missing routeId or seatNumber" }); return;
+    }
+    try {
+      const pool = getPool();
+      await pool.query(
+        `DELETE FROM seat_reservations WHERE route_id = $1 AND seat_number = $2`,
+        [routeId, seatNumber],
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[seats release]", err);
+      res.status(500).json({ error: "failed to release seat" });
+    }
+  });
+
   // POST /seats/reserve — temporarily lock a seat while passenger pays
   // Idempotent: re-selecting the same seat refreshes the TTL.
   r.post("/seats/reserve", async (req, res) => {

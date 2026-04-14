@@ -297,6 +297,17 @@ export async function fetchRouteRating(routeId: string): Promise<RouteRating | n
   }
 }
 
+/** Release a seat hold when the passenger deselects it. */
+export async function releaseSeat(routeId: string, seatNumber: string): Promise<void> {
+  try {
+    await fetch(`${env.apiUrl}/api/v1/seats/reserve`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routeId, seatNumber }),
+    })
+  } catch { /* best-effort — reservation will expire on its own */ }
+}
+
 /** Temporarily hold a seat for ~10 minutes while the passenger completes payment. */
 export async function reserveSeat(routeId: string, seatNumber: string): Promise<{ ok: boolean; conflict: boolean }> {
   try {

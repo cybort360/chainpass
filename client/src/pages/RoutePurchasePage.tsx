@@ -7,7 +7,7 @@ import { useAccount, usePublicClient, useReadContract, useWaitForTransactionRece
 import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
 import type { DemoRoute } from "../constants/demoRoutes"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
-import { fetchRouteLabels, fetchRouteRating, claimSeat, reserveSeat, type RouteRating } from "../lib/api"
+import { fetchRouteLabels, fetchRouteRating, claimSeat, reserveSeat, releaseSeat, type RouteRating } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { trackEvent } from "../lib/analytics"
@@ -235,10 +235,17 @@ export function RoutePurchasePage() {
     ? formatNgn(ngnForUsdc(Number(formatUnits(effectivePriceUsdc, USDC_DECIMALS))))
     : null
 
-  // ── Seat selection handler — reserves immediately on tap ───────────────────
+  // ── Seat selection handler — reserves/releases immediately on tap ──────────
   const onSeatSelect = async (seat: string | null) => {
     setSeatConflict(false)
+
+    // Release the previously held seat if switching or deselecting
+    if (selectedSeat && selectedSeat !== seat && routeIdParam) {
+      void releaseSeat(routeIdParam, selectedSeat)
+    }
+
     setSelectedSeat(seat)
+
     if (seat && routeIdParam) {
       const result = await reserveSeat(routeIdParam, seat)
       if (!result.ok && result.conflict) {
@@ -449,7 +456,7 @@ export function RoutePurchasePage() {
             Seat class
           </p>
           <div className="flex gap-2">
-            <button type="button" onClick={() => { setSeatClass(0); setSelectedSeat(null) }}
+            <button type="button" onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(0); setSelectedSeat(null) }}
               className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-2.5 font-headline text-sm font-semibold transition-all ${
                 seatClass === 0
                   ? "border-primary/40 bg-primary/10 text-white"
@@ -574,7 +581,7 @@ export function RoutePurchasePage() {
             <button
               type="button"
               disabled={quantity <= 1}
-              onClick={() => { setQuantity((q) => Math.max(1, q - 1)); if (seatClass === 1) setSelectedSeat(null) }}
+              onClick={() => { if (seatClass === 1 && selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setQuantity((q) => Math.max(1, q - 1)); if (seatClass === 1) setSelectedSeat(null) }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high font-bold text-white disabled:opacity-30 hover:border-primary/40 transition-colors"
               aria-label="Decrease quantity"
             >
@@ -586,7 +593,7 @@ export function RoutePurchasePage() {
             <button
               type="button"
               disabled={quantity >= 5}
-              onClick={() => { setQuantity((q) => Math.min(5, q + 1)); if (seatClass === 1) setSelectedSeat(null) }}
+              onClick={() => { if (seatClass === 1 && selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setQuantity((q) => Math.min(5, q + 1)); if (seatClass === 1) setSelectedSeat(null) }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high font-bold text-white disabled:opacity-30 hover:border-primary/40 transition-colors"
               aria-label="Increase quantity"
             >
