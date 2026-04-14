@@ -426,6 +426,11 @@ export function RoutePurchasePage() {
     setSelectedSeat(seat)
 
     if (seat && routeIdParam) {
+      // Set claim ref BEFORE the async call so payment can always claim the seat,
+      // even if the reservation request fails (server error / network blip).
+      // claimSeat after mint is authoritative — the reservation is just a courtesy
+      // hold that greys the seat out for others during checkout.
+      seatToClaimRef.current = seat
       const result = await reserveSeat(routeIdParam, seat)
       if (!result.ok && result.conflict) {
         // Another passenger just grabbed it — deselect and warn
@@ -435,9 +440,10 @@ export function RoutePurchasePage() {
         setSeatConflict(true)
         setTimeout(() => setSeatConflict(false), 4000)
       } else if (result.ok) {
-        seatToClaimRef.current = seat
         setReservedAt(Date.now())
       }
+      // Generic error (500 / network): seat stays selected, countdown doesn't
+      // show, but claimSeat will still run after payment completes.
     } else {
       // User explicitly deselected (seat=null) — clear claim target
       seatToClaimRef.current = null
