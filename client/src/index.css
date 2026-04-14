@@ -189,13 +189,21 @@
   /**
    * KEY FIX: remap --color-white so that Tailwind's text-white utility
    * produces dark readable text on light surfaces instead of invisible white.
-   * On coloured backgrounds (primary buttons, badges) the dark text still
-   * has sufficient contrast (~3.5:1 on #6e54ff).
    */
   --color-white: #13101f;
-
-  /* Also give black a light value for the rare text-black usage */
   --color-black: #f4f2ff;
+
+  /* Accent colours — the dark-theme values are too pale for light surfaces */
+  /* tertiary was #a1faff (near-white cyan) — remap to deep teal */
+  --color-tertiary: #007079;
+  --color-tertiary-dim: #005b60;
+  --color-tertiary-container: #009fa8;
+  --color-on-tertiary: #ffffff;
+
+  /* error was #ff6e84 (pastel pink) — remap to deep red */
+  --color-error: #b50028;
+  --color-error-dim: #8c001e;
+  --color-on-error: #ffffff;
 }
 
 [data-theme="light"] .glass-card {
@@ -225,6 +233,28 @@
     radial-gradient(ellipse 80% 50% at 20% -10%, rgba(110, 84, 255, 0.12), transparent 55%),
     radial-gradient(ellipse 60% 45% at 85% 15%, rgba(57, 27, 151, 0.10), transparent 50%),
     radial-gradient(ellipse 70% 40% at 50% 100%, rgba(161, 250, 255, 0.04), transparent 45%);
+}
+
+/* ── Chart SVG tokens — referenced via CSS vars so hardcoded rgba() works in both themes ── */
+:root {
+  --chart-grid-stroke: rgba(255,255,255,0.07);
+  --chart-baseline-stroke: rgba(255,255,255,0.14);
+  --chart-label-fill: rgba(255,255,255,0.28);
+}
+[data-theme="light"] {
+  --chart-grid-stroke: rgba(0,0,0,0.08);
+  --chart-baseline-stroke: rgba(0,0,0,0.15);
+  --chart-label-fill: rgba(0,0,0,0.45);
+}
+
+/* ── Tailwind built-in colour overrides for light mode ── */
+/* emerald-400 (#34d399) is too light on lavender — swap to deep green */
+[data-theme="light"] .text-emerald-400 { color: #065f46; }
+
+/* Force true white text inside hardcoded-dark overlays (e.g. VALID scan overlay) */
+[data-theme="light"] .force-white {
+  --color-white: #ffffff;
+  color: #ffffff;
 }
 
 /* btn-primary-gradient: keep text white (light on purple is more legible) */

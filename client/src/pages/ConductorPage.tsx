@@ -786,7 +786,7 @@ export function ConductorPage() {
     <ConductorErrorBoundary>
       {/* Fullscreen VALID overlay — shown after scan resolves and ticket is valid */}
       {showValidOverlay && parsed && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0a1a0f] px-6">
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#0a1a0f] px-6 force-white">
           {/* Giant check mark */}
           <div className="relative mb-8 flex h-40 w-40 items-center justify-center">
             <div className="absolute inset-0 rounded-full bg-emerald-500/10 animate-ping" style={{ animationDuration: "2s" }} />

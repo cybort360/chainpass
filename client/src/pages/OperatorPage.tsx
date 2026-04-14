@@ -147,14 +147,14 @@ function ActivityChart({ buckets }: { buckets: FilledBucket[] }) {
           return (
             <g key={t}>
               <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y}
-                stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+                stroke="var(--chart-grid-stroke)" strokeWidth="1" />
               <text x={PAD_L - 4} y={y + 4} fontSize="8" textAnchor="end"
-                fill="rgba(255,255,255,0.25)">{Math.round(maxVal * t)}</text>
+                fill="var(--chart-label-fill)">{Math.round(maxVal * t)}</text>
             </g>
           )
         })}
         <line x1={PAD_L} x2={W - PAD_R} y1={PAD_T + chartH} y2={PAD_T + chartH}
-          stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+          stroke="var(--chart-baseline-stroke)" strokeWidth="1" />
         {buckets.map((b, i) => {
           const cx = PAD_L + (i + 0.5) * groupW
           const mintH = Math.max(b.mints > 0 ? 2 : 0, (b.mints / maxVal) * chartH)
@@ -178,7 +178,7 @@ function ActivityChart({ buckets }: { buckets: FilledBucket[] }) {
                 width={barW} height={burnH} fill="rgba(220,60,60,0.8)" rx="2" />
               {i % showEveryNth === 0 && (
                 <text x={cx} y={H - 6} fontSize="7" textAnchor="middle"
-                  fill="rgba(255,255,255,0.3)">{b.label}</text>
+                  fill="var(--chart-label-fill)">{b.label}</text>
               )}
             </g>
           )
@@ -224,14 +224,14 @@ function RevenueChart({ buckets }: { buckets: FilledBucket[] }) {
           return (
             <g key={t}>
               <line x1={PAD_L} x2={W - PAD_R} y1={y} y2={y}
-                stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+                stroke="var(--chart-grid-stroke)" strokeWidth="1" />
               <text x={PAD_L - 4} y={y + 4} fontSize="7.5" textAnchor="end"
-                fill="rgba(255,255,255,0.25)">{fmtWeiShort(weiVal)}</text>
+                fill="var(--chart-label-fill)">{fmtWeiShort(weiVal)}</text>
             </g>
           )
         })}
         <line x1={PAD_L} x2={W - PAD_R} y1={PAD_T + chartH} y2={PAD_T + chartH}
-          stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+          stroke="var(--chart-baseline-stroke)" strokeWidth="1" />
         {buckets.map((b, i) => {
           const cx = PAD_L + (i + 0.5) * (chartW / n)
           const h = maxNum > 0 ? Math.max(b.inflowWei > 0n ? 2 : 0, (Number(b.inflowWei) / maxNum) * chartH) : 0
@@ -251,7 +251,7 @@ function RevenueChart({ buckets }: { buckets: FilledBucket[] }) {
                 width={barW} height={h} fill="rgba(0,200,170,0.75)" rx="2" />
               {i % showEveryNth === 0 && (
                 <text x={cx} y={H - 6} fontSize="7" textAnchor="middle"
-                  fill="rgba(255,255,255,0.3)">{b.label}</text>
+                  fill="var(--chart-label-fill)">{b.label}</text>
               )}
             </g>
           )
