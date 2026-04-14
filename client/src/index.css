@@ -160,26 +160,48 @@
 
 /* ── Light theme overrides ── */
 [data-theme="light"] {
-  --color-background: #f8f7ff;
-  --color-surface: #f8f7ff;
-  --color-surface-dim: #ede9f9;
+  color-scheme: light;
+
+  /* Surfaces */
+  --color-background: #f4f2ff;
+  --color-surface: #f4f2ff;
+  --color-surface-dim: #e8e5f8;
   --color-surface-bright: #ffffff;
-  --color-surface-variant: #ede9f9;
+  --color-surface-variant: #e8e5f8;
   --color-surface-container-lowest: #ffffff;
-  --color-surface-container-low: #f3f0fd;
-  --color-surface-container: #ede9f9;
-  --color-surface-container-high: #e6e2f4;
-  --color-surface-container-highest: #dedad0;
-  --color-on-surface: #1a1728;
-  --color-on-surface-variant: #56526a;
-  --color-outline: #8a8698;
-  --color-outline-variant: #cac7d8;
+  --color-surface-container-low: #eeebfb;
+  --color-surface-container: #e8e5f8;
+  --color-surface-container-high: #e0dcf4;
+  --color-surface-container-highest: #d7d3ed;
+
+  /* Text — dark enough to read on all light surfaces */
+  --color-on-surface: #13101f;
+  --color-on-surface-variant: #3e3a52;
+
+  /* Borders */
+  --color-outline: #6b677e;
+  --color-outline-variant: #b8b4cc;
+
+  /* Inverse */
   --color-inverse-surface: #1c1b22;
   --color-inverse-on-surface: #f2eff9;
+
+  /**
+   * KEY FIX: remap --color-white so that Tailwind's text-white utility
+   * produces dark readable text on light surfaces instead of invisible white.
+   * On coloured backgrounds (primary buttons, badges) the dark text still
+   * has sufficient contrast (~3.5:1 on #6e54ff).
+   */
+  --color-white: #13101f;
+
+  /* Also give black a light value for the rare text-black usage */
+  --color-black: #f4f2ff;
 }
 
 [data-theme="light"] .glass-card {
-  background: rgba(248, 247, 255, 0.85);
+  background: rgba(244, 242, 255, 0.88);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
 }
 
 [data-theme="light"] .skeleton {
@@ -203,4 +225,14 @@
     radial-gradient(ellipse 80% 50% at 20% -10%, rgba(110, 84, 255, 0.12), transparent 55%),
     radial-gradient(ellipse 60% 45% at 85% 15%, rgba(57, 27, 151, 0.10), transparent 50%),
     radial-gradient(ellipse 70% 40% at 50% 100%, rgba(161, 250, 255, 0.04), transparent 45%);
+}
+
+/* btn-primary-gradient: keep text white (light on purple is more legible) */
+[data-theme="light"] .btn-primary-gradient {
+  --color-white: #ffffff;
+}
+
+/* Conductor VALID overlay keeps white text */
+[data-theme="light"] .text-glow {
+  --color-white: #ffffff;
 }
