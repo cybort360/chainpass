@@ -219,7 +219,11 @@ function LegacySeatRow({
 export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, coachClasses, selectedClass, coaches, seatsPerCoach, totalSeats }: Props) {
   const [occupied, setOccupied] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [selectedCoachIdx, setSelectedCoachIdx] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Reset to first coach when the class filter changes
+  useEffect(() => { setSelectedCoachIdx(0) }, [selectedClass])
 
   const refresh = (initial = false) => {
     if (initial) setLoading(true)
@@ -294,11 +298,19 @@ export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, co
       )
     }
 
-    const coaches = buildCoachClassSeats(visibleClasses)
-    const totalCapacity = coaches.reduce(
+    const allCoaches = buildCoachClassSeats(visibleClasses)
+    const totalCapacity = allCoaches.reduce(
       (sum, c) => sum + c.rows.length * (c.leftCols + c.rightCols), 0,
     )
     const availableCount = totalCapacity - occupied.size
+
+    // Clamp selected index to valid range
+    const coachIdx = Math.min(selectedCoachIdx, allCoaches.length - 1)
+    const coach = allCoaches[coachIdx]
+    const freeInCoach = coach.rows.reduce(
+      (sum, r) => sum + [...r.leftSeats, ...r.rightSeats].filter((s) => !occupied.has(s.id)).length, 0,
+    )
+    const totalInCoach = coach.rows.length * (coach.leftCols + coach.rightCols)
 
     return (
       <div className="select-none">
@@ -311,33 +323,56 @@ export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, co
           </p>
         </div>
         {legend}
-        <div className="space-y-4">
-          {coaches.map((coach, ci) => {
-            const coachKey = `${coach.classKey}-${coach.coachNum}`
-            const freeInCoach = coach.rows.reduce(
-              (sum, r) => sum + [...r.leftSeats, ...r.rightSeats].filter((s) => !occupied.has(s.id)).length, 0,
-            )
-            const totalInCoach = coach.rows.length * (coach.leftCols + coach.rightCols)
-            return (
-              <div key={`${coachKey}-${ci}`} className="overflow-x-auto rounded-xl border border-outline-variant/15 bg-surface-container-low/40 p-3">
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="rounded-md bg-primary/10 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
-                    {coach.classLabel} · Coach {coach.coachNum}
-                  </span>
-                  <span className="text-[9px] text-on-surface-variant/50">
-                    {freeInCoach} / {totalInCoach} free
-                  </span>
-                </div>
-                <ColHeaders leftCols={coach.leftCols} rightCols={coach.rightCols} />
-                <div className="space-y-1">
-                  {coach.rows.map((row, ri) => (
-                    <SeatRow key={ri} leftSeats={row.leftSeats} rightSeats={row.rightSeats}
-                      occupied={occupied} selectedSeat={selectedSeat} toggle={toggle} />
-                  ))}
-                </div>
-              </div>
-            )
-          })}
+
+        {/* Coach selector dropdown */}
+        <div className="mb-3">
+          <p className="mb-1.5 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">Coach</p>
+          <div className="relative">
+            <select
+              value={coachIdx}
+              onChange={(e) => setSelectedCoachIdx(Number(e.target.value))}
+              className="w-full appearance-none rounded-xl border border-outline-variant/25 bg-surface-container-high px-4 py-2.5 pr-9 font-headline text-sm font-semibold text-white focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+            >
+              {allCoaches.map((c, i) => {
+                const free = c.rows.reduce(
+                  (sum, r) => sum + [...r.leftSeats, ...r.rightSeats].filter((s) => !occupied.has(s.id)).length, 0,
+                )
+                const total = c.rows.length * (c.leftCols + c.rightCols)
+                const prefix = c.classKey === "first" ? "F" : c.classKey === "business" ? "B" : "E"
+                return (
+                  <option key={i} value={i}>
+                    {prefix}{String(c.coachNum).padStart(2, "0")} — (R-{free}/{total})
+                  </option>
+                )
+              })}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                className="text-on-surface-variant/60" aria-hidden>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        {/* Selected coach seat grid */}
+        <div className="overflow-x-auto rounded-xl border border-outline-variant/15 bg-surface-container-low/40 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="rounded-md bg-primary/10 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+              {coach.classLabel} · Coach {coach.coachNum}
+            </span>
+            <span className="text-[9px] text-on-surface-variant/50">
+              {freeInCoach} / {totalInCoach} free
+            </span>
+          </div>
+          <ColHeaders leftCols={coach.leftCols} rightCols={coach.rightCols} />
+          <div className="space-y-1">
+            {coach.rows.map((row, ri) => (
+              <SeatRow key={ri} leftSeats={row.leftSeats} rightSeats={row.rightSeats}
+                occupied={occupied} selectedSeat={selectedSeat} toggle={toggle} />
+            ))}
+          </div>
         </div>
         {footer}
       </div>
@@ -350,6 +385,11 @@ export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, co
     const totalCapacity = coaches * seatsPerCoach
     const availableCount = totalCapacity - occupied.size
 
+    const legacyIdx = Math.min(selectedCoachIdx, coachData.length - 1)
+    const { coachNum, seats } = coachData[legacyIdx]
+    const legacyRows: { id: string; label: string }[][] = []
+    for (let i = 0; i < seats.length; i += 4) legacyRows.push(seats.slice(i, i + 4))
+
     return (
       <div className="select-none">
         <div className="mb-3 flex items-center justify-between">
@@ -361,41 +401,63 @@ export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, co
           </p>
         </div>
         {legend}
-        <div className="space-y-4">
-          {coachData.map(({ coachNum, seats }) => {
-            const rows: { id: string; label: string }[][] = []
-            for (let i = 0; i < seats.length; i += 4) rows.push(seats.slice(i, i + 4))
-            return (
-              <div key={coachNum} className="overflow-x-auto rounded-xl border border-outline-variant/15 bg-surface-container-low/40 p-3">
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="rounded-md bg-primary/10 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
-                    Coach {coachNum}
-                  </span>
-                  <span className="text-[9px] text-on-surface-variant/50">
-                    {seats.filter(s => !occupied.has(s.id)).length} free
-                  </span>
-                </div>
-                <div className="mb-1.5 flex items-center gap-1 pl-0">
-                  <div className="flex gap-1">
-                    {["A","B"].map(l => (
-                      <div key={l} className="flex w-8 justify-center font-headline text-[9px] font-bold uppercase text-on-surface-variant/40">{l}</div>
-                    ))}
-                  </div>
-                  <div className="w-4" />
-                  <div className="flex gap-1">
-                    {["C","D"].map(l => (
-                      <div key={l} className="flex w-8 justify-center font-headline text-[9px] font-bold uppercase text-on-surface-variant/40">{l}</div>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  {rows.map((rowSeats, ri) => (
-                    <LegacySeatRow key={ri} seats={rowSeats} occupied={occupied} selectedSeat={selectedSeat} toggle={toggle} />
-                  ))}
-                </div>
-              </div>
-            )
-          })}
+
+        {/* Coach selector dropdown */}
+        <div className="mb-3">
+          <p className="mb-1.5 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">Coach</p>
+          <div className="relative">
+            <select
+              value={legacyIdx}
+              onChange={(e) => setSelectedCoachIdx(Number(e.target.value))}
+              className="w-full appearance-none rounded-xl border border-outline-variant/25 bg-surface-container-high px-4 py-2.5 pr-9 font-headline text-sm font-semibold text-white focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+            >
+              {coachData.map((c, i) => {
+                const free = c.seats.filter((s) => !occupied.has(s.id)).length
+                return (
+                  <option key={i} value={i}>
+                    C{String(c.coachNum).padStart(2, "0")} — (R-{free}/{seatsPerCoach})
+                  </option>
+                )
+              })}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                className="text-on-surface-variant/60" aria-hidden>
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        {/* Selected coach seat grid */}
+        <div className="overflow-x-auto rounded-xl border border-outline-variant/15 bg-surface-container-low/40 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="rounded-md bg-primary/10 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+              Coach {coachNum}
+            </span>
+            <span className="text-[9px] text-on-surface-variant/50">
+              {seats.filter(s => !occupied.has(s.id)).length} / {seatsPerCoach} free
+            </span>
+          </div>
+          <div className="mb-1.5 flex items-center gap-1">
+            <div className="flex gap-1">
+              {["A","B"].map(l => (
+                <div key={l} className="flex w-8 justify-center font-headline text-[9px] font-bold uppercase text-on-surface-variant/40">{l}</div>
+              ))}
+            </div>
+            <div className="w-4" />
+            <div className="flex gap-1">
+              {["C","D"].map(l => (
+                <div key={l} className="flex w-8 justify-center font-headline text-[9px] font-bold uppercase text-on-surface-variant/40">{l}</div>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1">
+            {legacyRows.map((rowSeats, ri) => (
+              <LegacySeatRow key={ri} seats={rowSeats} occupied={occupied} selectedSeat={selectedSeat} toggle={toggle} />
+            ))}
+          </div>
         </div>
         {footer}
       </div>
