@@ -655,7 +655,7 @@ export function ConductorPage() {
           <button
             type="button"
             disabled={burnPending || burnConfirming}
-            onClick={() => { setShowValidOverlay(false); void onBurn() }}
+            onClick={() => { void onBurn() }}
             className="mt-12 w-full max-w-xs rounded-2xl bg-emerald-500 px-8 py-5 font-headline text-xl font-black text-white shadow-[0_0_32px_rgba(16,185,129,0.4)] transition-all hover:bg-emerald-400 active:scale-[0.97] disabled:opacity-60"
           >
             {burnPending || burnConfirming ? (
