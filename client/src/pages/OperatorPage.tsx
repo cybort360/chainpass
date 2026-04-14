@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { formatEther } from "viem"
-import { useAccount, useReadContract, useWriteContract } from "wagmi"
-import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
-import { fetchOperatorStats, fetchOperatorTimeseries, fetchRouteLabels, type ApiRouteLabel, type OperatorStats, type TimeseriesBucket } from "../lib/api"
+import { formatEther, formatUnits, isAddress, keccak256, parseAbiItem, parseEther, parseUnits, toBytes } from "viem"
+import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { chainPassTicketAbi, monadTestnet, newRouteIdDecimalFromUuid } from "@chainpass/shared"
+import { fetchOperatorStats, fetchOperatorTimeseries, fetchRouteLabels, registerRouteLabel, type ApiRouteLabel, type OperatorStats, type TimeseriesBucket } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
+import { formatWriteContractError } from "../lib/walletError"
 
 type Period = "24h" | "7d" | "30d"
 type ChartTab = "activity" | "revenue"
@@ -527,8 +528,364 @@ function GroupBookingPanel() {
 
 const REFETCH_MS = 8000
 
+const BURNER_ROLE_HASH = keccak256(toBytes("BURNER_ROLE"))
+
+const BURNER_GRANTED_EVENT = parseAbiItem(
+  "event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)"
+)
+const BURNER_REVOKED_EVENT = parseAbiItem(
+  "event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)"
+)
+
 export function OperatorPage() {
   const contract = env.contractAddress
+  const contractAddress = getContractAddress()
+  const { address } = useAccount()
+  const publicClient = usePublicClient()
+
+  /* ── Input field style ── */
+  const inputClass =
+    "mt-1.5 w-full rounded-xl border border-outline-variant/25 bg-surface-container-high px-3.5 py-2.5 text-sm text-white placeholder:text-on-surface-variant/50 focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
+
+  // ── Admin role check ──────────────────────────────────────────────────────
+  const { data: adminRole } = useReadContract({
+    address: contractAddress ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "DEFAULT_ADMIN_ROLE",
+    query: { enabled: !!contractAddress },
+  })
+  const { data: isAdmin } = useReadContract({
+    address: contractAddress ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "hasRole",
+    args: adminRole && address ? [adminRole, address] : undefined,
+    query: { enabled: !!contractAddress && !!adminRole && !!address },
+  })
+
+  // ── Register route ────────────────────────────────────────────────────────
+  const [regCategory, setRegCategory] = useState("")
+  const [regName, setRegName] = useState("")
+  const [regDetail, setRegDetail] = useState("")
+  const [regPriceMon, setRegPriceMon] = useState("")
+  const [regFormErr, setRegFormErr] = useState<string | null>(null)
+  const [regLabelMsg, setRegLabelMsg] = useState<string | null>(null)
+
+  const {
+    data: routePriceHash,
+    writeContract: writeSetRoutePrice,
+    isPending: routePricePending,
+    error: routePriceError,
+    reset: resetRoutePrice,
+  } = useWriteContract()
+  const { isLoading: routePriceConfirming, isSuccess: routePriceSuccess } = useWaitForTransactionReceipt({
+    hash: routePriceHash,
+  })
+
+  const pendingRegRouteIdRef = useRef<string | null>(null)
+
+  const onRegisterRoute = useCallback(() => {
+    if (!contractAddress || !isAdmin) return
+    setRegFormErr(null)
+    setRegLabelMsg(null)
+    resetRoutePrice()
+    if (!regName.trim() || !regCategory.trim()) {
+      setRegFormErr("Name and category are required.")
+      return
+    }
+    let wei: bigint
+    try {
+      wei = parseEther(regPriceMon.trim() || "0")
+    } catch {
+      setRegFormErr("Invalid price (MON). Use a decimal number, e.g. 0.075")
+      return
+    }
+    const rid = newRouteIdDecimalFromUuid()
+    pendingRegRouteIdRef.current = rid
+    const routeIdBig = BigInt(rid)
+    writeSetRoutePrice({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "setRouteMintPrice",
+      args: [routeIdBig, wei],
+    })
+  }, [contractAddress, isAdmin, regName, regCategory, regPriceMon, resetRoutePrice, writeSetRoutePrice])
+
+  const lastRouteRegHash = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    if (!routePriceSuccess || !routePriceHash) return
+    if (lastRouteRegHash.current === routePriceHash) return
+    lastRouteRegHash.current = routePriceHash
+    const rid = pendingRegRouteIdRef.current?.trim() ?? ""
+    if (!rid) return
+    const name = regName.trim()
+    const category = regCategory.trim()
+    const detail = regDetail.trim()
+    const monNum = Number(regPriceMon.trim())
+    const priceMon = Number.isFinite(monNum) && monNum >= 0 ? monNum : undefined
+    void registerRouteLabel({
+      routeId: rid,
+      name,
+      category,
+      detail: detail || null,
+      priceMon,
+    }).then((result) => {
+      if (result.ok) {
+        const fileOk = result.nigeriaRoutesFile?.ok === true
+        const fileFail = result.nigeriaRoutesFile && result.nigeriaRoutesFile.ok === false
+        if (fileOk) {
+          setRegLabelMsg("New route registered on-chain, in the routes list")
+        } else if (fileFail && result.nigeriaRoutesFile && result.nigeriaRoutesFile.ok === false) {
+          setRegLabelMsg(
+            `New route registered on-chain and in the routes list. nigeria-routes.json: ${result.nigeriaRoutesFile.reason}`,
+          )
+        } else {
+          setRegLabelMsg("New route registered on-chain and in the routes list.")
+        }
+        setRegFormErr(null)
+      } else if (result.status === 409) {
+        setRegFormErr(result.error)
+        setRegLabelMsg(null)
+      } else if (result.status === 503) {
+        setRegLabelMsg(
+          "Price set on-chain. The routes list needs the API with DATABASE_URL configured (or run seed) to register this route by name.",
+        )
+        setRegFormErr(null)
+      } else {
+        setRegFormErr(result.error)
+        setRegLabelMsg(null)
+      }
+    })
+  }, [routePriceSuccess, routePriceHash, regName, regCategory, regDetail, regPriceMon])
+
+  // ── MON price config ──────────────────────────────────────────────────────
+  const { data: currentMonPrice, refetch: refetchMonPrice } = useReadContract({
+    address: contractAddress ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "mintPriceWei",
+    query: { enabled: !!contractAddress },
+  })
+
+  const [monDefaultInput, setMonDefaultInput] = useState("")
+  const [monRouteIdInput, setMonRouteIdInput] = useState("")
+  const [monRoutePriceInput, setMonRoutePriceInput] = useState("")
+  const [monFormErr, setMonFormErr] = useState<string | null>(null)
+
+  const {
+    data: setMonDefaultHash, writeContract: writeSetMonDefault,
+    isPending: setMonDefaultPending, error: setMonDefaultError, reset: resetMonDefault,
+  } = useWriteContract()
+  const { isLoading: setMonDefaultConfirming, isSuccess: setMonDefaultSuccess } =
+    useWaitForTransactionReceipt({ hash: setMonDefaultHash })
+
+  const {
+    data: setMonRouteHash, writeContract: writeSetMonRoute,
+    isPending: setMonRoutePending, error: setMonRouteError, reset: resetMonRoute,
+  } = useWriteContract()
+  const { isLoading: setMonRouteConfirming, isSuccess: setMonRouteSuccess } =
+    useWaitForTransactionReceipt({ hash: setMonRouteHash })
+
+  useEffect(() => { if (setMonDefaultSuccess || setMonRouteSuccess) void refetchMonPrice() },
+    [setMonDefaultSuccess, setMonRouteSuccess, refetchMonPrice])
+
+  const onSetMonDefault = () => {
+    if (!contractAddress) return
+    setMonFormErr(null)
+    resetMonDefault()
+    const raw = monDefaultInput.trim()
+    if (!raw || isNaN(Number(raw)) || Number(raw) < 0) {
+      setMonFormErr("Enter a valid MON amount (e.g. 0.05).")
+      return
+    }
+    let amount: bigint
+    try { amount = parseEther(raw) } catch {
+      setMonFormErr("Invalid MON amount.")
+      return
+    }
+    writeSetMonDefault({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "setMintPriceWei",
+      args: [amount],
+    })
+  }
+
+  const onSetMonRoute = () => {
+    if (!contractAddress) return
+    setMonFormErr(null)
+    resetMonRoute()
+    const idRaw = monRouteIdInput.trim()
+    const priceRaw = monRoutePriceInput.trim()
+    if (!idRaw || !/^\d+$/.test(idRaw)) {
+      setMonFormErr("Enter a valid numeric route ID.")
+      return
+    }
+    if (!priceRaw || isNaN(Number(priceRaw)) || Number(priceRaw) < 0) {
+      setMonFormErr("Enter a valid MON price (e.g. 0.075).")
+      return
+    }
+    let routeId: bigint
+    let amount: bigint
+    try { routeId = BigInt(idRaw) } catch {
+      setMonFormErr("Route ID must be a number.")
+      return
+    }
+    try { amount = parseEther(priceRaw) } catch {
+      setMonFormErr("Invalid MON amount.")
+      return
+    }
+    writeSetMonRoute({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "setRouteMintPrice",
+      args: [routeId, amount],
+    })
+  }
+
+  // ── USDC config ───────────────────────────────────────────────────────────
+  const { data: currentUsdcToken, error: usdcTokenReadErr } = useReadContract({
+    address: contractAddress ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "usdcToken",
+    query: { enabled: !!contractAddress, retry: 1 },
+  })
+  const { data: currentUsdcPrice } = useReadContract({
+    address: contractAddress ?? undefined,
+    abi: chainPassTicketAbi,
+    functionName: "mintPriceUsdc",
+    query: { enabled: !!contractAddress, retry: 1 },
+  })
+  const contractHasUsdc: boolean | null =
+    usdcTokenReadErr != null ? false :
+    currentUsdcToken !== undefined ? true : null
+
+  const [usdcTokenInput, setUsdcTokenInput] = useState("")
+  const [usdcPriceInput, setUsdcPriceInput] = useState("")
+  const [usdcFormErr, setUsdcFormErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (env.usdcAddress && !usdcTokenInput) setUsdcTokenInput(env.usdcAddress)
+  }, [usdcTokenInput])
+
+  const {
+    data: setTokenHash, writeContract: writeSetUsdcToken,
+    isPending: setTokenPending, error: setTokenError, reset: resetSetToken,
+  } = useWriteContract()
+  const { isLoading: setTokenConfirming, isSuccess: setTokenSuccess } =
+    useWaitForTransactionReceipt({ hash: setTokenHash })
+
+  const {
+    data: setPriceHash, writeContract: writeSetUsdcPrice,
+    isPending: setPricePending, error: setPriceError, reset: resetSetPrice,
+  } = useWriteContract()
+  const { isLoading: setPriceConfirming, isSuccess: setPriceSuccess } =
+    useWaitForTransactionReceipt({ hash: setPriceHash })
+
+  const onSetUsdcToken = () => {
+    if (!contractAddress) return
+    setUsdcFormErr(null)
+    resetSetToken()
+    if (!isAddress(usdcTokenInput.trim())) {
+      setUsdcFormErr("Enter a valid 0x address for the USDC token.")
+      return
+    }
+    writeSetUsdcToken({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "setUsdcToken",
+      args: [usdcTokenInput.trim() as `0x${string}`],
+    })
+  }
+
+  const onSetUsdcPrice = () => {
+    if (!contractAddress) return
+    setUsdcFormErr(null)
+    resetSetPrice()
+    const raw = usdcPriceInput.trim()
+    if (!raw || isNaN(Number(raw)) || Number(raw) < 0) {
+      setUsdcFormErr("Enter a valid USDC amount (e.g. 0.10).")
+      return
+    }
+    let amount: bigint
+    try { amount = parseUnits(raw, 6) } catch {
+      setUsdcFormErr("Invalid USDC amount.")
+      return
+    }
+    writeSetUsdcPrice({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "setMintPriceUsdc",
+      args: [amount],
+    })
+  }
+
+  // ── Conductors / Burners ──────────────────────────────────────────────────
+  const [burners, setBurners] = useState<{ address: string; active: boolean }[]>([])
+  const [newBurner, setNewBurner] = useState("")
+  const [burnersLoading, setBurnersLoading] = useState(false)
+
+  const {
+    data: burnerWriteHash, writeContract: writeBurnerRole,
+    isPending: burnerWritePending, error: burnerWriteError, reset: resetBurnerWrite,
+  } = useWriteContract()
+  const { isLoading: burnerWriteConfirming, isSuccess: burnerWriteSuccess } =
+    useWaitForTransactionReceipt({ hash: burnerWriteHash })
+
+  const loadBurners = useCallback(async () => {
+    if (!publicClient || !contractAddress) return
+    setBurnersLoading(true)
+    try {
+      const [grantLogs, revokeLogs] = await Promise.all([
+        publicClient.getLogs({ address: contractAddress, event: BURNER_GRANTED_EVENT, fromBlock: 0n, toBlock: "latest" }),
+        publicClient.getLogs({ address: contractAddress, event: BURNER_REVOKED_EVENT, fromBlock: 0n, toBlock: "latest" }),
+      ])
+      const burnerMap = new Map<string, boolean>()
+      for (const l of grantLogs) {
+        if (l.args.role?.toLowerCase() === BURNER_ROLE_HASH.toLowerCase() && l.args.account)
+          burnerMap.set(l.args.account.toLowerCase(), true)
+      }
+      for (const l of revokeLogs) {
+        if (l.args.role?.toLowerCase() === BURNER_ROLE_HASH.toLowerCase() && l.args.account)
+          burnerMap.set(l.args.account.toLowerCase(), false)
+      }
+      setBurners([...burnerMap.entries()].map(([address, active]) => ({ address, active })))
+    } catch {
+      // silent
+    }
+    setBurnersLoading(false)
+  }, [publicClient, contractAddress])
+
+  useEffect(() => { void loadBurners() }, [loadBurners])
+
+  useEffect(() => {
+    if (burnerWriteSuccess) {
+      setNewBurner("")
+      resetBurnerWrite()
+      setTimeout(() => { void loadBurners() }, 3000)
+    }
+  }, [burnerWriteSuccess, loadBurners, resetBurnerWrite])
+
+  const grantBurner = (addr: string) => {
+    if (!contractAddress) return
+    resetBurnerWrite()
+    writeBurnerRole({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "grantRole",
+      args: [BURNER_ROLE_HASH, addr as `0x${string}`],
+    })
+  }
+
+  const revokeBurner = (addr: string) => {
+    if (!contractAddress) return
+    resetBurnerWrite()
+    writeBurnerRole({
+      address: contractAddress,
+      abi: chainPassTicketAbi,
+      functionName: "revokeRole",
+      args: [BURNER_ROLE_HASH, addr as `0x${string}`],
+    })
+  }
+
   const [stats, setStats] = useState<OperatorStats | null>(null)
   const [timeseries, setTimeseries] = useState<TimeseriesBucket[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -645,6 +1002,485 @@ export function OperatorPage() {
           <p className="text-xs leading-relaxed text-error">{err}</p>
         </div>
       )}
+
+      {/* ── Admin accordions ── */}
+
+      {/* Register new route */}
+      <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+        <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors">
+          Register new route
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+            Admin only
+          </span>
+        </summary>
+        <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4">
+          <p className="mb-4 text-xs leading-relaxed text-on-surface-variant">
+            Generates a random route ID, sets its on-chain price, and registers the label.
+            Requires <code className="font-mono text-tertiary">DEFAULT_ADMIN_ROLE</code>.
+          </p>
+          {isAdmin !== true ? (
+            <p className="text-sm text-on-surface-variant">Connect an admin wallet to enable this form.</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Category</span>
+                  <input type="text" className={inputClass} value={regCategory} maxLength={60}
+                    onChange={(e) => setRegCategory(e.target.value)} placeholder="e.g. Abuja & FCT" />
+                </label>
+                <label className="block">
+                  <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Mint price (MON)</span>
+                  <input type="text" className={`${inputClass} font-mono`} value={regPriceMon}
+                    onChange={(e) => setRegPriceMon(e.target.value)} placeholder="0.075" />
+                </label>
+              </div>
+              <label className="block">
+                <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Route name</span>
+                <input type="text" className={inputClass} value={regName} maxLength={100}
+                  onChange={(e) => setRegName(e.target.value)} placeholder="Route display name" />
+              </label>
+              <label className="block">
+                <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Detail (optional)</span>
+                <input type="text" className={inputClass} value={regDetail} maxLength={200}
+                  onChange={(e) => setRegDetail(e.target.value)} placeholder="Short description" />
+              </label>
+              <button type="button"
+                disabled={routePricePending || routePriceConfirming}
+                onClick={() => void onRegisterRoute()}
+                className="btn-primary-gradient rounded-xl px-5 py-2.5 font-headline text-sm font-bold text-white transition-[filter] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed">
+                {routePricePending || routePriceConfirming ? "Confirm in wallet…" : "Set price & register"}
+              </button>
+              {routePriceError && <p className="text-xs text-error">{formatWriteContractError(routePriceError)}</p>}
+              {regFormErr && <p className="text-xs text-error">{regFormErr}</p>}
+              {regLabelMsg && <p className="text-xs text-tertiary">{regLabelMsg}</p>}
+            </div>
+          )}
+        </div>
+      </details>
+
+      {/* Configure MON prices */}
+      <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+        <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors">
+          Configure MON prices
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+            Admin only
+          </span>
+        </summary>
+        <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4 space-y-5">
+
+          {/* Current on-chain state */}
+          <div className="rounded-xl bg-surface-container-high px-4 py-3">
+            <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">Current default price</p>
+            <p className="mt-1 font-mono text-sm text-white">
+              {typeof currentMonPrice === "bigint"
+                ? currentMonPrice === 0n
+                  ? <span className="text-on-surface-variant/50">0 MON (free)</span>
+                  : `${formatUnits(currentMonPrice, 18)} MON`
+                : <span className="h-3 w-12 animate-pulse rounded bg-surface-container-high inline-block" />}
+            </p>
+          </div>
+
+          {isAdmin !== true ? (
+            <p className="text-sm text-on-surface-variant">Connect an admin wallet to configure prices.</p>
+          ) : (
+            <div className="space-y-5">
+
+              {/* Default price */}
+              <div className="space-y-2">
+                <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                  Default price (all routes)
+                </p>
+                <p className="text-xs text-on-surface-variant/60">
+                  Used when a route has no per-route override. Enter in MON (e.g. <code className="font-mono">0.05</code>).
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="number" step="0.001" min="0"
+                    className={`${inputClass} flex-1 font-mono text-xs`}
+                    placeholder="0.05"
+                    value={monDefaultInput}
+                    onChange={(e) => { setMonDefaultInput(e.target.value); resetMonDefault() }}
+                  />
+                  <button
+                    type="button"
+                    disabled={setMonDefaultPending || setMonDefaultConfirming}
+                    onClick={onSetMonDefault}
+                    className="shrink-0 rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 font-headline text-sm font-semibold text-primary transition-colors hover:bg-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {setMonDefaultPending ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                        Confirm…
+                      </span>
+                    ) : setMonDefaultConfirming ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                        Saving…
+                      </span>
+                    ) : setMonDefaultSuccess ? "✓ Saved" : "Set"}
+                  </button>
+                </div>
+                {setMonDefaultError && (
+                  <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                    <p className="text-xs text-error break-words">{formatWriteContractError(setMonDefaultError)}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-outline-variant/10" />
+
+              {/* Per-route override */}
+              <div className="space-y-2">
+                <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                  Per-route override
+                </p>
+                <p className="text-xs text-on-surface-variant/60">
+                  Overrides the default for a specific route. Use the numeric route ID shown in the URL.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    className={`${inputClass} font-mono text-xs`}
+                    placeholder="Route ID (number)"
+                    value={monRouteIdInput}
+                    onChange={(e) => { setMonRouteIdInput(e.target.value); resetMonRoute() }}
+                  />
+                  <input
+                    type="number" step="0.001" min="0"
+                    className={`${inputClass} font-mono text-xs`}
+                    placeholder="Price in MON"
+                    value={monRoutePriceInput}
+                    onChange={(e) => { setMonRoutePriceInput(e.target.value); resetMonRoute() }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={setMonRoutePending || setMonRouteConfirming}
+                  onClick={onSetMonRoute}
+                  className="rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 font-headline text-sm font-semibold text-primary transition-colors hover:bg-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {setMonRoutePending ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                      Confirm…
+                    </span>
+                  ) : setMonRouteConfirming ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                      Saving…
+                    </span>
+                  ) : setMonRouteSuccess ? "✓ Saved" : "Set route price"}
+                </button>
+                {setMonRouteError && (
+                  <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                    <p className="text-xs text-error break-words">{formatWriteContractError(setMonRouteError)}</p>
+                  </div>
+                )}
+              </div>
+
+              {monFormErr && (
+                <p className="rounded-xl bg-error/10 px-3 py-2 text-xs text-error">{monFormErr}</p>
+              )}
+
+            </div>
+          )}
+        </div>
+      </details>
+
+      {/* Configure USDC payments */}
+      <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+        <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors">
+          Configure USDC payments
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+            Admin only
+          </span>
+        </summary>
+
+        <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4 space-y-4">
+
+          {/* ── Contract doesn't have USDC functions yet ── */}
+          {contractHasUsdc === false && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/8 px-4 py-4 space-y-3">
+              <div className="flex items-start gap-3">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  className="mt-0.5 shrink-0 text-amber-400" aria-hidden>
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                <div>
+                  <p className="font-headline text-sm font-bold text-amber-300">Contract needs redeployment</p>
+                  <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+                    The deployed contract doesn't have USDC functions yet. You need to redeploy
+                    with the updated <code className="font-mono">ChainPassTicket.sol</code> first.
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-lg bg-black/30 px-3 py-2.5 font-mono text-xs text-amber-200/70 space-y-1">
+                <p className="text-amber-200/40 select-none"># in the contracts/ folder:</p>
+                <p>forge script script/DeployChainPass.s.sol \</p>
+                <p className="pl-4">--rpc-url $RPC_URL --broadcast</p>
+              </div>
+              <p className="text-xs text-amber-200/60">
+                Then update <code className="font-mono">VITE_CHAINPASS_CONTRACT_ADDRESS</code> in{" "}
+                <code className="font-mono">client/.env</code> with the new address and restart.
+              </p>
+            </div>
+          )}
+
+          {/* ── Still checking if contract has USDC ── */}
+          {contractHasUsdc === null && (
+            <div className="flex items-center gap-2 text-xs text-on-surface-variant">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-outline-variant border-t-primary" />
+              Checking contract…
+            </div>
+          )}
+
+          {/* ── Contract supports USDC ── */}
+          {contractHasUsdc === true && (
+            <>
+              {/* Current on-chain state */}
+              <div className="grid grid-cols-2 gap-3 rounded-xl bg-surface-container-high px-4 py-3">
+                <div>
+                  <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">Token on-chain</p>
+                  <p className="mt-1 font-mono text-xs text-white truncate"
+                    title={typeof currentUsdcToken === "string" ? currentUsdcToken : "—"}>
+                    {typeof currentUsdcToken === "string" && currentUsdcToken !== "0x0000000000000000000000000000000000000000"
+                      ? `${currentUsdcToken.slice(0, 10)}…${currentUsdcToken.slice(-6)}`
+                      : <span className="text-on-surface-variant/50">not set</span>}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">Default price</p>
+                  <p className="mt-1 font-mono text-xs text-white">
+                    {typeof currentUsdcPrice === "bigint" && currentUsdcPrice > 0n
+                      ? `$${formatUnits(currentUsdcPrice, 6)} USDC`
+                      : <span className="text-on-surface-variant/50">not set</span>}
+                  </p>
+                </div>
+              </div>
+
+              {isAdmin !== true ? (
+                <div className="flex items-center gap-2 rounded-xl bg-surface-container-high px-4 py-3">
+                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-outline-variant border-t-primary" aria-hidden />
+                  <p className="text-sm text-on-surface-variant">
+                    Connect the admin wallet to configure USDC.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-5">
+
+                  {/* ── Step 1: token address ── */}
+                  <div className="space-y-2">
+                    <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                      Step 1 — Set USDC token address
+                    </p>
+                    <p className="text-xs text-on-surface-variant/60">
+                      Monad testnet USDC:{" "}
+                      <button type="button"
+                        className="font-mono text-primary/80 hover:text-primary underline underline-offset-2"
+                        onClick={() => setUsdcTokenInput("0x534b2f3A21130d7a60830c2Df862319e593943A3")}>
+                        0x534b2f…943A3
+                      </button>
+                      {" "}(click to fill)
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        className={`${inputClass} flex-1 font-mono text-xs`}
+                        placeholder="0x… USDC contract address"
+                        value={usdcTokenInput}
+                        onChange={(e) => { setUsdcTokenInput(e.target.value); resetSetToken() }}
+                      />
+                      <button
+                        type="button"
+                        disabled={setTokenPending || setTokenConfirming}
+                        onClick={onSetUsdcToken}
+                        className="shrink-0 rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 font-headline text-sm font-semibold text-primary transition-colors hover:bg-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {setTokenPending ? (
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                            Confirm…
+                          </span>
+                        ) : setTokenConfirming ? (
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                            Saving…
+                          </span>
+                        ) : setTokenSuccess ? "✓ Saved" : "Set"}
+                      </button>
+                    </div>
+                    {setTokenError && (
+                      <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                          className="mt-0.5 shrink-0 text-error" aria-hidden>
+                          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        <p className="text-xs text-error break-words">{formatWriteContractError(setTokenError)}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-t border-outline-variant/10" />
+
+                  {/* ── Step 2: default price ── */}
+                  <div className="space-y-2">
+                    <p className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                      Step 2 — Set default USDC price
+                    </p>
+                    <p className="text-xs text-on-surface-variant/60">
+                      Enter the amount in plain USDC (e.g. <code className="font-mono">0.10</code> for $0.10).
+                      All routes without a per-route override will use this.
+                    </p>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono text-sm text-on-surface-variant/60">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className={`${inputClass} pl-7`}
+                          placeholder="0.10"
+                          value={usdcPriceInput}
+                          onChange={(e) => { setUsdcPriceInput(e.target.value); resetSetPrice() }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={setPricePending || setPriceConfirming}
+                        onClick={onSetUsdcPrice}
+                        className="shrink-0 rounded-xl border border-primary/40 bg-primary/15 px-4 py-2.5 font-headline text-sm font-semibold text-primary transition-colors hover:bg-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {setPricePending ? (
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                            Confirm…
+                          </span>
+                        ) : setPriceConfirming ? (
+                          <span className="flex items-center gap-1.5">
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+                            Saving…
+                          </span>
+                        ) : setPriceSuccess ? "✓ Saved" : "Set"}
+                      </button>
+                    </div>
+                    {setPriceError && (
+                      <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                          className="mt-0.5 shrink-0 text-error" aria-hidden>
+                          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        <p className="text-xs text-error break-words">{formatWriteContractError(setPriceError)}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {usdcFormErr && (
+                    <p className="rounded-xl bg-error/10 px-3 py-2 text-xs text-error">{usdcFormErr}</p>
+                  )}
+
+                  {(setTokenSuccess || setPriceSuccess) && (
+                    <div className="flex items-center gap-2 rounded-xl bg-tertiary/8 px-4 py-2.5">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                        className="shrink-0 text-tertiary" aria-hidden>
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      <p className="text-xs font-semibold text-tertiary">
+                        Saved. Add <code className="font-mono">VITE_USDC_CONTRACT_ADDRESS</code> to{" "}
+                        <code className="font-mono">client/.env</code> and restart <code className="font-mono">pnpm dev</code>.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </details>
+
+      {/* Manage conductors / Burners */}
+      <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+        <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors">
+          Manage conductors / Burners
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+            Admin only
+          </span>
+        </summary>
+        <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4 space-y-4">
+          <p className="text-xs leading-relaxed text-on-surface-variant">
+            Burners can validate and burn tickets at the gate. Grant this role to conductor wallets.
+          </p>
+
+          {isAdmin !== true ? (
+            <p className="text-sm text-on-surface-variant">Connect an admin wallet to manage conductors.</p>
+          ) : (
+            <div className="space-y-3">
+              {burnersLoading ? (
+                <div className="space-y-2">
+                  <div className="skeleton h-10 w-full rounded-xl" />
+                </div>
+              ) : burners.length === 0 ? (
+                <p className="text-xs text-on-surface-variant/60">No conductors registered yet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {burners.map((b) => (
+                    <li key={b.address} className="flex items-center justify-between gap-3 rounded-xl border border-outline-variant/10 bg-surface-container-high px-3.5 py-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${b.active ? "bg-amber-400" : "bg-outline-variant/40"}`} />
+                        <span className={`font-mono text-xs truncate ${b.active ? "text-on-surface-variant" : "text-on-surface-variant/40"}`}>
+                          {b.address}
+                        </span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className={`font-headline text-[10px] font-bold uppercase ${b.active ? "text-amber-400" : "text-on-surface-variant/40"}`}>
+                          {b.active ? "Active" : "Revoked"}
+                        </span>
+                        <button type="button"
+                          disabled={burnerWritePending || burnerWriteConfirming}
+                          onClick={() => b.active ? revokeBurner(b.address) : grantBurner(b.address)}
+                          className={`rounded-lg px-2.5 py-1 font-headline text-[10px] font-bold transition-colors disabled:opacity-50 ${
+                            b.active
+                              ? "border border-error/30 text-error hover:bg-error/10"
+                              : "border border-amber-400/30 text-amber-400 hover:bg-amber-400/10"
+                          }`}>
+                          {b.active ? "Revoke" : "Grant"}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className={`${inputClass} flex-1 font-mono text-xs`}
+                  placeholder="0x… conductor wallet"
+                  value={newBurner}
+                  onChange={(e) => setNewBurner(e.target.value)}
+                />
+                <button type="button"
+                  disabled={burnerWritePending || burnerWriteConfirming || !isAddress(newBurner.trim())}
+                  onClick={() => grantBurner(newBurner.trim())}
+                  className="shrink-0 rounded-xl bg-amber-500/80 px-4 py-2.5 font-headline text-xs font-bold text-white shadow-sm transition-all hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed">
+                  {burnerWritePending ? "Confirm…" : burnerWriteConfirming ? "Saving…" : "Grant"}
+                </button>
+              </div>
+
+              {burnerWriteError && (
+                <div className="flex items-start gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
+                  <p className="text-xs text-error break-words">{formatWriteContractError(burnerWriteError)}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </details>
 
       {/* Stat cards */}
       {loading ? (

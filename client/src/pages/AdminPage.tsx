@@ -6,7 +6,6 @@ import { getContractAddress } from "../lib/contract"
 import { formatWriteContractError } from "../lib/walletError"
 import { parseAbiItem } from "viem"
 
-const BURNER_ROLE  = keccak256(toBytes("BURNER_ROLE"))
 const MINTER_ROLE  = keccak256(toBytes("MINTER_ROLE"))
 const ADMIN_ROLE   = "0x0000000000000000000000000000000000000000000000000000000000000000" as `0x${string}`
 
@@ -59,6 +58,17 @@ function AddressInput({
   )
 }
 
+const OPERATOR_NAMES_KEY = 'chainpass_operator_names'
+function getOperatorNames(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(OPERATOR_NAMES_KEY) ?? '{}') } catch { return {} }
+}
+function saveOperatorName(addr: string, name: string) {
+  if (!name.trim()) return
+  const n = getOperatorNames()
+  n[addr.toLowerCase()] = name.trim()
+  localStorage.setItem(OPERATOR_NAMES_KEY, JSON.stringify(n))
+}
+
 function SectionHeader({ title, sub }: { title: string; sub?: string }) {
   return (
     <div className="mb-4">
@@ -85,8 +95,9 @@ export function AdminPage() {
 
   // ── Approved operators (from chain events) ──────────────────────────────
   const [operators, setOperators] = useState<{ address: string; approved: boolean }[]>([])
-  const [burners, setBurners]     = useState<{ address: string; active: boolean }[]>([])
   const [minters, setMinters]     = useState<{ address: string; active: boolean }[]>([])
+  const [operatorNames, setOperatorNames] = useState<Record<string, string>>(() => getOperatorNames())
+  const [newOperatorName, setNewOperatorName] = useState("")
   const [loadingRoles, setLoadingRoles] = useState(false)
 
   const loadRoles = useCallback(async () => {
@@ -105,18 +116,6 @@ export function AdminPage() {
         if (l.args.operator) opMap.set(l.args.operator.toLowerCase(), l.args.approved!)
       }
       setOperators([...opMap.entries()].map(([address, approved]) => ({ address, approved })))
-
-      // Burners
-      const burnerMap = new Map<string, boolean>()
-      for (const l of grantLogs) {
-        if (l.args.role?.toLowerCase() === BURNER_ROLE.toLowerCase() && l.args.account)
-          burnerMap.set(l.args.account.toLowerCase(), true)
-      }
-      for (const l of revokeLogs) {
-        if (l.args.role?.toLowerCase() === BURNER_ROLE.toLowerCase() && l.args.account)
-          burnerMap.set(l.args.account.toLowerCase(), false)
-      }
-      setBurners([...burnerMap.entries()].map(([address, active]) => ({ address, active })))
 
       // Minters
       const minterMap = new Map<string, boolean>()
@@ -167,29 +166,6 @@ export function AdminPage() {
       abi: chainPassTicketAbi,
       functionName: "setOperatorApproved",
       args: [addr as `0x${string}`, approved],
-    }))
-  }
-
-  // ── Burner section ───────────────────────────────────────────────────────
-  const [newBurner, setNewBurner] = useState("")
-
-  async function grantBurner(addr: string) {
-    if (!contractAddress) return
-    await send(() => writeContractAsync({
-      address: contractAddress,
-      abi: chainPassTicketAbi,
-      functionName: "grantRole",
-      args: [BURNER_ROLE, addr as `0x${string}`],
-    }))
-  }
-
-  async function revokeBurner(addr: string) {
-    if (!contractAddress) return
-    await send(() => writeContractAsync({
-      address: contractAddress,
-      abi: chainPassTicketAbi,
-      functionName: "revokeRole",
-      args: [BURNER_ROLE, addr as `0x${string}`],
     }))
   }
 
@@ -289,7 +265,7 @@ export function AdminPage() {
       <section className="rounded-2xl border border-outline-variant/15 bg-surface-container p-5">
         <SectionHeader
           title="Operators"
-          sub="Operators are addresses that can be assigned to tickets at purchase time. Approve any wallet that should act as a transport operator."
+          sub="Transport operators with named identities. Approve addresses that can be assigned to tickets at purchase."
         />
 
         {/* Current operators */}
@@ -301,101 +277,69 @@ export function AdminPage() {
           <p className="mb-4 text-xs text-on-surface-variant/60">No operators registered yet.</p>
         ) : (
           <ul className="mb-4 space-y-2">
-            {operators.map((op) => (
-              <li key={op.address} className="flex items-center justify-between gap-3 rounded-xl border border-outline-variant/10 bg-surface-container-high px-3.5 py-2.5">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${op.approved ? "bg-tertiary" : "bg-outline-variant/40"}`} />
-                  <a href={`${explorerBase}/${op.address}`} target="_blank" rel="noreferrer"
-                    className="font-mono text-xs text-on-surface-variant hover:text-primary truncate">
-                    {op.address}
-                  </a>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span className={`font-headline text-[10px] font-bold uppercase ${op.approved ? "text-tertiary" : "text-on-surface-variant/40"}`}>
-                    {op.approved ? "Approved" : "Revoked"}
-                  </span>
-                  <button type="button" disabled={busy}
-                    onClick={() => void approveOperator(op.address, !op.approved)}
-                    className={`rounded-lg px-2.5 py-1 font-headline text-[10px] font-bold transition-colors disabled:opacity-50 ${
-                      op.approved
-                        ? "border border-error/30 text-error hover:bg-error/10"
-                        : "border border-tertiary/30 text-tertiary hover:bg-tertiary/10"
-                    }`}>
-                    {op.approved ? "Revoke" : "Approve"}
-                  </button>
-                </div>
-              </li>
-            ))}
+            {operators.map((op) => {
+              const opName = operatorNames[op.address.toLowerCase()]
+              return (
+                <li key={op.address} className="flex items-center justify-between gap-3 rounded-xl border border-outline-variant/10 bg-surface-container-high px-3.5 py-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${op.approved ? "bg-tertiary" : "bg-outline-variant/40"}`} />
+                    <div className="min-w-0">
+                      <p className="font-headline text-xs font-semibold text-white truncate">
+                        {opName || "Unnamed"}
+                      </p>
+                      <a href={`${explorerBase}/${op.address}`} target="_blank" rel="noreferrer"
+                        className="font-mono text-[10px] text-on-surface-variant hover:text-primary truncate block">
+                        {op.address.slice(0, 10)}…{op.address.slice(-6)}
+                      </a>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className={`font-headline text-[10px] font-bold uppercase ${op.approved ? "text-tertiary" : "text-on-surface-variant/40"}`}>
+                      {op.approved ? "Approved" : "Revoked"}
+                    </span>
+                    <button type="button" disabled={busy}
+                      onClick={() => void approveOperator(op.address, !op.approved)}
+                      className={`rounded-lg px-2.5 py-1 font-headline text-[10px] font-bold transition-colors disabled:opacity-50 ${
+                        op.approved
+                          ? "border border-error/30 text-error hover:bg-error/10"
+                          : "border border-tertiary/30 text-tertiary hover:bg-tertiary/10"
+                      }`}>
+                      {op.approved ? "Revoke" : "Approve"}
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         )}
 
         {/* Add operator */}
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <AddressInput value={newOperator} onChange={setNewOperator}
-              placeholder="0x… operator address" disabled={busy} />
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={newOperatorName}
+            onChange={(e) => setNewOperatorName(e.target.value)}
+            placeholder="Operator name (e.g. NRC — Nigerian Railway Corporation)"
+            disabled={busy}
+            className="w-full rounded-xl border border-outline-variant/25 bg-surface-container-high px-3.5 py-2.5 text-sm text-white placeholder:text-on-surface-variant/40 focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors disabled:opacity-50"
+          />
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <AddressInput value={newOperator} onChange={setNewOperator}
+                placeholder="0x… operator address" disabled={busy} />
+            </div>
+            <button type="button" disabled={busy || !isAddress(newOperator)}
+              onClick={() => {
+                void approveOperator(newOperator, true)
+                saveOperatorName(newOperator, newOperatorName)
+                setOperatorNames(getOperatorNames())
+                setNewOperatorName("")
+                setNewOperator("")
+              }}
+              className="shrink-0 rounded-xl bg-primary px-4 py-2.5 font-headline text-xs font-bold text-white shadow-sm transition-all hover:bg-primary/80 disabled:opacity-40 disabled:cursor-not-allowed">
+              Approve
+            </button>
           </div>
-          <button type="button" disabled={busy || !isAddress(newOperator)}
-            onClick={() => { void approveOperator(newOperator, true); setNewOperator("") }}
-            className="shrink-0 rounded-xl bg-primary px-4 py-2.5 font-headline text-xs font-bold text-white shadow-sm transition-all hover:bg-primary/80 disabled:opacity-40 disabled:cursor-not-allowed">
-            Approve
-          </button>
-        </div>
-      </section>
-
-      {/* ── Burners (Gate/Conductors) ──────────────────────────────────────── */}
-      <section className="rounded-2xl border border-outline-variant/15 bg-surface-container p-5">
-        <SectionHeader
-          title="Conductors (Burner Role)"
-          sub="Burners can validate and burn tickets at the gate. Grant this role to conductor wallets."
-        />
-
-        {loadingRoles ? (
-          <div className="space-y-2 mb-4">
-            {[1].map(i => <div key={i} className="skeleton h-10 w-full rounded-xl" />)}
-          </div>
-        ) : burners.length === 0 ? (
-          <p className="mb-4 text-xs text-on-surface-variant/60">No burners registered yet.</p>
-        ) : (
-          <ul className="mb-4 space-y-2">
-            {burners.map((b) => (
-              <li key={b.address} className="flex items-center justify-between gap-3 rounded-xl border border-outline-variant/10 bg-surface-container-high px-3.5 py-2.5">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${b.active ? "bg-amber-400" : "bg-outline-variant/40"}`} />
-                  <a href={`${explorerBase}/${b.address}`} target="_blank" rel="noreferrer"
-                    className="font-mono text-xs text-on-surface-variant hover:text-primary truncate">
-                    {b.address}
-                  </a>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span className={`font-headline text-[10px] font-bold uppercase ${b.active ? "text-amber-400" : "text-on-surface-variant/40"}`}>
-                    {b.active ? "Active" : "Revoked"}
-                  </span>
-                  <button type="button" disabled={busy}
-                    onClick={() => void (b.active ? revokeBurner(b.address) : grantBurner(b.address))}
-                    className={`rounded-lg px-2.5 py-1 font-headline text-[10px] font-bold transition-colors disabled:opacity-50 ${
-                      b.active
-                        ? "border border-error/30 text-error hover:bg-error/10"
-                        : "border border-amber-400/30 text-amber-400 hover:bg-amber-400/10"
-                    }`}>
-                    {b.active ? "Revoke" : "Grant"}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <AddressInput value={newBurner} onChange={setNewBurner}
-              placeholder="0x… conductor wallet" disabled={busy} />
-          </div>
-          <button type="button" disabled={busy || !isAddress(newBurner)}
-            onClick={() => { void grantBurner(newBurner); setNewBurner("") }}
-            className="shrink-0 rounded-xl bg-amber-500/80 px-4 py-2.5 font-headline text-xs font-bold text-white shadow-sm transition-all hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed">
-            Grant
-          </button>
         </div>
       </section>
 
