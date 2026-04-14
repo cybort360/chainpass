@@ -107,9 +107,29 @@ CREATE TABLE IF NOT EXISTS seat_assignments (
   route_id TEXT NOT NULL,
   token_id TEXT NOT NULL UNIQUE,
   seat_number TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(route_id, seat_number)
 );
 CREATE INDEX IF NOT EXISTS idx_seat_assignments_route_id ON seat_assignments(route_id);
+`;
+
+/**
+ * Back-fills the (route_id, seat_number) uniqueness guarantee on older databases
+ * that were created before the constraint was added to SEAT_ASSIGNMENTS_INIT_SQL.
+ * Safe to run repeatedly — skips if the constraint already exists.
+ */
+export const SEAT_ASSIGNMENTS_MIGRATE_UNIQUE_SEAT_SQL = `
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'seat_assignments'::regclass
+      AND contype = 'u'
+      AND conname = 'seat_assignments_route_id_seat_number_key'
+  ) THEN
+    ALTER TABLE seat_assignments ADD CONSTRAINT seat_assignments_route_id_seat_number_key UNIQUE(route_id, seat_number);
+  END IF;
+END $$;
 `;
 
 /**

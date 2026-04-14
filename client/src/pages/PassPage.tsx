@@ -165,9 +165,9 @@ export function PassPage() {
 
   const [assignedSeat, setAssignedSeat] = useState<string | null>(null)
   useEffect(() => {
-    if (!tokenIdStr || seatClass !== "Business") return
+    if (!tokenIdStr) return
     void fetchSeatAssignment(tokenIdStr).then(setAssignedSeat)
-  }, [tokenIdStr, seatClass])
+  }, [tokenIdStr])
 
   // Persist route/time info so we can show it on the "Trip complete" screen after burn
   const burnedInfoRef = useRef<{ routeName: string; usedAt: Date } | null>(null)
@@ -492,7 +492,7 @@ export function PassPage() {
                   <p className={`mt-1 font-headline text-xs font-semibold ${seatClass === "Business" ? "text-amber-300" : "text-white"}`}>
                     {seatClass === "Business" ? "✦ Business" : "Economy"}
                   </p>
-                  {seatClass === "Business" && assignedSeat && (
+                  {assignedSeat && (
                     <p className="mt-0.5 font-headline text-[10px] font-semibold text-amber-300/70">
                       Seat {assignedSeat}
                     </p>

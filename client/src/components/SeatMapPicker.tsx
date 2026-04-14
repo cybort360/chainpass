@@ -3,7 +3,7 @@ import { fetchOccupiedSeats } from "../lib/api"
 import type { CoachClassConfig, VehicleType } from "../lib/api"
 
 /** Poll interval — keeps the map fresh as other passengers pick seats */
-const POLL_MS = 15_000
+const POLL_MS = 5_000
 
 type Props = {
   routeId: string
