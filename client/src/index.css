@@ -251,6 +251,14 @@
 /* emerald-400 (#34d399) is too light on lavender — swap to deep green */
 [data-theme="light"] .text-emerald-400 { color: #065f46; }
 
+/* Tier and badge colours that are too pale on light surfaces */
+[data-theme="light"] .text-amber-400,
+[data-theme="light"] .text-amber-300 { color: #b45309; }  /* amber-700 */
+[data-theme="light"] .text-yellow-400 { color: #a16207; }  /* yellow-700 */
+[data-theme="light"] .text-slate-300  { color: #334155; }  /* slate-700 */
+[data-theme="light"] .text-violet-400,
+[data-theme="light"] .text-violet-300 { color: #6d28d9; }  /* violet-700 */
+
 /* Force true white text inside hardcoded-dark overlays (e.g. VALID scan overlay) */
 [data-theme="light"] .force-white {
   --color-white: #ffffff;
@@ -259,6 +267,14 @@
 
 /* btn-primary-gradient: keep text white (light on purple is more legible) */
 [data-theme="light"] .btn-primary-gradient {
+  --color-white: #ffffff;
+}
+
+/* Tertiary-background buttons: tertiary is now dark teal (#007079) in light mode,
+   so text-white inside them must stay true white, not the remapped dark value. */
+[data-theme="light"] .bg-tertiary,
+[data-theme="light"] .bg-tertiary\/80,
+[data-theme="light"] .bg-tertiary\/60 {
   --color-white: #ffffff;
 }
 
