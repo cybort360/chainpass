@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { formatEther, formatUnits, isAddress, keccak256, parseAbiItem, parseEther, parseUnits, toBytes } from "viem"
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { chainPassTicketAbi, monadTestnet, newRouteIdDecimalFromUuid } from "@chainpass/shared"
-import { fetchOperatorStats, fetchOperatorTimeseries, fetchRouteLabels, registerRouteLabel, type ApiRouteLabel, type OperatorStats, type TimeseriesBucket } from "../lib/api"
+import { fetchOperatorStats, fetchOperatorTimeseries, fetchRouteLabels, registerRouteLabel, type ApiRouteLabel, type CoachClassConfig, type OperatorStats, type TimeseriesBucket } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { formatWriteContractError } from "../lib/walletError"
@@ -572,9 +572,17 @@ export function OperatorPage() {
   // Vehicle type config
   const [regVehicleType, setRegVehicleType] = useState<"train" | "bus" | "light_rail">("bus")
   const [regIsInterstate, setRegIsInterstate] = useState(true)
-  const [regCoaches, setRegCoaches] = useState("")
-  const [regSeatsPerCoach, setRegSeatsPerCoach] = useState("")
   const [regTotalSeats, setRegTotalSeats] = useState("")
+  // Train per-class coach config
+  type ClassCfg = { enabled: boolean; count: string; rows: string; leftCols: string; rightCols: string }
+  const defaultClassCfg = (): ClassCfg => ({ enabled: false, count: "1", rows: "10", leftCols: "2", rightCols: "2" })
+  const [regClasses, setRegClasses] = useState<Record<"first" | "business" | "economy", ClassCfg>>({
+    first: defaultClassCfg(),
+    business: defaultClassCfg(),
+    economy: { ...defaultClassCfg(), enabled: true },
+  })
+  const updateClass = (cls: "first" | "business" | "economy", field: keyof ClassCfg, value: string | boolean) =>
+    setRegClasses(prev => ({ ...prev, [cls]: { ...prev[cls], [field]: value } }))
 
   const {
     data: routePriceHash,
@@ -631,9 +639,18 @@ export function OperatorPage() {
     // Derived: trains are always interstate; light rail is always intrastate
     const effectiveVehicleType = regVehicleType
     const effectiveIsInterstate = regVehicleType === "train" ? true : regVehicleType === "light_rail" ? false : regIsInterstate
-    const coachesNum = regVehicleType === "train" ? parseInt(regCoaches) || null : null
-    const seatsPerCoachNum = regVehicleType === "train" ? parseInt(regSeatsPerCoach) || null : null
     const totalSeatsNum = regVehicleType === "bus" ? parseInt(regTotalSeats) || null : null
+    const coachClasses: CoachClassConfig[] = regVehicleType === "train"
+      ? (["first", "business", "economy"] as const)
+          .filter(cls => regClasses[cls].enabled)
+          .map(cls => ({
+            class: cls,
+            count: Math.max(1, parseInt(regClasses[cls].count) || 1),
+            rows: Math.max(1, parseInt(regClasses[cls].rows) || 10),
+            leftCols: Math.max(1, parseInt(regClasses[cls].leftCols) || 2),
+            rightCols: Math.max(1, parseInt(regClasses[cls].rightCols) || 2),
+          }))
+      : []
 
     void registerRouteLabel({
       routeId: rid,
@@ -643,8 +660,7 @@ export function OperatorPage() {
       priceMon,
       vehicleType: effectiveVehicleType,
       isInterstate: effectiveIsInterstate,
-      coaches: coachesNum,
-      seatsPerCoach: seatsPerCoachNum,
+      coachClasses: coachClasses.length > 0 ? coachClasses : null,
       totalSeats: totalSeatsNum,
     }).then((result) => {
       if (result.ok) {
@@ -674,7 +690,7 @@ export function OperatorPage() {
       }
     })
   }, [routePriceSuccess, routePriceHash, regName, regCategory, regDetail, regPriceMon,
-      regVehicleType, regIsInterstate, regCoaches, regSeatsPerCoach, regTotalSeats])
+      regVehicleType, regIsInterstate, regTotalSeats, regClasses])
 
   // ── MON price config ──────────────────────────────────────────────────────
   const { data: currentMonPrice, refetch: refetchMonPrice } = useReadContract({
@@ -1067,7 +1083,7 @@ export function OperatorPage() {
                 </div>
                 {/* Context tag */}
                 <p className="mt-1.5 text-[10px] text-on-surface-variant/60">
-                  {regVehicleType === "train" && "Interstate · First Class / Business / Economy classes · coach-based seat map"}
+                  {regVehicleType === "train" && "Interstate · configure First Class / Business / Economy coaches with custom row & column layout"}
                   {regVehicleType === "bus" && "Interstate or intrastate · no seat classes · numbered seats"}
                   {regVehicleType === "light_rail" && "Intrastate only · no classes · no seat configuration"}
                 </p>
@@ -1095,30 +1111,77 @@ export function OperatorPage() {
                 </div>
               )}
 
-              {/* ── Train: coaches + seats per coach ── */}
+              {/* ── Train: per-class coach configuration ── */}
               {regVehicleType === "train" && (
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="block">
-                    <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
-                      No. of coaches
-                    </span>
-                    <input type="number" min="1" max="30" className={`${inputClass} font-mono`}
-                      value={regCoaches} onChange={(e) => setRegCoaches(e.target.value)}
-                      placeholder="e.g. 6" />
-                  </label>
-                  <label className="block">
-                    <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
-                      Seats per coach
-                    </span>
-                    <input type="number" min="1" max="100" className={`${inputClass} font-mono`}
-                      value={regSeatsPerCoach} onChange={(e) => setRegSeatsPerCoach(e.target.value)}
-                      placeholder="e.g. 48" />
-                  </label>
-                  {regCoaches && regSeatsPerCoach && (
-                    <p className="col-span-2 text-[10px] text-on-surface-variant/60">
-                      Total capacity: {parseInt(regCoaches) * parseInt(regSeatsPerCoach)} seats across {regCoaches} coaches
-                    </p>
-                  )}
+                <div>
+                  <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
+                    Coach classes
+                  </span>
+                  <div className="mt-2 space-y-2">
+                    {(["first", "business", "economy"] as const).map((cls) => {
+                      const cfg = regClasses[cls]
+                      const label = cls === "first" ? "💎 First Class" : cls === "business" ? "✦ Business" : "🪑 Economy"
+                      const seatsPerCoach = (parseInt(cfg.rows) || 0) * ((parseInt(cfg.leftCols) || 0) + (parseInt(cfg.rightCols) || 0))
+                      const totalSeatsForClass = seatsPerCoach * (parseInt(cfg.count) || 1)
+                      return (
+                        <div key={cls} className={`rounded-xl border p-3 transition-all ${cfg.enabled ? "border-primary/30 bg-primary/5" : "border-outline-variant/15"}`}>
+                          {/* toggle header */}
+                          <button type="button" onClick={() => updateClass(cls, "enabled", !cfg.enabled)}
+                            className="flex w-full items-center gap-2">
+                            <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-all ${cfg.enabled ? "border-primary bg-primary" : "border-outline-variant/40"}`}>
+                              {cfg.enabled && (
+                                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="2,6 5,9 10,3"/>
+                                </svg>
+                              )}
+                            </div>
+                            <span className={`font-headline text-xs font-semibold ${cfg.enabled ? "text-white" : "text-on-surface-variant"}`}>
+                              {label}
+                            </span>
+                          </button>
+                          {/* expanded inputs */}
+                          {cfg.enabled && (
+                            <div className="mt-3 space-y-2">
+                              <div className="grid grid-cols-4 gap-2">
+                                {([ ["count","Coaches","1","20"], ["rows","Rows","1","30"], ["leftCols","Left cols","1","4"], ["rightCols","Right cols","1","4"] ] as const).map(([field, title, min, max]) => (
+                                  <label key={field} className="block">
+                                    <span className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/70">{title}</span>
+                                    <input type="number" min={min} max={max}
+                                      className={`${inputClass} font-mono text-center`}
+                                      value={cfg[field as keyof typeof cfg] as string}
+                                      onChange={(e) => updateClass(cls, field as keyof typeof cfg, e.target.value)} />
+                                  </label>
+                                ))}
+                              </div>
+                              {seatsPerCoach > 0 && (
+                                <p className="text-[10px] text-on-surface-variant/60">
+                                  {seatsPerCoach} seats/coach × {parseInt(cfg.count) || 1} coach{(parseInt(cfg.count)||1) !== 1 ? "es" : ""} = <span className="font-semibold text-on-surface-variant">{totalSeatsForClass} seats</span>
+                                  {" · "}layout: {parseInt(cfg.leftCols)||2} + {parseInt(cfg.rightCols)||2} per row
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {/* Total summary */}
+                    {(["first","business","economy"] as const).some(c => regClasses[c].enabled) && (() => {
+                      const total = (["first","business","economy"] as const)
+                        .filter(c => regClasses[c].enabled)
+                        .reduce((sum, c) => {
+                          const cfg = regClasses[c]
+                          return sum + (parseInt(cfg.rows)||0) * ((parseInt(cfg.leftCols)||0) + (parseInt(cfg.rightCols)||0)) * (parseInt(cfg.count)||1)
+                        }, 0)
+                      const coaches = (["first","business","economy"] as const)
+                        .filter(c => regClasses[c].enabled)
+                        .reduce((sum, c) => sum + (parseInt(regClasses[c].count)||1), 0)
+                      return (
+                        <p className="pl-1 text-[10px] text-on-surface-variant/60">
+                          Total: {coaches} coaches · {total} seats
+                        </p>
+                      )
+                    })()}
+                  </div>
                 </div>
               )}
 

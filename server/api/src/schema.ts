@@ -73,6 +73,23 @@ ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS seats_per_coach INTEGER;
 ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS total_seats INTEGER;
 `;
 
+/**
+ * Per-class coach configuration for trains (idempotent).
+ *
+ * coach_classes: JSONB array of { class, count, rows, leftCols, rightCols }
+ *   class    : "first" | "business" | "economy"
+ *   count    : number of coaches of this class
+ *   rows     : seat rows per coach
+ *   leftCols : seats left of the aisle (1-4)
+ *   rightCols: seats right of the aisle (1-4)
+ *
+ * Replaces the flat coaches/seats_per_coach columns for new routes.
+ * Old routes without coach_classes fall back to the coaches+seats_per_coach layout.
+ */
+export const ROUTE_LABELS_MIGRATE_COACH_CLASSES_SQL = `
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS coach_classes JSONB;
+`;
+
 export const ROUTE_RATINGS_INIT_SQL = `
 CREATE TABLE IF NOT EXISTS route_ratings (
   id SERIAL PRIMARY KEY,

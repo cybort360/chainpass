@@ -75,6 +75,29 @@ export function RoutePurchasePage() {
   const [payMethod, setPayMethod] = useState<PayMethod>("mon")
   const [seatClass, setSeatClass] = useState<0 | 1 | 2>(0) // 0=Economy, 1=Business, 2=First Class (trains only)
   const [quantity, setQuantity] = useState(1)
+
+  // Which classes are available for this route?
+  // New-style: from coachClasses array; legacy: all three for interstate trains
+  const availableClasses: ("first" | "business" | "economy")[] = useMemo(() => {
+    if (!hasClasses) return []
+    if (routeConfig?.coachClasses && routeConfig.coachClasses.length > 0)
+      return routeConfig.coachClasses.map((cc) => cc.class)
+    return ["first", "business", "economy"]
+  }, [hasClasses, routeConfig])
+
+  // Map seatClass integer → class name for SeatMapPicker
+  const selectedClassName = useMemo((): "first" | "business" | "economy" | null => {
+    if (!hasClasses) return null
+    return seatClass === 2 ? "first" : seatClass === 1 ? "business" : "economy"
+  }, [hasClasses, seatClass])
+
+  // When route loads, auto-select the first available class so the seat map is visible immediately
+  useEffect(() => {
+    if (availableClasses.length === 0) return
+    const first = availableClasses[0]
+    setSeatClass(first === "first" ? 2 : first === "business" ? 1 : 0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeConfig?.routeId])
   const [mintProgress, setMintProgress] = useState<{ done: number; total: number } | null>(null)
   const [mintedTokenIds, setMintedTokenIds] = useState<bigint[]>([])
   const [selectedSeat, setSelectedSeat] = useState<string | null>(null)
@@ -489,45 +512,48 @@ export function RoutePurchasePage() {
         )}
 
         {/* Seat class selector — interstate trains only */}
-        {hasClasses && (
+        {hasClasses && availableClasses.length > 0 && (
           <div className="border-b border-outline-variant/15 px-4 py-3">
             <p className="mb-2 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
               Seat class
             </p>
             <div className="flex gap-2">
-              {/* First Class */}
-              <button type="button"
-                onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(2); setSelectedSeat(null) }}
-                className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
-                  seatClass === 2
-                    ? "border-violet-400/40 bg-violet-400/10 text-violet-300"
-                    : "border-outline-variant/20 text-on-surface-variant hover:text-white"
-                }`}>
-                <span aria-hidden>💎</span>
-                <span>First</span>
-              </button>
-              {/* Business */}
-              <button type="button"
-                onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(1); setSelectedSeat(null) }}
-                className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
-                  seatClass === 1
-                    ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
-                    : "border-outline-variant/20 text-on-surface-variant hover:text-white"
-                }`}>
-                <span aria-hidden>✦</span>
-                <span>Business</span>
-              </button>
-              {/* Economy */}
-              <button type="button"
-                onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(0); setSelectedSeat(null) }}
-                className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
-                  seatClass === 0
-                    ? "border-primary/40 bg-primary/10 text-white"
-                    : "border-outline-variant/20 text-on-surface-variant hover:text-white"
-                }`}>
-                <span aria-hidden>🪑</span>
-                <span>Economy</span>
-              </button>
+              {availableClasses.includes("first") && (
+                <button type="button"
+                  onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(2); setSelectedSeat(null) }}
+                  className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
+                    seatClass === 2
+                      ? "border-violet-400/40 bg-violet-400/10 text-violet-300"
+                      : "border-outline-variant/20 text-on-surface-variant hover:text-white"
+                  }`}>
+                  <span aria-hidden>💎</span>
+                  <span>First</span>
+                </button>
+              )}
+              {availableClasses.includes("business") && (
+                <button type="button"
+                  onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(1); setSelectedSeat(null) }}
+                  className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
+                    seatClass === 1
+                      ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
+                      : "border-outline-variant/20 text-on-surface-variant hover:text-white"
+                  }`}>
+                  <span aria-hidden>✦</span>
+                  <span>Business</span>
+                </button>
+              )}
+              {availableClasses.includes("economy") && (
+                <button type="button"
+                  onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(0); setSelectedSeat(null) }}
+                  className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
+                    seatClass === 0
+                      ? "border-primary/40 bg-primary/10 text-white"
+                      : "border-outline-variant/20 text-on-surface-variant hover:text-white"
+                  }`}>
+                  <span aria-hidden>🪑</span>
+                  <span>Economy</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -552,6 +578,8 @@ export function RoutePurchasePage() {
               selectedSeat={selectedSeat}
               onSelect={(seat) => { void onSeatSelect(seat) }}
               vehicleType={routeConfig?.vehicleType}
+              coachClasses={routeConfig?.coachClasses}
+              selectedClass={selectedClassName}
               coaches={routeConfig?.coaches}
               seatsPerCoach={routeConfig?.seatsPerCoach}
               totalSeats={routeConfig?.totalSeats}

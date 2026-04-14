@@ -18,6 +18,25 @@ function parseRouteIdBody(raw: unknown): bigint | null {
   }
 }
 
+type CoachClassConfig = { class: string; count: number; rows: number; leftCols: number; rightCols: number };
+
+/** Validate and normalise a coachClasses payload (array of per-class coach configs). */
+function parseCoachClasses(raw: unknown): CoachClassConfig[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const valid = (raw as unknown[]).flatMap((item): CoachClassConfig[] => {
+    if (typeof item !== "object" || item === null) return [];
+    const cc = item as Record<string, unknown>;
+    if (!["first", "business", "economy"].includes(String(cc.class))) return [];
+    const count = Math.floor(Number(cc.count));
+    const rows = Math.floor(Number(cc.rows));
+    const leftCols = Math.floor(Number(cc.leftCols));
+    const rightCols = Math.floor(Number(cc.rightCols));
+    if (count < 1 || rows < 1 || leftCols < 1 || rightCols < 1) return [];
+    return [{ class: String(cc.class), count, rows, leftCols, rightCols }];
+  });
+  return valid.length > 0 ? valid : null;
+}
+
 export function createRoutesRouter(): Router {
   const r = Router();
 
@@ -40,9 +59,11 @@ export function createRoutesRouter(): Router {
         coaches: number | null;
         seats_per_coach: number | null;
         total_seats: number | null;
+        coach_classes: unknown | null;
       }>(
         `SELECT route_id, name, detail, category, schedule,
-                vehicle_type, is_interstate, coaches, seats_per_coach, total_seats
+                vehicle_type, is_interstate, coaches, seats_per_coach, total_seats,
+                coach_classes
          FROM route_labels
          ORDER BY category, route_id::numeric`,
       );
@@ -58,6 +79,7 @@ export function createRoutesRouter(): Router {
           coaches: row.coaches,
           seatsPerCoach: row.seats_per_coach,
           totalSeats: row.total_seats,
+          coachClasses: row.coach_classes ?? null,
         })),
       });
     } catch (err) {
@@ -112,6 +134,8 @@ export function createRoutesRouter(): Router {
       body.seatsPerCoach === null ? null : Number(body.seatsPerCoach) > 0 ? Math.floor(Number(body.seatsPerCoach)) : undefined;
     const totalSeats = body?.totalSeats === undefined ? undefined :
       body.totalSeats === null ? null : Number(body.totalSeats) > 0 ? Math.floor(Number(body.totalSeats)) : undefined;
+    const coachClassesPut = body?.coachClasses === undefined ? undefined :
+      body.coachClasses === null ? null : parseCoachClasses(body.coachClasses);
 
     if (name !== undefined && name.length > 100) {
       res.status(400).json({ error: "name must be 100 characters or fewer" });
@@ -142,6 +166,10 @@ export function createRoutesRouter(): Router {
     if (coaches !== undefined) { vals.push(coaches); sets.push(`coaches = $${vals.length}`); }
     if (seatsPerCoach !== undefined) { vals.push(seatsPerCoach); sets.push(`seats_per_coach = $${vals.length}`); }
     if (totalSeats !== undefined) { vals.push(totalSeats); sets.push(`total_seats = $${vals.length}`); }
+    if (coachClassesPut !== undefined) {
+      vals.push(coachClassesPut ? JSON.stringify(coachClassesPut) : null);
+      sets.push(`coach_classes = $${vals.length}`);
+    }
 
     if (sets.length === 0) {
       res.status(400).json({ error: "no fields to update" });
@@ -156,7 +184,7 @@ export function createRoutesRouter(): Router {
       const result = await pool.query(
         `UPDATE route_labels SET ${setClause} WHERE route_id = $${vals.length}
          RETURNING route_id, name, detail, category, schedule,
-                   vehicle_type, is_interstate, coaches, seats_per_coach, total_seats`,
+                   vehicle_type, is_interstate, coaches, seats_per_coach, total_seats, coach_classes`,
         vals,
       );
       if (result.rowCount === 0) {
@@ -166,12 +194,13 @@ export function createRoutesRouter(): Router {
       const row = result.rows[0] as {
         route_id: string; name: string; detail: string | null; category: string; schedule: string | null;
         vehicle_type: string | null; is_interstate: boolean | null; coaches: number | null;
-        seats_per_coach: number | null; total_seats: number | null;
+        seats_per_coach: number | null; total_seats: number | null; coach_classes: unknown | null;
       };
       res.json({ route: {
         routeId: row.route_id, name: row.name, detail: row.detail, category: row.category, schedule: row.schedule,
         vehicleType: row.vehicle_type, isInterstate: row.is_interstate,
         coaches: row.coaches, seatsPerCoach: row.seats_per_coach, totalSeats: row.total_seats,
+        coachClasses: row.coach_classes ?? null,
       } });
     } catch (err) {
       console.error("[routes PUT]", err);
@@ -253,6 +282,7 @@ export function createRoutesRouter(): Router {
     const totalSeats: number | null =
       totalSeatsRaw !== undefined && totalSeatsRaw !== null && Number(totalSeatsRaw) > 0
         ? Math.floor(Number(totalSeatsRaw)) : null;
+    const coachClasses = parseCoachClasses(body?.coachClasses);
 
     const priceMonRaw = body?.priceMon;
     let priceMon: number | undefined;
@@ -304,10 +334,11 @@ export function createRoutesRouter(): Router {
       await pool.query(
         `INSERT INTO route_labels
            (route_id, name, detail, category, schedule,
-            vehicle_type, is_interstate, coaches, seats_per_coach, total_seats)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            vehicle_type, is_interstate, coaches, seats_per_coach, total_seats, coach_classes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [String(routeId), name, detail, category, schedulePost,
-         vehicleType, isInterstate, coaches, seatsPerCoach, totalSeats],
+         vehicleType, isInterstate, coaches, seatsPerCoach, totalSeats,
+         coachClasses ? JSON.stringify(coachClasses) : null],
       );
 
       let nigeriaRoutesFile: { ok: true } | { ok: false; reason: string } | undefined;
@@ -336,6 +367,7 @@ export function createRoutesRouter(): Router {
           coaches,
           seatsPerCoach,
           totalSeats,
+          coachClasses: coachClasses ?? null,
         },
         ...(nigeriaRoutesFile !== undefined ? { nigeriaRoutesFile } : {}),
       });

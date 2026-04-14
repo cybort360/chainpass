@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { fetchOccupiedSeats } from "../lib/api"
-import type { VehicleType } from "../lib/api"
+import type { CoachClassConfig, VehicleType } from "../lib/api"
 
 /** Poll interval — keeps the map fresh as other passengers pick seats */
 const POLL_MS = 15_000
@@ -10,9 +10,13 @@ type Props = {
   selectedSeat: string | null
   onSelect: (seat: string | null) => void
   vehicleType?: VehicleType | null
-  /** Train: number of coaches */
+  /** New-style: per-class coach layout */
+  coachClasses?: CoachClassConfig[] | null
+  /** Optional: filter seat map to only this class's coaches */
+  selectedClass?: "first" | "business" | "economy" | null
+  /** Legacy: number of coaches */
   coaches?: number | null
-  /** Train: seats per coach */
+  /** Legacy: seats per coach */
   seatsPerCoach?: number | null
   /** Bus: total seat count */
   totalSeats?: number | null
@@ -51,9 +55,108 @@ function SeatBtn({
   )
 }
 
-/** Generate seat IDs and labels for a train layout.
- *  Seat IDs: "C{coach}-{seatNum}"  e.g. "C1-1", "C1-2", "C2-1"
- */
+/** Flexible seat row: left and right arrays can be any size. */
+function SeatRow({
+  leftSeats,
+  rightSeats,
+  occupied,
+  selectedSeat,
+  toggle,
+}: {
+  leftSeats: { id: string; label: string }[]
+  rightSeats: { id: string; label: string }[]
+  occupied: Set<string>
+  selectedSeat: string | null
+  toggle: (id: string) => void
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <div className="flex gap-1">
+        {leftSeats.map((s) => (
+          <SeatBtn key={s.id} id={s.id} label={s.label}
+            occupied={occupied.has(s.id)} selected={selectedSeat === s.id}
+            onClick={() => toggle(s.id)} />
+        ))}
+      </div>
+      <div className="w-4 text-center font-headline text-[8px] text-on-surface-variant/20">│</div>
+      <div className="flex gap-1">
+        {rightSeats.map((s) => (
+          <SeatBtn key={s.id} id={s.id} label={s.label}
+            occupied={occupied.has(s.id)} selected={selectedSeat === s.id}
+            onClick={() => toggle(s.id)} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Column header row matching left + right column counts. */
+function ColHeaders({ leftCols, rightCols }: { leftCols: number; rightCols: number }) {
+  const letters = Array.from({ length: leftCols + rightCols }, (_, i) => String.fromCharCode(65 + i))
+  return (
+    <div className="mb-1.5 flex items-center gap-1">
+      <div className="flex gap-1">
+        {letters.slice(0, leftCols).map((l) => (
+          <div key={l} className="flex w-8 justify-center font-headline text-[9px] font-bold uppercase text-on-surface-variant/40">{l}</div>
+        ))}
+      </div>
+      <div className="w-4" />
+      <div className="flex gap-1">
+        {letters.slice(leftCols).map((l) => (
+          <div key={l} className="flex w-8 justify-center font-headline text-[9px] font-bold uppercase text-on-surface-variant/40">{l}</div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Build all seat IDs for a coach-class-style train layout. */
+function buildCoachClassSeats(coachClasses: CoachClassConfig[]) {
+  const classPrefixes: Record<string, string> = { first: "F", business: "B", economy: "E" }
+  const result: {
+    classLabel: string
+    classKey: "first" | "business" | "economy"
+    coachNum: number   // global coach index within this class (1-based)
+    leftCols: number
+    rightCols: number
+    rows: { leftSeats: { id: string; label: string }[]; rightSeats: { id: string; label: string }[] }[]
+  }[] = []
+
+  for (const cc of coachClasses) {
+    const prefix = classPrefixes[cc.class] ?? cc.class.charAt(0).toUpperCase()
+    const totalCols = cc.leftCols + cc.rightCols
+    const letters = Array.from({ length: totalCols }, (_, i) => String.fromCharCode(65 + i))
+    const leftLetters = letters.slice(0, cc.leftCols)
+    const rightLetters = letters.slice(cc.leftCols)
+
+    for (let coachIdx = 1; coachIdx <= cc.count; coachIdx++) {
+      const coachId = `${prefix}${coachIdx}`
+      const rows: typeof result[0]["rows"] = []
+      for (let row = 1; row <= cc.rows; row++) {
+        const leftSeats = leftLetters.map((l) => ({
+          id: `${coachId}-${row}${l}`,
+          label: `${row}${l}`,
+        }))
+        const rightSeats = rightLetters.map((l) => ({
+          id: `${coachId}-${row}${l}`,
+          label: `${row}${l}`,
+        }))
+        rows.push({ leftSeats, rightSeats })
+      }
+      result.push({
+        classLabel: cc.class === "first" ? "First Class" : cc.class === "business" ? "Business" : "Economy",
+        classKey: cc.class,
+        coachNum: coachIdx,
+        leftCols: cc.leftCols,
+        rightCols: cc.rightCols,
+        rows,
+      })
+    }
+  }
+  return result
+}
+
+/** Legacy: Generate seat IDs and labels for a flat train layout (C{coach}-{seat}). */
 function buildTrainSeats(coaches: number, seatsPerCoach: number) {
   const result: { coachNum: number; seats: { id: string; label: string }[] }[] = []
   for (let c = 1; c <= coaches; c++) {
@@ -74,8 +177,8 @@ function buildBusSeats(totalSeats: number) {
   }))
 }
 
-/** Render a row of seats split 2 | aisle | 2 */
-function SeatRow({
+/** Render a legacy 2+2 row (used by flat train + bus layouts). */
+function LegacySeatRow({
   seats,
   occupied,
   selectedSeat,
@@ -96,7 +199,6 @@ function SeatRow({
             occupied={occupied.has(s.id)} selected={selectedSeat === s.id}
             onClick={() => toggle(s.id)} />
         ))}
-        {/* pad if fewer than 2 on left */}
         {left.length < 2 && <div className="h-8 w-8" />}
       </div>
       <div className="w-4 text-center font-headline text-[8px] text-on-surface-variant/20">│</div>
@@ -114,7 +216,7 @@ function SeatRow({
   )
 }
 
-export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, coaches, seatsPerCoach, totalSeats }: Props) {
+export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, coachClasses, selectedClass, coaches, seatsPerCoach, totalSeats }: Props) {
   const [occupied, setOccupied] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -177,7 +279,72 @@ export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, co
     </p>
   )
 
-  // ── Train layout (coaches) ──────────────────────────────────────────────────
+  // ── New-style train layout: coachClasses ────────────────────────────────────
+  if (vehicleType === "train" && coachClasses && coachClasses.length > 0) {
+    // Filter to selected class if provided
+    const visibleClasses = selectedClass
+      ? coachClasses.filter((cc) => cc.class === selectedClass)
+      : coachClasses
+
+    if (visibleClasses.length === 0) {
+      return (
+        <p className="py-4 text-center font-headline text-xs text-on-surface-variant/60">
+          No coaches configured for this class.
+        </p>
+      )
+    }
+
+    const coaches = buildCoachClassSeats(visibleClasses)
+    const totalCapacity = coaches.reduce(
+      (sum, c) => sum + c.rows.length * (c.leftCols + c.rightCols), 0,
+    )
+    const availableCount = totalCapacity - occupied.size
+
+    return (
+      <div className="select-none">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant">
+            Select your seat
+          </p>
+          <p className="font-headline text-[9px] text-on-surface-variant/60">
+            {availableCount} of {totalCapacity} available
+          </p>
+        </div>
+        {legend}
+        <div className="space-y-4">
+          {coaches.map((coach, ci) => {
+            const coachKey = `${coach.classKey}-${coach.coachNum}`
+            const freeInCoach = coach.rows.reduce(
+              (sum, r) => sum + [...r.leftSeats, ...r.rightSeats].filter((s) => !occupied.has(s.id)).length, 0,
+            )
+            const totalInCoach = coach.rows.length * (coach.leftCols + coach.rightCols)
+            return (
+              <div key={`${coachKey}-${ci}`} className="overflow-x-auto rounded-xl border border-outline-variant/15 bg-surface-container-low/40 p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="rounded-md bg-primary/10 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+                    {coach.classLabel} · Coach {coach.coachNum}
+                  </span>
+                  <span className="text-[9px] text-on-surface-variant/50">
+                    {freeInCoach} / {totalInCoach} free
+                  </span>
+                </div>
+                <ColHeaders leftCols={coach.leftCols} rightCols={coach.rightCols} />
+                <div className="space-y-1">
+                  {coach.rows.map((row, ri) => (
+                    <SeatRow key={ri} leftSeats={row.leftSeats} rightSeats={row.rightSeats}
+                      occupied={occupied} selectedSeat={selectedSeat} toggle={toggle} />
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {footer}
+      </div>
+    )
+  }
+
+  // ── Legacy train layout (flat coaches × seatsPerCoach) ─────────────────────
   if (vehicleType === "train" && coaches && seatsPerCoach) {
     const coachData = buildTrainSeats(coaches, seatsPerCoach)
     const totalCapacity = coaches * seatsPerCoach
@@ -208,7 +375,6 @@ export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, co
                     {seats.filter(s => !occupied.has(s.id)).length} free
                   </span>
                 </div>
-                {/* Column headers */}
                 <div className="mb-1.5 flex items-center gap-1 pl-0">
                   <div className="flex gap-1">
                     {["A","B"].map(l => (
@@ -224,7 +390,7 @@ export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, co
                 </div>
                 <div className="space-y-1">
                   {rows.map((rowSeats, ri) => (
-                    <SeatRow key={ri} seats={rowSeats} occupied={occupied} selectedSeat={selectedSeat} toggle={toggle} />
+                    <LegacySeatRow key={ri} seats={rowSeats} occupied={occupied} selectedSeat={selectedSeat} toggle={toggle} />
                   ))}
                 </div>
               </div>

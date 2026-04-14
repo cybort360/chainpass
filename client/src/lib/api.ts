@@ -2,6 +2,19 @@ import { env } from "./env"
 
 export type VehicleType = "train" | "bus" | "light_rail"
 
+/** Per-class coach layout for interstate trains. */
+export type CoachClassConfig = {
+  class: "first" | "business" | "economy"
+  /** Number of coaches of this class. */
+  count: number
+  /** Seat rows per coach. */
+  rows: number
+  /** Seats to the left of the aisle per row. */
+  leftCols: number
+  /** Seats to the right of the aisle per row. */
+  rightCols: number
+}
+
 export type ApiRouteLabel = {
   routeId: string
   name: string
@@ -10,9 +23,11 @@ export type ApiRouteLabel = {
   schedule?: string | null
   vehicleType?: VehicleType | null
   isInterstate?: boolean | null
-  /** Train only: number of coaches */
+  /** Train (new-style): per-class coach layout — replaces coaches+seatsPerCoach. */
+  coachClasses?: CoachClassConfig[] | null
+  /** Train (legacy): flat coach count. */
   coaches?: number | null
-  /** Train only: seats per coach */
+  /** Train (legacy): seats per coach. */
   seatsPerCoach?: number | null
   /** Bus only: total seat count */
   totalSeats?: number | null
@@ -27,7 +42,8 @@ export function routeHasClasses(r: ApiRouteLabel | null | undefined): boolean {
 export function routeHasSeats(r: ApiRouteLabel | null | undefined): boolean {
   if (!r?.vehicleType) return false
   if (r.vehicleType === "light_rail") return false
-  if (r.vehicleType === "train") return !!(r.coaches && r.seatsPerCoach)
+  if (r.vehicleType === "train")
+    return !!(r.coachClasses?.length) || !!(r.coaches && r.seatsPerCoach)
   if (r.vehicleType === "bus") return !!(r.totalSeats)
   return false
 }
@@ -75,6 +91,9 @@ export async function registerRouteLabel(payload: {
   priceMon?: number
   vehicleType?: VehicleType | null
   isInterstate?: boolean | null
+  /** New-style train seat config (per class). */
+  coachClasses?: CoachClassConfig[] | null
+  /** Legacy flat train config. */
   coaches?: number | null
   seatsPerCoach?: number | null
   totalSeats?: number | null
@@ -96,6 +115,7 @@ export async function registerRouteLabel(payload: {
     }
     if (payload.vehicleType) body.vehicleType = payload.vehicleType
     if (payload.isInterstate !== undefined && payload.isInterstate !== null) body.isInterstate = payload.isInterstate
+    if (payload.coachClasses && payload.coachClasses.length > 0) body.coachClasses = payload.coachClasses
     if (payload.coaches) body.coaches = payload.coaches
     if (payload.seatsPerCoach) body.seatsPerCoach = payload.seatsPerCoach
     if (payload.totalSeats) body.totalSeats = payload.totalSeats
