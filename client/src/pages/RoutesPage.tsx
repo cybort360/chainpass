@@ -22,6 +22,7 @@ type RouteRow = {
   detail: string
   category: string
   schedule?: string | null
+  shortCode?: string | null
 }
 
 function RouteCardSkeleton() {
@@ -249,7 +250,7 @@ function FareBadge({
   )
 }
 
-type EditForm = { name: string; detail: string; category: string; schedule: string }
+type EditForm = { name: string; detail: string; category: string; schedule: string; shortCode: string }
 
 function EditRouteModal({
   route,
@@ -265,6 +266,7 @@ function EditRouteModal({
     detail: route.detail ?? "",
     category: route.category,
     schedule: route.schedule ?? "",
+    shortCode: route.shortCode ?? "",
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -272,6 +274,13 @@ function EditRouteModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // Quick client-side validation — matches the server CHECK so the operator
+    // gets a useful inline error instead of a generic 400 from the API.
+    const trimmedShortCode = form.shortCode.trim().toUpperCase()
+    if (trimmedShortCode && !/^[A-Z0-9]{1,8}$/.test(trimmedShortCode)) {
+      setError("Short code must be 1-8 uppercase letters or digits.")
+      return
+    }
     setLoading(true)
     setError(null)
     const result = await updateRouteLabel(route.routeId, {
@@ -279,10 +288,19 @@ function EditRouteModal({
       detail: form.detail.trim() || null,
       category: form.category.trim(),
       schedule: form.schedule.trim() || null,
+      // Send null to explicitly clear the code when the input is empty.
+      shortCode: trimmedShortCode || null,
     })
     setLoading(false)
     if (result.ok) {
-      onSaved({ ...route, name: result.route.name, detail: result.route.detail ?? "", category: result.route.category, schedule: result.route.schedule })
+      onSaved({
+        ...route,
+        name: result.route.name,
+        detail: result.route.detail ?? "",
+        category: result.route.category,
+        schedule: result.route.schedule,
+        shortCode: result.route.shortCode ?? null,
+      })
     } else {
       setError(result.error)
     }
@@ -333,6 +351,30 @@ function EditRouteModal({
               onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
               className="w-full rounded-xl border border-outline-variant/25 bg-surface px-3.5 py-2.5 text-sm text-white placeholder:text-on-surface-variant/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
             />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+              Short code
+            </label>
+            <input
+              type="text"
+              maxLength={8}
+              value={form.shortCode}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  // Normalise on entry so the UI shows the same string the server will
+                  // store — prevents mixed-case inputs sneaking past the regex.
+                  shortCode: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""),
+                }))
+              }
+              placeholder="e.g. LAGIB"
+              className="w-40 rounded-xl border border-outline-variant/25 bg-surface px-3.5 py-2.5 font-mono text-sm uppercase tracking-widest text-white placeholder:text-on-surface-variant/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+            />
+            <p className="mt-1 text-[10px] text-on-surface-variant/50">
+              1-8 uppercase letters or digits. Leave blank to remove.
+            </p>
           </div>
 
           <div>
@@ -535,6 +577,7 @@ export function RoutesPage() {
           detail: row.detail ?? "",
           category: row.category || "General",
           schedule: row.schedule ?? null,
+          shortCode: row.shortCode ?? null,
         })
       }
     }
@@ -841,8 +884,16 @@ export function RoutesPage() {
 
                         {/* Route info */}
                         <div className="min-w-0 flex-1">
-                          <p className="font-headline text-sm font-semibold leading-snug text-white">
-                            {r.name}
+                          <p className="flex items-center gap-2 font-headline text-sm font-semibold leading-snug text-white">
+                            <span className="truncate">{r.name}</span>
+                            {r.shortCode && (
+                              <span
+                                className="shrink-0 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-widest text-primary"
+                                title="Route short code"
+                              >
+                                {r.shortCode}
+                              </span>
+                            )}
                           </p>
                           {r.detail && (
                             <p className="mt-0.5 text-xs text-on-surface-variant">{r.detail}</p>

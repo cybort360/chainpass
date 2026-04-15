@@ -5,8 +5,8 @@ import { createPublicClient, webSocket } from "viem"
 import { QRCodeSVG } from "qrcode.react"
 import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
 import { getContractAddress } from "../lib/contract"
-import { routeMetaForRouteId, shortenNumericId } from "../lib/passDisplay"
-import { requestQrPayload, submitRating, fetchSeatAssignment, type QrPayload } from "../lib/api"
+import { resolveRouteDisplay, shortenNumericId } from "../lib/passDisplay"
+import { fetchRouteLabels, requestQrPayload, submitRating, fetchSeatAssignment, type ApiRouteLabel, type QrPayload } from "../lib/api"
 import { useOfflineQr } from "../hooks/useOfflineQr"
 import { useNotifications } from "../hooks/useNotifications"
 import { ExpiryWarningBanner } from "../components/ui/ExpiryWarningBanner"
@@ -169,6 +169,16 @@ export function PassPage() {
     void fetchSeatAssignment(tokenIdStr).then(setAssignedSeat)
   }, [tokenIdStr])
 
+  // Pull the operator-registered route catalog so we can resolve the pass's
+  // route name + short code. Falls back to demo routes / shortened ID via
+  // resolveRouteDisplay when the API is unreachable (offline / no DATABASE_URL).
+  const [apiLabels, setApiLabels] = useState<ApiRouteLabel[] | null>(null)
+  useEffect(() => {
+    void fetchRouteLabels().then((labels) => {
+      if (labels) setApiLabels(labels)
+    })
+  }, [])
+
   // Persist route/time info so we can show it on the "Trip complete" screen after burn
   const burnedInfoRef = useRef<{ routeName: string; usedAt: Date } | null>(null)
 
@@ -234,7 +244,7 @@ export function PassPage() {
   const _vuForNotif = validUntil !== undefined && typeof validUntil === "bigint" ? validUntil : undefined
   const _routeIdStrForNotif = routeId !== undefined ? String(routeId) : undefined
   const _routeNameForNotif = _routeIdStrForNotif
-    ? (routeMetaForRouteId(_routeIdStrForNotif)?.name ?? `Route #${shortenNumericId(_routeIdStrForNotif)}`)
+    ? resolveRouteDisplay(_routeIdStrForNotif, apiLabels).name
     : undefined
   useEffect(() => {
     if (!_vuForNotif || !tokenIdStr || !_routeNameForNotif || burned || notifPermission !== "granted") return
@@ -255,8 +265,12 @@ export function PassPage() {
   const expired = vu !== undefined && BigInt(Math.floor(Date.now() / 1000)) >= vu
 
   const routeIdStr = routeId !== undefined ? String(routeId) : undefined
-  const routeMeta = routeIdStr ? routeMetaForRouteId(routeIdStr) : undefined
-  const routeName = routeMeta?.name ?? (routeIdStr ? `Route ${shortenNumericId(routeIdStr)}` : undefined)
+  const routeDisplay = routeIdStr ? resolveRouteDisplay(routeIdStr, apiLabels) : undefined
+  const routeName = routeDisplay?.name
+  // Operator-set short code wins over the derived XYZ code we build from the
+  // route name (airline-style IATA fallback). When the operator provides one,
+  // it's the canonical identifier passengers recognise.
+  const operatorShortCode = routeDisplay?.shortCode ?? null
 
   // Snapshot while ticket is live so it shows on the scan-complete screen after burn
   if (routeName && !burned && !burnedInfoRef.current) {
@@ -425,6 +439,14 @@ export function PassPage() {
                 <span className="font-headline text-xs font-bold uppercase tracking-widest text-white/80">
                   ChainPass Transit
                 </span>
+                {operatorShortCode && (
+                  <span
+                    className="rounded-md border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-widest text-primary"
+                    title="Route short code"
+                  >
+                    {operatorShortCode}
+                  </span>
+                )}
               </div>
               {vu !== undefined && (
                 expired ? (

@@ -7,7 +7,7 @@ import { fetchMyPasses, fetchRouteLabels, fetchSeatAssignment, type MyPassesResp
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { fetchActivePassesFromChain, fetchBurnedPassesFromChain } from "../lib/onchainPasses"
-import { routeMetaForRouteId, shortenNumericId } from "../lib/passDisplay"
+import { resolveRouteDisplay, shortenNumericId } from "../lib/passDisplay"
 import { isExpiringSoon } from "../lib/passDisplay"
 import { extractMintedTokenIdFromReceipt } from "../lib/tx"
 import { formatWriteContractError } from "../lib/walletError"
@@ -78,6 +78,13 @@ export function ProfilePage() {
     )
   }, [data?.active])
 
+  // API route catalog — loaded once, consumed by both the notification scheduler
+  // and the pass list/history renderers via resolveRouteDisplay. Declared before
+  // the notification effect so the effect's dependency array compiles cleanly.
+  const [apiRouteLabels, setApiRouteLabels] = useState<
+    { routeId: string; name: string; category: string; shortCode?: string | null }[] | undefined
+  >(undefined)
+
   // ── Notifications ─────────────────────────────────────────────────────────
   const { permission: notifPermission, requestPermission, scheduleExpiryNotification } = useNotifications()
 
@@ -86,11 +93,10 @@ export function ProfilePage() {
     if (!data?.active.length || notifPermission !== "granted") return
     for (const pass of data.active) {
       if (!pass.valid_until_epoch || !pass.token_id) continue
-      const routeName = routeMetaForRouteId(pass.route_id ?? "")?.name ??
-        (pass.route_id ? `Route #${pass.route_id.slice(0, 6)}` : "your pass")
+      const { name: routeName } = resolveRouteDisplay(pass.route_id ?? "", apiRouteLabels)
       scheduleExpiryNotification(pass.token_id, routeName, BigInt(pass.valid_until_epoch))
     }
-  }, [data?.active, notifPermission, scheduleExpiryNotification])
+  }, [data?.active, notifPermission, apiRouteLabels, scheduleExpiryNotification])
 
   // ── Loyalty ───────────────────────────────────────────────────────────────
   const { data: loyaltyData, isLoading: loyaltyLoading, refetch: refetchLoyalty } = useLoyalty(address)
@@ -98,7 +104,6 @@ export function ProfilePage() {
   // ── Claim free ride ───────────────────────────────────────────────────────
   const [claimOpen, setClaimOpen] = useState(false)
   const [claimRouteId, setClaimRouteId] = useState<string>("")
-  const [apiRouteLabels, setApiRouteLabels] = useState<{ routeId: string; name: string; category: string }[] | undefined>(undefined)
 
   // Merge API + demo routes for the picker
   const allRoutes = useMemo(() => {
@@ -111,7 +116,16 @@ export function ProfilePage() {
   // Fetch API route labels once on mount
   useEffect(() => {
     void fetchRouteLabels().then((labels) => {
-      if (labels) setApiRouteLabels(labels)
+      if (labels) {
+        setApiRouteLabels(
+          labels.map((l) => ({
+            routeId: l.routeId,
+            name: l.name,
+            category: l.category,
+            shortCode: l.shortCode ?? null,
+          })),
+        )
+      }
     })
   }, [])
 
@@ -274,8 +288,7 @@ export function ProfilePage() {
     const headers = ["Type", "Route", "Seat Class", "Token ID", "Date", "Tx Hash"]
     const rows = historyItems.map((item) => {
       const row = item.data
-      const routeName = routeMetaForRouteId(row.route_id ?? undefined)?.name ??
-        (row.route_id ? `Route #${row.route_id}` : "Transit pass")
+      const { name: routeName } = resolveRouteDisplay(row.route_id ?? undefined, apiRouteLabels)
       const type = item.type === "expired" ? "Expired" : "Used"
       const date = item.type === "expired"
         ? (row.valid_until_epoch ? new Date(Number(row.valid_until_epoch) * 1000).toISOString().slice(0, 10) : "")
@@ -294,7 +307,7 @@ export function ProfilePage() {
     a.download = `chainpass-history-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
-  }, [historyItems])
+  }, [historyItems, apiRouteLabels])
 
   return (
     <div className="mx-auto max-w-lg">
@@ -514,16 +527,27 @@ export function ProfilePage() {
           ) : (
             <ul className="space-y-3">
               {data.active.map((row) => {
-                const routeName =
-                  routeMetaForRouteId(row.route_id ?? undefined)?.name ??
-                  (row.route_id ? `Route ${shortenNumericId(row.route_id)}` : "Transit pass")
+                const { name: routeName, shortCode } = resolveRouteDisplay(
+                  row.route_id ?? undefined,
+                  apiRouteLabels,
+                )
                 return (
                   <li key={`a-${row.token_id}-${row.tx_hash || "chain"}`}>
                     <div className="overflow-hidden rounded-2xl border border-outline-variant/15 bg-surface-container transition-all hover:border-primary/20">
                       {/* Ticket top strip */}
                       <div className="bg-gradient-to-r from-primary/20 to-primary/5 px-4 py-3">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="font-headline text-sm font-bold leading-snug text-white">{routeName}</p>
+                          <p className="flex min-w-0 items-center gap-2 font-headline text-sm font-bold leading-snug text-white">
+                            <span className="truncate">{routeName}</span>
+                            {shortCode && (
+                              <span
+                                className="shrink-0 rounded-md border border-primary/40 bg-primary/15 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-primary"
+                                title="Route short code"
+                              >
+                                {shortCode}
+                              </span>
+                            )}
+                          </p>
                           <div className="flex shrink-0 items-center gap-2">
                             {isExpiringSoon(row.valid_until_epoch) && (
                               <ExpiryWarningBanner validUntilEpoch={row.valid_until_epoch} variant="badge" />
@@ -627,8 +651,10 @@ export function ProfilePage() {
                   {historySlice.map((item) => {
                     if (item.type === "expired") {
                       const row = item.data
-                      const meta = routeMetaForRouteId(row.route_id ?? undefined)
-                      const routeName = meta?.name ?? (row.route_id ? `Route ${shortenNumericId(row.route_id)}` : "Transit pass")
+                      const { name: routeName, shortCode } = resolveRouteDisplay(
+                        row.route_id ?? undefined,
+                        apiRouteLabels,
+                      )
                       const expiredDate = row.valid_until_epoch
                         ? new Date(Number(row.valid_until_epoch) * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
                         : null
@@ -643,7 +669,14 @@ export function ProfilePage() {
                           </div>
                           <div className="flex-1 overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-low/50 pb-3">
                             <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2">
-                              <p className="truncate font-headline text-sm font-semibold text-on-surface-variant">{routeName}</p>
+                              <p className="flex min-w-0 items-center gap-2 font-headline text-sm font-semibold text-on-surface-variant">
+                                <span className="truncate">{routeName}</span>
+                                {shortCode && (
+                                  <span className="shrink-0 rounded-md border border-outline-variant/25 bg-surface-container px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/70">
+                                    {shortCode}
+                                  </span>
+                                )}
+                              </p>
                               <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-error/25 bg-error/8 px-2.5 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-error/80">
                                 Expired
                               </span>
@@ -671,8 +704,10 @@ export function ProfilePage() {
 
                     // burned
                     const row = item.data
-                    const meta = routeMetaForRouteId(row.route_id ?? undefined)
-                    const routeName = meta?.name ?? (row.route_id ? `Route ${shortenNumericId(row.route_id)}` : "Transit pass")
+                    const { name: routeName, shortCode } = resolveRouteDisplay(
+                      row.route_id ?? undefined,
+                      apiRouteLabels,
+                    )
                     const burnedDate = row.created_at
                       ? new Date(row.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
                       : null
@@ -687,7 +722,14 @@ export function ProfilePage() {
                         </div>
                         <div className="flex-1 overflow-hidden rounded-2xl border border-outline-variant/10 bg-surface-container-low/50 pb-3">
                           <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-2">
-                            <p className="truncate font-headline text-sm font-semibold text-on-surface-variant">{routeName}</p>
+                            <p className="flex min-w-0 items-center gap-2 font-headline text-sm font-semibold text-on-surface-variant">
+                              <span className="truncate">{routeName}</span>
+                              {shortCode && (
+                                <span className="shrink-0 rounded-md border border-outline-variant/25 bg-surface-container px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/70">
+                                  {shortCode}
+                                </span>
+                              )}
+                            </p>
                             <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-outline-variant/20 bg-surface-container px-2.5 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60">
                               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                 strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

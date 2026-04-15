@@ -18,6 +18,22 @@ function parseRouteIdBody(raw: unknown): bigint | null {
   }
 }
 
+/**
+ * Short code normaliser — strips whitespace, uppercases, validates against the
+ * DB CHECK constraint (1-8 A-Z / 0-9). Returns `null` for an explicit empty
+ * string and `undefined` when the field is omitted (so the PUT handler can
+ * distinguish "leave alone" from "clear it").
+ */
+function parseShortCode(raw: unknown): string | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (typeof raw !== "string") return undefined;
+  const t = raw.trim().toUpperCase();
+  if (t === "") return null;
+  if (!/^[A-Z0-9]{1,8}$/.test(t)) return undefined;
+  return t;
+}
+
 type CoachClassConfig = { class: string; count: number; rows: number; leftCols: number; rightCols: number };
 
 /** Validate and normalise a coachClasses payload (array of per-class coach configs). */
@@ -54,6 +70,7 @@ export function createRoutesRouter(): Router {
         detail: string | null;
         category: string;
         schedule: string | null;
+        short_code: string | null;
         schedule_mode: string | null;
         operating_start: string | null;
         operating_end: string | null;
@@ -64,7 +81,7 @@ export function createRoutesRouter(): Router {
         total_seats: number | null;
         coach_classes: unknown | null;
       }>(
-        `SELECT route_id, name, detail, category, schedule,
+        `SELECT route_id, name, detail, category, schedule, short_code,
                 schedule_mode, operating_start, operating_end,
                 vehicle_type, is_interstate, coaches, seats_per_coach, total_seats,
                 coach_classes
@@ -78,6 +95,7 @@ export function createRoutesRouter(): Router {
           detail: row.detail,
           category: row.category,
           schedule: row.schedule,
+          shortCode: row.short_code,
           // New in Phase 1 — default to 'sessions' for legacy rows so clients
           // that haven't learned about scheduleMode still see current behaviour.
           scheduleMode: row.schedule_mode ?? "sessions",
@@ -130,6 +148,17 @@ export function createRoutesRouter(): Router {
           : typeof scheduleRaw === "string"
             ? scheduleRaw.trim() || null
             : undefined;
+    const shortCode = parseShortCode(body?.shortCode);
+    // Reject only when caller sent a non-empty string that failed the regex.
+    if (
+      shortCode === undefined &&
+      body?.shortCode !== undefined &&
+      body.shortCode !== null &&
+      !(typeof body.shortCode === "string" && body.shortCode.trim() === "")
+    ) {
+      res.status(400).json({ error: "shortCode must be 1-8 uppercase letters or digits" });
+      return;
+    }
 
     // Phase 1 mode fields. `undefined` means "leave the column alone";
     // `null` (for operating_*) explicitly clears it.
@@ -204,6 +233,7 @@ export function createRoutesRouter(): Router {
     if (category !== undefined) { vals.push(category); sets.push(`category = $${vals.length}`); }
     if (detail !== undefined) { vals.push(detail); sets.push(`detail = $${vals.length}`); }
     if (schedule !== undefined) { vals.push(schedule); sets.push(`schedule = $${vals.length}`); }
+    if (shortCode !== undefined) { vals.push(shortCode); sets.push(`short_code = $${vals.length}`); }
     if (scheduleMode !== undefined) { vals.push(scheduleMode); sets.push(`schedule_mode = $${vals.length}`); }
     if (operatingStart !== undefined) { vals.push(operatingStart); sets.push(`operating_start = $${vals.length}`); }
     if (operatingEnd !== undefined) { vals.push(operatingEnd); sets.push(`operating_end = $${vals.length}`); }
@@ -229,7 +259,7 @@ export function createRoutesRouter(): Router {
       const pool = getPool();
       const result = await pool.query(
         `UPDATE route_labels SET ${setClause} WHERE route_id = $${vals.length}
-         RETURNING route_id, name, detail, category, schedule,
+         RETURNING route_id, name, detail, category, schedule, short_code,
                    schedule_mode, operating_start, operating_end,
                    vehicle_type, is_interstate, coaches, seats_per_coach, total_seats, coach_classes`,
         vals,
@@ -240,12 +270,14 @@ export function createRoutesRouter(): Router {
       }
       const row = result.rows[0] as {
         route_id: string; name: string; detail: string | null; category: string; schedule: string | null;
+        short_code: string | null;
         schedule_mode: string | null; operating_start: string | null; operating_end: string | null;
         vehicle_type: string | null; is_interstate: boolean | null; coaches: number | null;
         seats_per_coach: number | null; total_seats: number | null; coach_classes: unknown | null;
       };
       res.json({ route: {
         routeId: row.route_id, name: row.name, detail: row.detail, category: row.category, schedule: row.schedule,
+        shortCode: row.short_code,
         scheduleMode: row.schedule_mode ?? "sessions",
         operatingStart: row.operating_start, operatingEnd: row.operating_end,
         vehicleType: row.vehicle_type, isInterstate: row.is_interstate,
@@ -414,6 +446,19 @@ export function createRoutesRouter(): Router {
         : typeof schedulePostRaw === "string"
           ? schedulePostRaw.trim() || null
           : null;
+    // Short code is optional on create — missing/null/empty fold to null.
+    // A non-empty string that doesn't match [A-Z0-9]{1,8} is a hard 400 so
+    // the operator gets instant feedback instead of a silent DB CHECK failure.
+    const shortCodeParsed = parseShortCode(body?.shortCode);
+    const shortCodeInvalid =
+      shortCodeParsed === undefined &&
+      typeof body?.shortCode === "string" &&
+      body.shortCode.trim() !== "";
+    if (shortCodeInvalid) {
+      res.status(400).json({ error: "shortCode must be 1-8 uppercase letters or digits" });
+      return;
+    }
+    const shortCodePost: string | null = shortCodeParsed ?? null;
 
     // Vehicle / seat config
     const vehicleTypeRaw = body?.vehicleType;
@@ -486,10 +531,10 @@ export function createRoutesRouter(): Router {
       const pool = getPool();
       await pool.query(
         `INSERT INTO route_labels
-           (route_id, name, detail, category, schedule,
+           (route_id, name, detail, category, schedule, short_code,
             vehicle_type, is_interstate, coaches, seats_per_coach, total_seats, coach_classes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [String(routeId), name, detail, category, schedulePost,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [String(routeId), name, detail, category, schedulePost, shortCodePost,
          vehicleType, isInterstate, coaches, seatsPerCoach, totalSeats,
          coachClasses ? JSON.stringify(coachClasses) : null],
       );
@@ -515,6 +560,7 @@ export function createRoutesRouter(): Router {
           detail,
           category,
           schedule: schedulePost,
+          shortCode: shortCodePost,
           vehicleType,
           isInterstate,
           coaches,

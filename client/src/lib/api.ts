@@ -30,6 +30,13 @@ export type ApiRouteLabel = {
   detail: string | null
   category: string
   schedule?: string | null
+  /**
+   * 1-8 uppercase alphanumeric chars chosen by the operator at registration.
+   * Rendered as a glanceable badge on pass cards + route listings so passengers
+   * can tell routes apart without parsing the full decimal on-chain route ID.
+   * Optional — legacy rows created before the column existed report `null`.
+   */
+  shortCode?: string | null
   /** Phase 1 — 'sessions' (default) or 'flexible'. Older rows may omit this. */
   scheduleMode?: ScheduleMode
   /** Phase 1 (flexible mode) — HH:MM start of the daily operating window. */
@@ -102,6 +109,8 @@ export async function registerRouteLabel(payload: {
   category: string
   detail?: string | null
   schedule?: string | null
+  /** 1-8 uppercase alphanumeric chars — normalised + validated server-side. */
+  shortCode?: string | null
   /** When set, API appends to config/nigeria-routes.json (server filesystem). */
   priceMon?: number
   vehicleType?: VehicleType | null
@@ -124,6 +133,9 @@ export async function registerRouteLabel(payload: {
     }
     if (payload.schedule !== undefined && payload.schedule !== null && String(payload.schedule).trim() !== "") {
       body.schedule = String(payload.schedule).trim()
+    }
+    if (payload.shortCode !== undefined && payload.shortCode !== null && String(payload.shortCode).trim() !== "") {
+      body.shortCode = String(payload.shortCode).trim().toUpperCase()
     }
     if (payload.priceMon !== undefined && Number.isFinite(payload.priceMon)) {
       body.priceMon = payload.priceMon
@@ -176,6 +188,8 @@ export async function updateRouteLabel(
     category?: string
     detail?: string | null
     schedule?: string | null
+    /** 1-8 uppercase alphanumeric. `null` or `""` clears the code. */
+    shortCode?: string | null
     /** Phase 1 — switch between 'sessions' and 'flexible' mode. */
     scheduleMode?: ScheduleMode
     /** HH:MM start of daily window (flexible mode). `null` clears. */

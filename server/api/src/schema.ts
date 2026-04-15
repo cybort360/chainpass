@@ -55,6 +55,24 @@ ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS schedule TEXT CHECK (schedule 
 `;
 
 /**
+ * Short code — 1-8 uppercase alphanumeric chars chosen by the operator at
+ * registration time (e.g. "LAGIB", "ABJKD", "XPS"). Used as a glanceable
+ * badge on pass cards and route listings so passengers can identify a
+ * route at a distance without parsing the full decimal route ID. Nullable:
+ * legacy routes that predate this column still render fine.
+ */
+export const ROUTE_LABELS_MIGRATE_SHORT_CODE_SQL = `
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS short_code TEXT;
+DO $$
+BEGIN
+  BEGIN
+    ALTER TABLE route_labels ADD CONSTRAINT route_labels_short_code_fmt
+      CHECK (short_code IS NULL OR short_code ~ '^[A-Z0-9]{1,8}$');
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+END $$;
+`;
+
+/**
  * Vehicle type + seat configuration columns (idempotent).
  *
  * vehicle_type: 'train' | 'bus' | 'light_rail'

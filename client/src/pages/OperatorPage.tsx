@@ -567,6 +567,7 @@ export function OperatorPage() {
   const [regCategory, setRegCategory] = useState("")
   const [regName, setRegName] = useState("")
   const [regDetail, setRegDetail] = useState("")
+  const [regShortCode, setRegShortCode] = useState("")
   const [regPriceMon, setRegPriceMon] = useState("")
   const [regFormErr, setRegFormErr] = useState<string | null>(null)
   const [regLabelMsg, setRegLabelMsg] = useState<string | null>(null)
@@ -607,6 +608,15 @@ export function OperatorPage() {
       setRegFormErr("Name and category are required.")
       return
     }
+    // Short code is optional — but if the operator typed one, it must match
+    // the DB CHECK (1-8 uppercase alphanumeric) before we burn gas setting
+    // the on-chain price. Catching it here saves a round-trip + a failed
+    // registerRouteLabel call after the successful tx.
+    const trimmedShortCode = regShortCode.trim().toUpperCase()
+    if (trimmedShortCode && !/^[A-Z0-9]{1,8}$/.test(trimmedShortCode)) {
+      setRegFormErr("Short code must be 1-8 letters or digits (e.g. LAGIB, MTR3).")
+      return
+    }
     let wei: bigint
     try {
       wei = parseEther(regPriceMon.trim() || "0")
@@ -623,7 +633,7 @@ export function OperatorPage() {
       functionName: "setRouteMintPrice",
       args: [routeIdBig, wei],
     })
-  }, [contractAddress, isAdmin, regName, regCategory, regPriceMon, resetRoutePrice, writeSetRoutePrice])
+  }, [contractAddress, isAdmin, regName, regCategory, regShortCode, regPriceMon, resetRoutePrice, writeSetRoutePrice])
 
   const lastRouteRegHash = useRef<string | undefined>(undefined)
   useEffect(() => {
@@ -635,6 +645,7 @@ export function OperatorPage() {
     const name = regName.trim()
     const category = regCategory.trim()
     const detail = regDetail.trim()
+    const shortCode = regShortCode.trim().toUpperCase() || null
     const monNum = Number(regPriceMon.trim())
     const priceMon = Number.isFinite(monNum) && monNum >= 0 ? monNum : undefined
     // Derived: trains are always interstate; light rail is always intrastate
@@ -658,6 +669,7 @@ export function OperatorPage() {
       name,
       category,
       detail: detail || null,
+      shortCode,
       priceMon,
       vehicleType: effectiveVehicleType,
       isInterstate: effectiveIsInterstate,
@@ -690,7 +702,7 @@ export function OperatorPage() {
         setRegLabelMsg(null)
       }
     })
-  }, [routePriceSuccess, routePriceHash, regName, regCategory, regDetail, regPriceMon,
+  }, [routePriceSuccess, routePriceHash, regName, regCategory, regDetail, regShortCode, regPriceMon,
       regVehicleType, regIsInterstate, regTotalSeats, regClasses])
 
   // ── MON price config ──────────────────────────────────────────────────────
@@ -1381,11 +1393,24 @@ export function OperatorPage() {
                     onChange={(e) => setRegPriceMon(e.target.value)} placeholder="0.075" />
                 </label>
               </div>
-              <label className="block">
-                <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Route name</span>
-                <input type="text" className={inputClass} value={regName} maxLength={100}
-                  onChange={(e) => setRegName(e.target.value)} placeholder="Route display name" />
-              </label>
+              <div className="grid grid-cols-[1fr_auto] gap-3">
+                <label className="block">
+                  <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Route name</span>
+                  <input type="text" className={inputClass} value={regName} maxLength={100}
+                    onChange={(e) => setRegName(e.target.value)} placeholder="Route display name" />
+                </label>
+                <label className="block">
+                  <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Short code</span>
+                  <input type="text"
+                    className={`${inputClass} font-mono uppercase tracking-widest w-28 text-center`}
+                    value={regShortCode} maxLength={8}
+                    onChange={(e) => setRegShortCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+                    placeholder="LAGIB" />
+                </label>
+              </div>
+              <p className="-mt-2 pl-1 text-[10px] text-on-surface-variant/60">
+                1-8 uppercase letters or digits — shown as a badge on tickets so passengers can ID the route at a glance.
+              </p>
               <label className="block">
                 <span className="font-headline text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Detail (optional)</span>
                 <input type="text" className={inputClass} value={regDetail} maxLength={200}
