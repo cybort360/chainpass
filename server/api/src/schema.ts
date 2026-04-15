@@ -178,7 +178,10 @@ BEGIN
   BEGIN
     ALTER TABLE seat_assignments ADD CONSTRAINT seat_assignments_bucket_key
       UNIQUE (route_id, service_date, session_id, seat_number);
-  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  -- Postgres reports a pre-existing constraint-backed index as
+  -- duplicate_table (42P07), not duplicate_object (42710). Catch both so
+  -- the migration is truly idempotent across partial-failure states.
+  EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL; END;
 END $$;
 CREATE INDEX IF NOT EXISTS idx_seat_assignments_bucket
   ON seat_assignments(route_id, service_date, session_id);
@@ -202,11 +205,13 @@ CREATE TABLE IF NOT EXISTS seat_reservations (
   UNIQUE(route_id, service_date, session_id, seat_number)
 );
 CREATE INDEX IF NOT EXISTS idx_seat_reservations_route_id ON seat_reservations(route_id);
-CREATE INDEX IF NOT EXISTS idx_seat_reservations_holder ON seat_reservations(route_id, LOWER(holder_address))
-  WHERE holder_address IS NOT NULL;
--- The bucket index is created in SEAT_RESERVATIONS_MIGRATE_BUCKET_SQL, not
--- here — see the comment in SEAT_ASSIGNMENTS_INIT_SQL above for the same
--- "column does not exist" gotcha on existing databases.
+-- The holder_address and bucket indexes are deliberately NOT created here.
+-- On an existing DB the CREATE TABLE IF NOT EXISTS above is a no-op, so
+-- neither column is guaranteed to exist yet. Any index referencing them
+-- would blow up with "column does not exist" (Postgres 42703) before the
+-- corresponding MIGRATE step has had a chance to ADD COLUMN. Those indexes
+-- live in SEAT_RESERVATIONS_MIGRATE_HOLDER_SQL and _BUCKET_SQL respectively,
+-- each created right after its ADD COLUMN.
 `;
 
 /**
@@ -244,7 +249,9 @@ BEGIN
   BEGIN
     ALTER TABLE seat_reservations ADD CONSTRAINT seat_reservations_bucket_key
       UNIQUE (route_id, service_date, session_id, seat_number);
-  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  -- See SEAT_ASSIGNMENTS_MIGRATE_BUCKET_SQL — Postgres raises 42P07
+  -- (duplicate_table) when the backing index name is already taken.
+  EXCEPTION WHEN duplicate_object OR duplicate_table THEN NULL; END;
 END $$;
 CREATE INDEX IF NOT EXISTS idx_seat_reservations_bucket
   ON seat_reservations(route_id, service_date, session_id);
