@@ -377,13 +377,40 @@ export async function fetchRouteRating(routeId: string): Promise<RouteRating | n
   }
 }
 
+/**
+ * Per-departure seat bucket — the tuple `(route_id, service_date, session_id)`
+ * is what actually owns the inventory on the server. Two different buckets on
+ * the same route have independent seat availability, so seat 1A on the morning
+ * run and seat 1A on the evening run don't collide.
+ *
+ * `sessionId` is the `route_sessions.id` on the server.
+ * `serviceDate` is `YYYY-MM-DD` — the concrete travel day the passenger picked.
+ *
+ * Both are optional — routes in `flexible` schedule mode (continuous window,
+ * no timetable) still use the sentinel bucket (session=0, date=1970-01-01).
+ * Passing neither is equivalent to targeting that sentinel bucket.
+ */
+export type SeatBucket = {
+  sessionId?: number
+  serviceDate?: string
+}
+
 /** Release a seat hold when the passenger deselects it. */
-export async function releaseSeat(routeId: string, seatNumber: string): Promise<void> {
+export async function releaseSeat(
+  routeId: string,
+  seatNumber: string,
+  bucket?: SeatBucket,
+): Promise<void> {
   try {
     await fetch(`${env.apiUrl}/api/v1/seats/reserve`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ routeId, seatNumber }),
+      body: JSON.stringify({
+        routeId,
+        seatNumber,
+        sessionId: bucket?.sessionId,
+        serviceDate: bucket?.serviceDate,
+      }),
     })
   } catch { /* best-effort — reservation will expire on its own */ }
 }
@@ -400,21 +427,37 @@ export async function reserveSeat(
   routeId: string,
   seatNumber: string,
   holderAddress?: string,
+  bucket?: SeatBucket,
 ): Promise<{ ok: boolean; conflict: boolean }> {
   try {
     const res = await fetch(`${env.apiUrl}/api/v1/seats/reserve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ routeId, seatNumber, holderAddress }),
+      body: JSON.stringify({
+        routeId,
+        seatNumber,
+        holderAddress,
+        sessionId: bucket?.sessionId,
+        serviceDate: bucket?.serviceDate,
+      }),
     })
     if (res.status === 409) return { ok: false, conflict: true }
     return { ok: res.ok, conflict: false }
   } catch { return { ok: false, conflict: false } }
 }
 
-export async function fetchOccupiedSeats(routeId: string): Promise<string[]> {
+export async function fetchOccupiedSeats(
+  routeId: string,
+  bucket?: SeatBucket,
+): Promise<string[]> {
   try {
-    const res = await fetch(`${env.apiUrl}/api/v1/seats/${encodeURIComponent(routeId)}`)
+    const params = new URLSearchParams()
+    if (bucket?.sessionId !== undefined && bucket.sessionId > 0)
+      params.set("sessionId", String(bucket.sessionId))
+    if (bucket?.serviceDate) params.set("serviceDate", bucket.serviceDate)
+    const qs = params.toString()
+    const url = `${env.apiUrl}/api/v1/seats/${encodeURIComponent(routeId)}${qs ? `?${qs}` : ""}`
+    const res = await fetch(url)
     if (!res.ok) return []
     const data = (await res.json()) as { occupied?: string[] }
     return data.occupied ?? []
@@ -426,6 +469,7 @@ export async function claimSeat(
   tokenId: string,
   routeId: string,
   seatNumber: string,
+  bucket?: SeatBucket,
   maxAttempts = 4,
 ): Promise<boolean> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -433,7 +477,13 @@ export async function claimSeat(
       const res = await fetch(`${env.apiUrl}/api/v1/seats`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tokenId, routeId, seatNumber }),
+        body: JSON.stringify({
+          tokenId,
+          routeId,
+          seatNumber,
+          sessionId: bucket?.sessionId,
+          serviceDate: bucket?.serviceDate,
+        }),
       })
       if (res.ok) return true
       // 409 = already claimed — treat as success (idempotent)
@@ -510,9 +560,18 @@ export type RouteCapacity = {
   soldOut: boolean
 }
 
-export async function fetchRouteCapacity(routeId: string): Promise<RouteCapacity | null> {
+export async function fetchRouteCapacity(
+  routeId: string,
+  bucket?: SeatBucket,
+): Promise<RouteCapacity | null> {
   try {
-    const res = await fetch(`${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}/capacity`)
+    const params = new URLSearchParams()
+    if (bucket?.sessionId !== undefined && bucket.sessionId > 0)
+      params.set("sessionId", String(bucket.sessionId))
+    if (bucket?.serviceDate) params.set("serviceDate", bucket.serviceDate)
+    const qs = params.toString()
+    const url = `${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}/capacity${qs ? `?${qs}` : ""}`
+    const res = await fetch(url)
     if (!res.ok) return null
     return (await res.json()) as RouteCapacity
   } catch { return null }

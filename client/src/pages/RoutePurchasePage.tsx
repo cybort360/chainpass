@@ -7,7 +7,7 @@ import { useAccount, usePublicClient, useReadContract, useWaitForTransactionRece
 import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
 import type { DemoRoute } from "../constants/demoRoutes"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
-import { fetchRouteLabels, fetchRouteRating, fetchTrips, fetchRouteCapacity, claimSeat, linkTokenToTrip, reserveSeat, releaseSeat, routeHasClasses, routeHasSeats, type ApiTrip, type RouteCapacity, type RouteRating } from "../lib/api"
+import { fetchRouteLabels, fetchRouteRating, fetchTrips, fetchRouteCapacity, claimSeat, linkTokenToTrip, reserveSeat, releaseSeat, routeHasClasses, routeHasSeats, type ApiTrip, type RouteCapacity, type RouteRating, type RouteSession, type SeatBucket } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { trackEvent } from "../lib/analytics"
@@ -123,17 +123,53 @@ export function RoutePurchasePage() {
     })
   }, [routeIdParam])
 
+  // ── Per-departure seat bucket (Phase 1.5) ─────────────────────────────────
+  // For sessions-mode routes, the passenger must pick a (day × session) before
+  // the seat map becomes interactive — each departure has its own independent
+  // inventory pool server-side. For flexible-mode routes we leave both fields
+  // undefined so the server falls back to the sentinel bucket.
+  //
+  // Declared here (before the capacity effect) so the effect can gate on
+  // `needsSessionPick` and pass the bucket into `fetchRouteCapacity`.
+  const [selectedSession, setSelectedSession] = useState<RouteSession | null>(null)
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null)
+
+  /** Format a Date as YYYY-MM-DD in local time (not UTC — we want the day the
+   * passenger actually picked on the calendar). */
+  const formatYmd = (d: Date): string => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, "0")
+    const day = String(d.getDate()).padStart(2, "0")
+    return `${y}-${m}-${day}`
+  }
+
+  const seatBucket = useMemo<SeatBucket | undefined>(() => {
+    if (!selectedSession || !selectedDate) return undefined
+    return { sessionId: selectedSession.id, serviceDate: formatYmd(selectedDate) }
+  }, [selectedSession, selectedDate])
+  const seatBucketRef = useRef<SeatBucket | undefined>(undefined)
+  useEffect(() => { seatBucketRef.current = seatBucket }, [seatBucket])
+
+  const isSessionsMode = routeConfig?.scheduleMode === "sessions"
+  /** The seat map + purchase button are gated until a session is picked on
+   * sessions-mode routes. Flexible-mode routes bypass this entirely. */
+  const needsSessionPick = isSessionsMode && !selectedSession
+
   // ── Capacity / sold-out ──────────────────────────────────────────────────
+  //
+  // Scoped to the currently-selected bucket so "SOLD OUT" reflects one
+  // departure at a time. On sessions-mode routes with no session picked yet,
+  // the capacity is intentionally cleared — the UI is gated on session pick
+  // anyway, and showing stale route-global counts would be misleading.
   const [routeCapacity, setRouteCapacity] = useState<RouteCapacity | null>(null)
   useEffect(() => {
     if (!routeIdParam) return
-    void fetchRouteCapacity(routeIdParam).then(setRouteCapacity)
-    // Refresh every 30 s so near-sold-out routes update without full reload
-    const id = setInterval(() => {
-      void fetchRouteCapacity(routeIdParam).then(setRouteCapacity)
-    }, 30_000)
+    if (isSessionsMode && !seatBucket) { setRouteCapacity(null); return }
+    const load = () => { void fetchRouteCapacity(routeIdParam, seatBucket).then(setRouteCapacity) }
+    load()
+    const id = setInterval(load, 30_000)
     return () => clearInterval(id)
-  }, [routeIdParam])
+  }, [routeIdParam, isSessionsMode, seatBucket])
   const isSoldOut = routeCapacity?.soldOut === true
 
   const hasClasses = routeHasClasses(routeConfig)   // only interstate trains
@@ -181,6 +217,7 @@ export function RoutePurchasePage() {
   const [seatConflict, setSeatConflict] = useState(false)
   const [seatClaimFailed, setSeatClaimFailed] = useState(false)
   const [reservedAt, setReservedAt] = useState<number | null>(null) // ms timestamp when hold started
+
   // Mirrors selectedSeat for stale-closure reads
   const selectedSeatRef = useRef<string | null>(null)
   useEffect(() => { selectedSeatRef.current = selectedSeat }, [selectedSeat])
@@ -192,16 +229,18 @@ export function RoutePurchasePage() {
 
   // Release the seat reservation when the user navigates away without completing payment.
   // Uses refs so the cleanup always sees the latest values regardless of when it runs.
-  const releaseOnUnmountRef = useRef<{ routeId: string; seat: string } | null>(null)
+  // The bucket is captured alongside the seat so the DELETE hits the exact row
+  // that was reserved (even if the user navigates away after changing session).
+  const releaseOnUnmountRef = useRef<{ routeId: string; seat: string; bucket: SeatBucket | undefined } | null>(null)
   useEffect(() => {
     releaseOnUnmountRef.current = seatToClaimRef.current && routeIdParam
-      ? { routeId: routeIdParam, seat: seatToClaimRef.current }
+      ? { routeId: routeIdParam, seat: seatToClaimRef.current, bucket: seatBucketRef.current }
       : null
   })
   useEffect(() => {
     return () => {
       const target = releaseOnUnmountRef.current
-      if (target) void releaseSeat(target.routeId, target.seat)
+      if (target) void releaseSeat(target.routeId, target.seat, target.bucket)
     }
   }, [])
   const publicClient = usePublicClient()
@@ -386,7 +425,7 @@ export function RoutePurchasePage() {
       const seatToClaim = seatToClaimRef.current
       const doNavigate = async () => {
         if (seatToClaim && routeIdParam) {
-          const claimed = await claimSeat(tokenId.toString(), routeIdParam, seatToClaim)
+          const claimed = await claimSeat(tokenId.toString(), routeIdParam, seatToClaim, seatBucketRef.current)
           if (!claimed) setSeatClaimFailed(true)
           seatToClaimRef.current = null
         }
@@ -419,9 +458,10 @@ export function RoutePurchasePage() {
     // Don't allow seat changes while a mint is in progress
     if (monPending || mintProgress !== null) return
 
-    // Release the previously held seat when switching to a different one
+    // Release the previously held seat when switching to a different one.
+    // Pass the bucket so the DELETE hits the exact row that was reserved.
     if (selectedSeat && selectedSeat !== seat && routeIdParam) {
-      void releaseSeat(routeIdParam, selectedSeat)
+      void releaseSeat(routeIdParam, selectedSeat, seatBucket)
     }
 
     setSelectedSeat(seat)
@@ -435,7 +475,9 @@ export function RoutePurchasePage() {
       // Passing `address` lets the server indexer auto-promote this reservation
       // to a permanent assignment the moment the TicketMinted event lands on
       // chain — even if the client's explicit claimSeat() call never arrives.
-      const result = await reserveSeat(routeIdParam, seat, address ?? undefined)
+      // Bucket scopes the reservation to the picked (day × session) — a free
+      // 1A in the morning session is independent from 1A in the evening.
+      const result = await reserveSeat(routeIdParam, seat, address ?? undefined, seatBucket)
       if (!result.ok && result.conflict) {
         // Another passenger just grabbed it — deselect and warn
         setSelectedSeat(null)
@@ -488,7 +530,10 @@ export function RoutePurchasePage() {
         // appeared in the occupied set.
         const seatToClaim = seatToClaimRef.current
         if (seatToClaim && ids.length === 1 && routeIdParam) {
-          const claimed = await claimSeat(ids[0].toString(), routeIdParam, seatToClaim)
+          // seatBucketRef lets this survive stale-closure: the bucket captured
+          // when the user reserved the seat is the one we claim into, even if
+          // the user somehow re-picked session mid-mint.
+          const claimed = await claimSeat(ids[0].toString(), routeIdParam, seatToClaim, seatBucketRef.current)
           if (!claimed) {
             console.warn("[seat-claim] claimSeat failed", { tokenId: ids[0].toString(), routeId: routeIdParam, seat: seatToClaim })
             setSeatClaimFailed(true)
@@ -657,10 +702,27 @@ export function RoutePurchasePage() {
         </div>
       </div>
 
-      {/* Weekly schedule (Phase 1 — preview; trip selector below drives payment) */}
+      {/* Weekly schedule (Phase 1) — also drives the per-departure seat bucket.
+          Selecting a (day × session) scopes the seat map to that specific
+          departure so 1A in the morning session is independent from 1A in the
+          evening session, and Monday's inventory stays separate from Tuesday's. */}
       {routeIdParam && routeConfig?.scheduleMode === "sessions" && (
         <div className="mt-5">
-          <SessionPicker routeId={routeIdParam} />
+          <SessionPicker
+            routeId={routeIdParam}
+            onSessionSelected={(s, d) => {
+              // Release any seat held under the previous bucket before we
+              // switch — otherwise the old reservation lingers until TTL.
+              if (selectedSeat && routeIdParam && seatBucket) {
+                void releaseSeat(routeIdParam, selectedSeat, seatBucket)
+              }
+              setSelectedSession(s)
+              setSelectedDate(d)
+              setSelectedSeat(null)
+              seatToClaimRef.current = null
+              setReservedAt(null)
+            }}
+          />
         </div>
       )}
 
@@ -758,7 +820,7 @@ export function RoutePurchasePage() {
             <div className="flex gap-2">
               {availableClasses.includes("first") && (
                 <button type="button"
-                  onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(2); setSelectedSeat(null) }}
+                  onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat, seatBucket); setSeatClass(2); setSelectedSeat(null) }}
                   className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
                     seatClass === 2
                       ? "border-violet-400/40 bg-violet-400/10 text-violet-300"
@@ -770,7 +832,7 @@ export function RoutePurchasePage() {
               )}
               {availableClasses.includes("business") && (
                 <button type="button"
-                  onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(1); setSelectedSeat(null) }}
+                  onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat, seatBucket); setSeatClass(1); setSelectedSeat(null) }}
                   className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
                     seatClass === 1
                       ? "border-amber-400/40 bg-amber-400/10 text-amber-300"
@@ -782,7 +844,7 @@ export function RoutePurchasePage() {
               )}
               {availableClasses.includes("economy") && (
                 <button type="button"
-                  onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setSeatClass(0); setSelectedSeat(null) }}
+                  onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat, seatBucket); setSeatClass(0); setSelectedSeat(null) }}
                   className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl border py-2.5 font-headline text-xs font-semibold transition-all ${
                     seatClass === 0
                       ? "border-primary/40 bg-primary/10 text-white"
@@ -796,8 +858,24 @@ export function RoutePurchasePage() {
           </div>
         )}
 
-        {/* Seat picker — trains and buses with seat config, single ticket */}
-        {hasSeats && quantity === 1 && routeIdParam && (
+        {/* Session-pick prompt — sessions-mode routes require a (day × session)
+            selection before the seat map becomes interactive. Without it we
+            don't know which inventory bucket to query, and showing a stale
+            route-global seat map would mislead the passenger. */}
+        {needsSessionPick && hasSeats && quantity === 1 && (
+          <div className="border-b border-outline-variant/15 px-4 py-6 text-center">
+            <p className="font-headline text-sm font-semibold text-white">
+              Pick a session above to see available seats
+            </p>
+            <p className="mt-1 text-xs text-on-surface-variant">
+              Morning and evening sessions each have their own seat inventory.
+            </p>
+          </div>
+        )}
+
+        {/* Seat picker — trains and buses with seat config, single ticket.
+            Gated behind session pick on sessions-mode routes. */}
+        {!needsSessionPick && hasSeats && quantity === 1 && routeIdParam && (
           <div className="border-b border-outline-variant/15 px-4 py-4">
             {seatConflict && (
               <div className="mb-3 flex items-center gap-2 rounded-xl border border-error/30 bg-error/10 px-3 py-2.5">
@@ -834,6 +912,8 @@ export function RoutePurchasePage() {
               coaches={routeConfig?.coaches}
               seatsPerCoach={routeConfig?.seatsPerCoach}
               totalSeats={routeConfig?.totalSeats}
+              sessionId={seatBucket?.sessionId}
+              serviceDate={seatBucket?.serviceDate}
             />
             {selectedSeat && reservedAt !== null && (
               <SeatHoldCountdown reservedAt={reservedAt} onExpired={() => {
@@ -929,7 +1009,7 @@ export function RoutePurchasePage() {
             <button
               type="button"
               disabled={quantity <= 1}
-              onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setQuantity((q) => Math.max(1, q - 1)); setSelectedSeat(null); seatToClaimRef.current = null; setReservedAt(null) }}
+              onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat, seatBucket); setQuantity((q) => Math.max(1, q - 1)); setSelectedSeat(null); seatToClaimRef.current = null; setReservedAt(null) }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high font-bold text-white disabled:opacity-30 hover:border-primary/40 transition-colors"
               aria-label="Decrease quantity"
             >
@@ -941,7 +1021,7 @@ export function RoutePurchasePage() {
             <button
               type="button"
               disabled={quantity >= 5}
-              onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat); setQuantity((q) => Math.min(5, q + 1)); setSelectedSeat(null); seatToClaimRef.current = null; setReservedAt(null) }}
+              onClick={() => { if (selectedSeat && routeIdParam) void releaseSeat(routeIdParam, selectedSeat, seatBucket); setQuantity((q) => Math.min(5, q + 1)); setSelectedSeat(null); seatToClaimRef.current = null; setReservedAt(null) }}
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-outline-variant/30 bg-surface-container-high font-bold text-white disabled:opacity-30 hover:border-primary/40 transition-colors"
               aria-label="Increase quantity"
             >
@@ -987,7 +1067,13 @@ export function RoutePurchasePage() {
 
         {/* CTA section */}
         <div className="border-t border-outline-variant/15 px-5 py-5 space-y-3">
-          {isSoldOut ? (
+          {needsSessionPick ? (
+            <div className="rounded-xl bg-surface-container-high px-4 py-3 text-center">
+              <p className="font-headline text-sm font-semibold text-on-surface-variant">
+                Pick a session above to continue
+              </p>
+            </div>
+          ) : isSoldOut ? (
             <div className="overflow-hidden rounded-2xl border border-error/30 bg-error/8">
               <div className="flex items-center gap-3 px-5 py-5">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-error/15">

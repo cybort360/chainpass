@@ -288,6 +288,12 @@ export function createRoutesRouter(): Router {
   });
 
   // GET /routes/:routeId/capacity — sold + reserved tickets vs. route capacity
+  //
+  // Optional query params `sessionId` + `serviceDate` scope counts to a single
+  // (date, session) bucket — required for sessions-mode routes so the
+  // sold-out meter reflects one departure rather than the whole route. When
+  // omitted, counts fall back to the sentinel bucket (session=0,
+  // date=1970-01-01) which matches legacy / flexible-mode rows.
   r.get("/routes/:routeId/capacity", async (req, res) => {
     if (!process.env.DATABASE_URL) {
       res.json({ capacity: null, sold: 0, reserved: 0, available: null, soldOut: false });
@@ -296,6 +302,22 @@ export function createRoutesRouter(): Router {
     try {
       const pool = getPool();
       const routeIdStr = String(req.params.routeId).trim();
+
+      // Bucket parsing — mirrors seats.ts so the same sentinel values apply.
+      const rawSession = req.query.sessionId;
+      const sessionId =
+        typeof rawSession === "string" && /^[1-9][0-9]*$/.test(rawSession.trim())
+          ? parseInt(rawSession.trim(), 10)
+          : typeof rawSession === "number" && Number.isInteger(rawSession) && rawSession > 0
+            ? rawSession
+            : 0;
+      const rawDate = req.query.serviceDate;
+      const serviceDate =
+        typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawDate.trim())
+          ? rawDate.trim()
+          : typeof rawDate === "string" && /^\d{4}-\d{2}-\d{2}T/.test(rawDate.trim())
+            ? rawDate.trim().slice(0, 10)
+            : "1970-01-01";
 
       // Fetch route capacity fields
       const routeRow = await pool.query<{
@@ -328,26 +350,30 @@ export function createRoutesRouter(): Router {
         capacity = row.total_seats;
       }
 
-      // Count seats using UNION to avoid double-counting seats that briefly
-      // appear in both tables during the claim window (INSERT + DELETE race).
+      // Count seats in the given bucket. UNION dedupes seats briefly in both
+      // tables during the INSERT + DELETE race at claim time.
       const [soldRes, reservedRes, occupiedRes] = await Promise.all([
         pool.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM seat_assignments WHERE route_id = $1`,
-          [routeIdStr],
+          `SELECT COUNT(*) AS count FROM seat_assignments
+           WHERE route_id = $1 AND service_date = $2 AND session_id = $3`,
+          [routeIdStr, serviceDate, sessionId],
         ),
         pool.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM seat_reservations WHERE route_id = $1 AND expires_at > NOW()`,
-          [routeIdStr],
+          `SELECT COUNT(*) AS count FROM seat_reservations
+           WHERE route_id = $1 AND service_date = $2 AND session_id = $3
+             AND expires_at > NOW()`,
+          [routeIdStr, serviceDate, sessionId],
         ),
         pool.query<{ count: string }>(
-          // $1 is referenced twice but `pg` with pgbouncer requires the parameter
-          // array length to match the highest $N, not the reference count.
           `SELECT COUNT(*) AS count FROM (
-             SELECT seat_number FROM seat_assignments WHERE route_id = $1
+             SELECT seat_number FROM seat_assignments
+               WHERE route_id = $1 AND service_date = $2 AND session_id = $3
              UNION
-             SELECT seat_number FROM seat_reservations WHERE route_id = $1 AND expires_at > NOW()
+             SELECT seat_number FROM seat_reservations
+               WHERE route_id = $1 AND service_date = $2 AND session_id = $3
+                 AND expires_at > NOW()
            ) AS occupied`,
-          [routeIdStr],
+          [routeIdStr, serviceDate, sessionId],
         ),
       ]);
 

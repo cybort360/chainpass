@@ -101,16 +101,30 @@ CREATE TABLE IF NOT EXISTS route_ratings (
 CREATE INDEX IF NOT EXISTS idx_route_ratings_route_id ON route_ratings(route_id);
 `;
 
+/**
+ * Permanent seat assignments — one row per minted ticket.
+ *
+ * Uniqueness is per (route_id, service_date, session_id, seat_number) so the
+ * same seat number (e.g. "E1-1A") can be sold independently for the Monday
+ * morning run and the Monday evening run — and for next Wednesday — without
+ * collisions. Legacy rows predating bucketing land on a sentinel bucket
+ * (service_date='1970-01-01', session_id=0) where each route's seat_number
+ * is still globally unique, preserving old behaviour.
+ */
 export const SEAT_ASSIGNMENTS_INIT_SQL = `
 CREATE TABLE IF NOT EXISTS seat_assignments (
   id SERIAL PRIMARY KEY,
   route_id TEXT NOT NULL,
   token_id TEXT NOT NULL UNIQUE,
   seat_number TEXT NOT NULL,
+  session_id INTEGER NOT NULL DEFAULT 0,
+  service_date DATE NOT NULL DEFAULT '1970-01-01',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(route_id, seat_number)
+  UNIQUE(route_id, service_date, session_id, seat_number)
 );
 CREATE INDEX IF NOT EXISTS idx_seat_assignments_route_id ON seat_assignments(route_id);
+CREATE INDEX IF NOT EXISTS idx_seat_assignments_bucket
+  ON seat_assignments(route_id, service_date, session_id);
 `;
 
 /**
@@ -133,6 +147,40 @@ END $$;
 `;
 
 /**
+ * Phase 1.5 — session/date bucketing for seat_assignments.
+ *
+ * Introduces `session_id` + `service_date` (NOT NULL, sentinel defaults) so a
+ * seat number is unique per (route, date, session) rather than per route. This
+ * fixes the bug where buying seat 1A on Wednesday-morning was making seat 1A
+ * on Wednesday-evening (and Monday-morning, etc.) appear taken.
+ *
+ * Migration order:
+ *   1. Add the columns (cheap — they default to sentinel values).
+ *   2. Drop the old (route_id, seat_number) unique constraint if present.
+ *   3. Add the new (route_id, service_date, session_id, seat_number) unique.
+ *
+ * Idempotent — every DDL uses IF NOT EXISTS / EXCEPTION guards. Old rows keep
+ * working because they land in the sentinel bucket (1970-01-01 / session=0),
+ * which still enforces per-route seat uniqueness for legacy data.
+ */
+export const SEAT_ASSIGNMENTS_MIGRATE_BUCKET_SQL = `
+ALTER TABLE seat_assignments ADD COLUMN IF NOT EXISTS session_id INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE seat_assignments ADD COLUMN IF NOT EXISTS service_date DATE NOT NULL DEFAULT '1970-01-01';
+DO $$
+BEGIN
+  BEGIN
+    ALTER TABLE seat_assignments DROP CONSTRAINT seat_assignments_route_id_seat_number_key;
+  EXCEPTION WHEN undefined_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE seat_assignments ADD CONSTRAINT seat_assignments_bucket_key
+      UNIQUE (route_id, service_date, session_id, seat_number);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_seat_assignments_bucket
+  ON seat_assignments(route_id, service_date, session_id);
+`;
+
+/**
  * Temporary seat holds — created when a passenger selects a seat, expire after 10 minutes.
  * Makes the seat appear "taken" to all other users while payment is in progress.
  * Confirmed into seat_assignments on successful mint; expired rows ignored automatically.
@@ -144,12 +192,16 @@ CREATE TABLE IF NOT EXISTS seat_reservations (
   seat_number TEXT NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
   holder_address TEXT,
+  session_id INTEGER NOT NULL DEFAULT 0,
+  service_date DATE NOT NULL DEFAULT '1970-01-01',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(route_id, seat_number)
+  UNIQUE(route_id, service_date, session_id, seat_number)
 );
 CREATE INDEX IF NOT EXISTS idx_seat_reservations_route_id ON seat_reservations(route_id);
 CREATE INDEX IF NOT EXISTS idx_seat_reservations_holder ON seat_reservations(route_id, LOWER(holder_address))
   WHERE holder_address IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_seat_reservations_bucket
+  ON seat_reservations(route_id, service_date, session_id);
 `;
 
 /**
@@ -162,6 +214,35 @@ export const SEAT_RESERVATIONS_MIGRATE_HOLDER_SQL = `
 ALTER TABLE seat_reservations ADD COLUMN IF NOT EXISTS holder_address TEXT;
 CREATE INDEX IF NOT EXISTS idx_seat_reservations_holder ON seat_reservations(route_id, LOWER(holder_address))
   WHERE holder_address IS NOT NULL;
+`;
+
+/**
+ * Phase 1.5 — session/date bucketing for seat_reservations.
+ *
+ * Mirrors SEAT_ASSIGNMENTS_MIGRATE_BUCKET_SQL so a held seat is scoped to the
+ * same (route, service_date, session) bucket as the eventual assignment. That
+ * lets the indexer's auto-claim path match reservation → assignment by token's
+ * `to` address AND its intended bucket.
+ *
+ * Old DBs had `UNIQUE(route_id, seat_number)` — drop that and replace with
+ * the bucketed key. Reserve/release/claim queries are updated in lockstep
+ * (seats.ts) to target the new unique constraint.
+ */
+export const SEAT_RESERVATIONS_MIGRATE_BUCKET_SQL = `
+ALTER TABLE seat_reservations ADD COLUMN IF NOT EXISTS session_id INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE seat_reservations ADD COLUMN IF NOT EXISTS service_date DATE NOT NULL DEFAULT '1970-01-01';
+DO $$
+BEGIN
+  BEGIN
+    ALTER TABLE seat_reservations DROP CONSTRAINT seat_reservations_route_id_seat_number_key;
+  EXCEPTION WHEN undefined_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE seat_reservations ADD CONSTRAINT seat_reservations_bucket_key
+      UNIQUE (route_id, service_date, session_id, seat_number);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_seat_reservations_bucket
+  ON seat_reservations(route_id, service_date, session_id);
 `;
 
 /**

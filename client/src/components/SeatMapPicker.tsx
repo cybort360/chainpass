@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { fetchOccupiedSeats } from "../lib/api"
-import type { CoachClassConfig, VehicleType } from "../lib/api"
+import type { CoachClassConfig, SeatBucket, VehicleType } from "../lib/api"
 import { env } from "../lib/env"
 
 /** Fallback poll interval — SSE handles real-time; polling is just a safety net */
@@ -21,6 +21,10 @@ type Props = {
   seatsPerCoach?: number | null
   /** Bus: total seat count */
   totalSeats?: number | null
+  /** Per-departure bucket — scopes occupied lookups to one (date × session).
+   *  Undefined on flexible-mode routes (server falls back to sentinel bucket). */
+  sessionId?: number
+  serviceDate?: string
 }
 
 function SeatBtn({
@@ -217,7 +221,7 @@ function LegacySeatRow({
   )
 }
 
-export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, coachClasses, selectedClass, coaches, seatsPerCoach, totalSeats }: Props) {
+export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, coachClasses, selectedClass, coaches, seatsPerCoach, totalSeats, sessionId, serviceDate }: Props) {
   const [occupied, setOccupied] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [selectedCoachIdx, setSelectedCoachIdx] = useState(0)
@@ -226,33 +230,42 @@ export function SeatMapPicker({ routeId, selectedSeat, onSelect, vehicleType, co
   // Reset to first coach when the class filter changes
   useEffect(() => { setSelectedCoachIdx(0) }, [selectedClass])
 
-  const refresh = (initial = false) => {
-    if (initial) setLoading(true)
-    void fetchOccupiedSeats(routeId).then((seats) => {
-      setOccupied(new Set(seats))
-      if (initial) setLoading(false)
-    })
-  }
+  // Stable bucket object so effect dependencies compare by value not identity.
+  const bucket = useMemo<SeatBucket | undefined>(() => {
+    if (sessionId === undefined && serviceDate === undefined) return undefined
+    return { sessionId, serviceDate }
+  }, [sessionId, serviceDate])
 
   useEffect(() => {
+    let cancelled = false
+    const refresh = (initial = false) => {
+      if (initial) setLoading(true)
+      void fetchOccupiedSeats(routeId, bucket).then((seats) => {
+        if (cancelled) return
+        setOccupied(new Set(seats))
+        if (initial) setLoading(false)
+      })
+    }
     refresh(true)
     intervalRef.current = setInterval(() => refresh(false), POLL_MS)
     return () => {
+      cancelled = true
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeId])
+  }, [routeId, bucket])
 
-  // SSE: server pushes "seats-changed" whenever any client reserves, releases, or claims
+  // SSE: server pushes "seats-changed" whenever any client reserves, releases, or claims.
+  // The stream is route-scoped (all buckets share it) — re-fetch scoped to
+  // our current bucket so only relevant changes affect this picker.
   useEffect(() => {
     const es = new EventSource(
       `${env.apiUrl}/api/v1/seats/stream/${encodeURIComponent(routeId)}`,
     )
     es.addEventListener("seats-changed", () => {
-      void fetchOccupiedSeats(routeId).then((seats) => setOccupied(new Set(seats)))
+      void fetchOccupiedSeats(routeId, bucket).then((seats) => setOccupied(new Set(seats)))
     })
     return () => es.close()
-  }, [routeId])
+  }, [routeId, bucket])
 
   const toggle = (id: string) => onSelect(selectedSeat === id ? null : id)
 

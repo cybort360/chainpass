@@ -130,37 +130,46 @@ async function autoClaimReservedSeat(args: {
     if (already.rowCount && already.rowCount > 0) return;
 
     // 2. Find reservation candidates. Prefer currently-valid rows; fall back
-    //    to recently-expired ones if the seat is still genuinely free.
-    const activeRes = await pool.query<{ seat_number: string }>(
-      `SELECT seat_number FROM seat_reservations
+    //    to recently-expired ones if the seat is still genuinely free. Pull
+    //    the bucket columns too so we can propagate (service_date, session_id)
+    //    from reservation → assignment. The same seat number can exist in
+    //    multiple buckets simultaneously (morning vs evening run), so the
+    //    bucket is part of the row's identity, not just its uniqueness key.
+    type BucketRow = { seat_number: string; service_date: string | Date; session_id: number };
+    let picked: BucketRow | null = null;
+
+    const activeRes = await pool.query<BucketRow>(
+      `SELECT seat_number, service_date, session_id FROM seat_reservations
        WHERE route_id = $1
          AND LOWER(holder_address) = $2
          AND expires_at > NOW()`,
       [args.routeId, holder],
     );
-
-    let seatNumber: string | null = null;
     if (activeRes.rowCount === 1) {
-      seatNumber = activeRes.rows[0].seat_number;
+      picked = activeRes.rows[0];
     } else if (activeRes.rowCount && activeRes.rowCount > 1) {
       console.warn(
         `[auto-claim] multiple active reservations for holder=${holder} route=${args.routeId} — skipping token=${args.tokenId}`,
       );
       return;
     } else {
-      // Grace-window fallback: recently expired and seat still genuinely free.
-      const graceRes = await pool.query<{ seat_number: string }>(
-        `SELECT r.seat_number FROM seat_reservations r
+      // Grace-window fallback: recently expired and the exact (bucket, seat)
+      // is still genuinely free. Bucket match is critical — a free seat in
+      // a DIFFERENT session must not be auto-claimed for this mint.
+      const graceRes = await pool.query<BucketRow>(
+        `SELECT r.seat_number, r.service_date, r.session_id FROM seat_reservations r
          WHERE r.route_id = $1
            AND LOWER(r.holder_address) = $2
            AND r.expires_at > NOW() - INTERVAL '${AUTO_CLAIM_GRACE_MINUTES} minutes'
            AND NOT EXISTS (
              SELECT 1 FROM seat_assignments a
              WHERE a.route_id = r.route_id AND a.seat_number = r.seat_number
+               AND a.service_date = r.service_date AND a.session_id = r.session_id
            )
            AND NOT EXISTS (
              SELECT 1 FROM seat_reservations r2
              WHERE r2.route_id = r.route_id AND r2.seat_number = r.seat_number
+               AND r2.service_date = r.service_date AND r2.session_id = r.session_id
                AND r2.expires_at > NOW()
                AND LOWER(r2.holder_address) <> $2
            )
@@ -169,40 +178,45 @@ async function autoClaimReservedSeat(args: {
         [args.routeId, holder],
       );
       if (graceRes.rowCount === 1) {
-        seatNumber = graceRes.rows[0].seat_number;
+        picked = graceRes.rows[0];
         console.log(
-          `[auto-claim] grace-window rescue for token=${args.tokenId} holder=${holder} seat=${seatNumber}`,
+          `[auto-claim] grace-window rescue for token=${args.tokenId} holder=${holder} seat=${picked.seat_number}`,
         );
       }
     }
 
-    if (!seatNumber) return;
+    if (!picked) return;
+    const { seat_number: seatNumber, service_date: serviceDate, session_id: sessionId } = picked;
 
-    // 3. Promote: INSERT assignment (idempotent on conflict) + DELETE reservation.
+    // 3. Promote: INSERT assignment (idempotent on conflict) + DELETE
+    // reservation. Both statements scope on the full bucket so concurrent
+    // mints in neighbouring sessions cannot stomp on each other.
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       const ins = await client.query<{ id: number }>(
-        `INSERT INTO seat_assignments (route_id, token_id, seat_number)
-         VALUES ($1, $2, $3)
+        `INSERT INTO seat_assignments (route_id, token_id, seat_number, service_date, session_id)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT DO NOTHING
          RETURNING id`,
-        [args.routeId, args.tokenId, seatNumber],
+        [args.routeId, args.tokenId, seatNumber, serviceDate, sessionId],
       );
       if (ins.rowCount) {
         await client.query(
-          `DELETE FROM seat_reservations WHERE route_id = $1 AND seat_number = $2`,
-          [args.routeId, seatNumber],
+          `DELETE FROM seat_reservations
+           WHERE route_id = $1 AND seat_number = $2
+             AND service_date = $3 AND session_id = $4`,
+          [args.routeId, seatNumber, serviceDate, sessionId],
         );
         console.log(
-          `[auto-claim] promoted token=${args.tokenId} route=${args.routeId} seat=${seatNumber} holder=${holder}`,
+          `[auto-claim] promoted token=${args.tokenId} route=${args.routeId} bucket=${String(serviceDate)}/${sessionId} seat=${seatNumber} holder=${holder}`,
         );
       }
       await client.query("COMMIT");
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       console.error(
-        `[auto-claim] promotion failed token=${args.tokenId} seat=${seatNumber}:`,
+        `[auto-claim] promotion failed token=${args.tokenId} seat=${picked.seat_number}:`,
         err,
       );
     } finally {

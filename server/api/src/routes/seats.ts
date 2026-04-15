@@ -40,6 +40,35 @@ function computeCapacity(row: {
 /** Reservation TTL in minutes — covers signing + block confirmation time. */
 const RESERVATION_TTL_MINUTES = 10;
 
+/**
+ * Sentinel bucket values used when the caller does not supply a session/date
+ * (e.g. legacy clients, `flexible` schedule_mode routes where seats are
+ * route-global). Must match the DEFAULT clauses in schema.ts so a missing
+ * param and a sentinel-stored row compare equal.
+ */
+const SENTINEL_SESSION_ID = 0;
+const SENTINEL_SERVICE_DATE = "1970-01-01";
+
+/** Parse incoming sessionId — accepts numeric strings or numbers. */
+function parseSessionId(raw: unknown): number {
+  if (typeof raw === "number" && Number.isInteger(raw) && raw > 0) return raw;
+  if (typeof raw === "string" && /^[1-9][0-9]*$/.test(raw.trim())) return parseInt(raw.trim(), 10);
+  return SENTINEL_SESSION_ID;
+}
+
+/** Parse incoming serviceDate — accepts YYYY-MM-DD or ISO timestamp; falls back to sentinel. */
+function parseServiceDate(raw: unknown): string {
+  if (typeof raw !== "string") return SENTINEL_SERVICE_DATE;
+  const trimmed = raw.trim();
+  if (!trimmed) return SENTINEL_SERVICE_DATE;
+  // YYYY-MM-DD (most common — what the client sends after date.toISOString().slice(0,10))
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  // ISO datetime → take the date portion
+  const m = /^(\d{4}-\d{2}-\d{2})T/.exec(trimmed);
+  if (m) return m[1];
+  return SENTINEL_SERVICE_DATE;
+}
+
 export function createSeatsRouter(): Router {
   const r = Router();
 
@@ -69,20 +98,34 @@ export function createSeatsRouter(): Router {
     } catch { res.json({ seatNumber: null }); }
   });
 
-  // GET /seats/:routeId — permanently assigned + currently reserved seats
+  // GET /seats/:routeId — occupied seats for a bucket.
+  //
+  // Query params (optional but strongly recommended for sessions-mode routes):
+  //   sessionId   — numeric id of the route_sessions row
+  //   serviceDate — YYYY-MM-DD of the intended travel day
+  //
+  // When either is absent it defaults to the sentinel (session=0, date=1970-01-01)
+  // which corresponds to legacy / flexible-mode rows. Two requests with
+  // different buckets will see independent occupied sets — that is the whole
+  // point: buying seat 1A for the morning run does NOT grey out 1A for the
+  // evening run.
   r.get("/seats/:routeId", async (req, res) => {
     if (!process.env.DATABASE_URL) { res.json({ occupied: [] }); return; }
     try {
       const pool = getPool();
+      const sessionId = parseSessionId(req.query.sessionId);
+      const serviceDate = parseServiceDate(req.query.serviceDate);
       const [assigned, reserved] = await Promise.all([
         pool.query<{ seat_number: string }>(
-          `SELECT seat_number FROM seat_assignments WHERE route_id = $1`,
-          [req.params.routeId],
+          `SELECT seat_number FROM seat_assignments
+           WHERE route_id = $1 AND service_date = $2 AND session_id = $3`,
+          [req.params.routeId, serviceDate, sessionId],
         ),
         pool.query<{ seat_number: string }>(
           `SELECT seat_number FROM seat_reservations
-           WHERE route_id = $1 AND expires_at > NOW()`,
-          [req.params.routeId],
+           WHERE route_id = $1 AND service_date = $2 AND session_id = $3
+             AND expires_at > NOW()`,
+          [req.params.routeId, serviceDate, sessionId],
         ),
       ]);
       const occupied = [
@@ -97,7 +140,11 @@ export function createSeatsRouter(): Router {
     }
   });
 
-  // DELETE /seats/reserve — release a hold when passenger deselects
+  // DELETE /seats/reserve — release a hold when passenger deselects.
+  //
+  // Accepts the same bucket params as POST /seats/reserve so we delete the
+  // correct (route, date, session) row. Legacy / flexible-mode callers can
+  // omit them and hit the sentinel bucket, preserving old behaviour.
   r.delete("/seats/reserve", async (req, res) => {
     if (!process.env.DATABASE_URL) { res.json({ ok: true }); return; }
     const body = req.body as Record<string, unknown>;
@@ -106,11 +153,15 @@ export function createSeatsRouter(): Router {
     if (!routeId || !seatNumber) {
       res.status(400).json({ error: "missing routeId or seatNumber" }); return;
     }
+    const sessionId = parseSessionId(body.sessionId);
+    const serviceDate = parseServiceDate(body.serviceDate);
     try {
       const pool = getPool();
       await pool.query(
-        `DELETE FROM seat_reservations WHERE route_id = $1 AND seat_number = $2`,
-        [routeId, seatNumber],
+        `DELETE FROM seat_reservations
+         WHERE route_id = $1 AND seat_number = $2
+           AND service_date = $3 AND session_id = $4`,
+        [routeId, seatNumber, serviceDate, sessionId],
       );
       seatNotify(routeId)
       res.json({ ok: true });
@@ -120,12 +171,19 @@ export function createSeatsRouter(): Router {
     }
   });
 
-  // POST /seats/reserve — temporarily lock a seat while passenger pays
-  // Idempotent: re-selecting the same seat refreshes the TTL.
+  // POST /seats/reserve — temporarily lock a seat while passenger pays.
   //
-  // `holderAddress` is optional for backwards compatibility with older clients,
-  // but if provided it's stored lowercased so the indexer can match it against
-  // the `to` field of TicketMinted events for server-side auto-claim.
+  // Bucket semantics (see GET /seats/:routeId above):
+  //   sessionId + serviceDate define the per-departure inventory pool. Seat
+  //   1A is a distinct row for every (route, date, session) triple, so the
+  //   same seat number can be sold in parallel across Monday-morning,
+  //   Monday-evening, and Wednesday-morning.
+  //
+  // Idempotent: re-selecting the same seat in the same bucket refreshes the TTL.
+  //
+  // `holderAddress` is optional for backwards compatibility, but if provided
+  // it's stored lowercased so the indexer can match it against TicketMinted
+  // events for server-side auto-claim.
   r.post("/seats/reserve", async (req, res) => {
     if (!process.env.DATABASE_URL) { res.json({ ok: true }); return; }
     const body = req.body as Record<string, unknown>;
@@ -138,10 +196,12 @@ export function createSeatsRouter(): Router {
     if (!routeId || !seatNumber) {
       res.status(400).json({ error: "missing routeId or seatNumber" }); return;
     }
+    const sessionId = parseSessionId(body.sessionId);
+    const serviceDate = parseServiceDate(body.serviceDate);
     try {
       const pool = getPool();
 
-      // ── Overbooking check: reject if route is at capacity ──
+      // ── Overbooking check: reject if this bucket is at capacity ──
       const routeRow = await pool.query<{
         coaches: number | null; seats_per_coach: number | null;
         total_seats: number | null; coach_classes: CoachClassConfig[] | null;
@@ -152,17 +212,20 @@ export function createSeatsRouter(): Router {
       if (routeRow.rows[0]) {
         const capacity = computeCapacity(routeRow.rows[0]);
         if (capacity !== null) {
-          // UNION deduplicates seats that briefly appear in both tables (race window
-          // between INSERT seat_assignments and DELETE seat_reservations at claim time).
-          // NOTE: $1 is referenced twice in the query but `pg` with pgbouncer requires
-          // the parameter array length to match the highest $N, not the reference count.
+          // UNION deduplicates seats that briefly appear in both tables (race
+          // window between INSERT seat_assignments and DELETE seat_reservations
+          // at claim time). Counting is scoped to the bucket so a full morning
+          // session does not mark the evening session sold out.
           const occupiedRes = await pool.query<{ count: string }>(
             `SELECT COUNT(*) AS count FROM (
-               SELECT seat_number FROM seat_assignments WHERE route_id = $1
+               SELECT seat_number FROM seat_assignments
+                 WHERE route_id = $1 AND service_date = $2 AND session_id = $3
                UNION
-               SELECT seat_number FROM seat_reservations WHERE route_id = $1 AND expires_at > NOW()
+               SELECT seat_number FROM seat_reservations
+                 WHERE route_id = $1 AND service_date = $2 AND session_id = $3
+                   AND expires_at > NOW()
              ) AS occupied`,
-            [routeId],
+            [routeId, serviceDate, sessionId],
           );
           const occupied = parseInt(occupiedRes.rows[0]?.count ?? "0", 10);
           if (occupied >= capacity) {
@@ -171,28 +234,29 @@ export function createSeatsRouter(): Router {
         }
       }
 
-      // Reject if already permanently assigned
+      // Reject if this seat is already permanently assigned in this bucket.
       const taken = await pool.query(
-        `SELECT 1 FROM seat_assignments WHERE route_id = $1 AND seat_number = $2`,
-        [routeId, seatNumber],
+        `SELECT 1 FROM seat_assignments
+         WHERE route_id = $1 AND seat_number = $2
+           AND service_date = $3 AND session_id = $4`,
+        [routeId, seatNumber, serviceDate, sessionId],
       );
       if (taken.rowCount && taken.rowCount > 0) {
         res.status(409).json({ error: "seat already taken" }); return;
       }
       const expiresAt = new Date(Date.now() + RESERVATION_TTL_MINUTES * 60 * 1000);
-      // Atomic: insert the reservation, or overwrite it only if the existing row has
-      // already expired (expires_at <= NOW).  If an active reservation exists for a
-      // different passenger the WHERE clause fails → rowCount = 0 → 409.
-      // This single statement replaces the old non-atomic check-then-upsert which
-      // allowed two concurrent requests to both succeed (race condition).
+      // Atomic insert-or-overwrite-if-expired, scoped to the bucket. The
+      // conflict target matches the new (route, date, session, seat_number)
+      // unique constraint. If an active reservation exists for a different
+      // passenger the WHERE clause fails → rowCount = 0 → 409.
       const inserted = await pool.query(
-        `INSERT INTO seat_reservations (route_id, seat_number, expires_at, holder_address)
-         VALUES ($1, $2, $3, $4)
-         ON CONFLICT (route_id, seat_number) DO UPDATE
+        `INSERT INTO seat_reservations (route_id, seat_number, expires_at, holder_address, service_date, session_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (route_id, service_date, session_id, seat_number) DO UPDATE
            SET expires_at     = EXCLUDED.expires_at,
                holder_address = EXCLUDED.holder_address
            WHERE seat_reservations.expires_at <= NOW()`,
-        [routeId, seatNumber, expiresAt, holderAddress],
+        [routeId, seatNumber, expiresAt, holderAddress, serviceDate, sessionId],
       );
       if (!inserted.rowCount || inserted.rowCount === 0) {
         res.status(409).json({ error: "seat is being held by another passenger" }); return;
@@ -205,7 +269,11 @@ export function createSeatsRouter(): Router {
     }
   });
 
-  // POST /seats — confirm permanent assignment after successful on-chain mint
+  // POST /seats — confirm permanent assignment after successful on-chain mint.
+  //
+  // Uniqueness is checked within the bucket (route_id, service_date,
+  // session_id). The token_id itself remains globally unique because a single
+  // on-chain ticket cannot legitimately belong to two different buckets.
   r.post("/seats", async (req, res) => {
     if (!process.env.DATABASE_URL) {
       res.json({ ok: true, seatNumber: (req.body as Record<string, unknown>).seatNumber });
@@ -218,15 +286,18 @@ export function createSeatsRouter(): Router {
     if (!tokenId || !routeId || !seatNumber) {
       res.status(400).json({ error: "missing tokenId, routeId, or seatNumber" }); return;
     }
+    const sessionId = parseSessionId(body.sessionId);
+    const serviceDate = parseServiceDate(body.serviceDate);
     try {
       const pool = getPool();
 
-      // Fetch any rows that conflict with our intended (route_id, seat_number) OR token_id.
-      // One round-trip surfaces every possible conflict so we can branch cleanly.
+      // Fetch any rows that conflict with our intended (route, bucket, seat)
+      // OR our token_id. One round-trip surfaces every possible conflict.
       const existing = await pool.query<{ token_id: string; seat_number: string }>(
         `SELECT token_id, seat_number FROM seat_assignments
-         WHERE (route_id = $1 AND seat_number = $2) OR token_id = $3`,
-        [routeId, seatNumber, tokenId],
+         WHERE (route_id = $1 AND seat_number = $2 AND service_date = $4 AND session_id = $5)
+            OR token_id = $3`,
+        [routeId, seatNumber, tokenId, serviceDate, sessionId],
       );
 
       // Idempotent: this exact (token, seat) pair already exists — success.
@@ -250,8 +321,9 @@ export function createSeatsRouter(): Router {
         res.status(409).json({ error: "token already has a different seat" }); return;
       }
 
-      // Another token owns this (route, seat). Check if it's a ghost from a burned
-      // ticket — in which case we auto-reassign. Otherwise it's truly held.
+      // Another token owns this (route, bucket, seat). Check if it's a ghost
+      // from a burned ticket — in which case we auto-reassign. Otherwise it's
+      // truly held.
       const seatTaken = existing.rows.find(
         (r) => r.seat_number === seatNumber && r.token_id !== tokenId,
       );
@@ -268,7 +340,7 @@ export function createSeatsRouter(): Router {
 
         if (!ghost) {
           console.warn(
-            `[seats POST] seat ${seatNumber} route ${routeId} held by active token ${seatTaken.token_id}`,
+            `[seats POST] seat ${seatNumber} route ${routeId} bucket=${serviceDate}/${sessionId} held by active token ${seatTaken.token_id}`,
           );
           res.status(409).json({ error: "seat already taken by another ticket" }); return;
         }
@@ -282,29 +354,31 @@ export function createSeatsRouter(): Router {
         // Fall through to INSERT
       }
 
-      // Write the permanent assignment. RETURNING id lets us detect a silent no-op
-      // (e.g. a concurrent writer beat us to the UNIQUE constraint) and surface it
-      // as 500 so the client's retry loop kicks in instead of treating it as success.
+      // Write the permanent assignment, scoped to the bucket. RETURNING id
+      // detects a silent no-op (a concurrent writer beat us to the UNIQUE
+      // constraint) so we can surface 500 and let the client retry.
       const inserted = await pool.query<{ id: number }>(
-        `INSERT INTO seat_assignments (route_id, token_id, seat_number)
-         VALUES ($1, $2, $3)
+        `INSERT INTO seat_assignments (route_id, token_id, seat_number, service_date, session_id)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT DO NOTHING
          RETURNING id`,
-        [routeId, tokenId, seatNumber],
+        [routeId, tokenId, seatNumber, serviceDate, sessionId],
       );
       if (!inserted.rowCount) {
         console.error(
-          `[seats POST] insert silently failed token=${tokenId} route=${routeId} seat=${seatNumber}`,
+          `[seats POST] insert silently failed token=${tokenId} route=${routeId} bucket=${serviceDate}/${sessionId} seat=${seatNumber}`,
         );
         res.status(500).json({ error: "claim did not persist — please retry" }); return;
       }
 
-      // Clean up the reservation (no longer needed)
+      // Clean up the reservation for this bucket (no longer needed).
       await pool.query(
-        `DELETE FROM seat_reservations WHERE route_id = $1 AND seat_number = $2`,
-        [routeId, seatNumber],
+        `DELETE FROM seat_reservations
+         WHERE route_id = $1 AND seat_number = $2
+           AND service_date = $3 AND session_id = $4`,
+        [routeId, seatNumber, serviceDate, sessionId],
       );
-      console.log(`[seats POST] claimed token=${tokenId} route=${routeId} seat=${seatNumber}`);
+      console.log(`[seats POST] claimed token=${tokenId} route=${routeId} bucket=${serviceDate}/${sessionId} seat=${seatNumber}`);
       seatNotify(routeId);
       res.json({ ok: true, seatNumber });
     } catch (err) {

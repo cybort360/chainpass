@@ -534,6 +534,116 @@ describe("HTTP API", () => {
       const params = insertCall![1] as unknown[];
       expect(params[3]).toBeNull();
     });
+
+    // ── Per-departure bucket (sessions-mode) ──────────────────────────────
+    //
+    // Each (route × date × session) is an independent inventory pool. A
+    // morning-session 1A and an evening-session 1A do not conflict; a
+    // Wednesday 1A and a Thursday 1A do not conflict. The same holds for
+    // legacy/flexible-mode rows, which land in the (0, '1970-01-01') sentinel
+    // bucket and continue to behave as before.
+    describe("per-departure bucket", () => {
+      it("persists sessionId + serviceDate on reserve when provided", async () => {
+        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+        queryMock
+          .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+          .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+          .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+        await request(app)
+          .post("/api/v1/seats/reserve")
+          .send({
+            routeId: "42",
+            seatNumber: "1A",
+            sessionId: 7,
+            serviceDate: "2026-04-15",
+          })
+          .expect(200);
+
+        const insertCall = queryMock.mock.calls.find((c) =>
+          typeof c[0] === "string" && /INSERT INTO seat_reservations/.test(c[0]),
+        );
+        expect(insertCall).toBeDefined();
+        const params = insertCall![1] as unknown[];
+        // Params order in seats.ts reserve: route_id, seat_number, expires_at, holder, service_date, session_id
+        expect(params[0]).toBe("42");
+        expect(params[1]).toBe("1A");
+        expect(params).toContain("2026-04-15");
+        expect(params).toContain(7);
+      });
+
+      it("falls back to sentinel bucket (session=0, date='1970-01-01') when not provided", async () => {
+        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+        queryMock
+          .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+          .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+          .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+        await request(app)
+          .post("/api/v1/seats/reserve")
+          .send({ routeId: "42", seatNumber: "1A" })
+          .expect(200);
+
+        const insertCall = queryMock.mock.calls.find((c) =>
+          typeof c[0] === "string" && /INSERT INTO seat_reservations/.test(c[0]),
+        );
+        expect(insertCall).toBeDefined();
+        const params = insertCall![1] as unknown[];
+        expect(params).toContain("1970-01-01");
+        expect(params).toContain(0);
+      });
+
+      it("scopes the 'taken' check to the bucket (same seat different session = not taken)", async () => {
+        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+        queryMock
+          .mockResolvedValueOnce({ rows: [], rowCount: 0 })   // route_labels
+          .mockResolvedValueOnce({ rows: [], rowCount: 0 })   // taken — scoped, empty
+          .mockResolvedValueOnce({ rows: [], rowCount: 1 });  // INSERT
+
+        await request(app)
+          .post("/api/v1/seats/reserve")
+          .send({
+            routeId: "42",
+            seatNumber: "1A",
+            sessionId: 2,
+            serviceDate: "2026-04-15",
+          })
+          .expect(200);
+
+        const takenCall = queryMock.mock.calls.find((c) =>
+          typeof c[0] === "string" && /FROM seat_assignments/i.test(c[0]),
+        );
+        expect(takenCall).toBeDefined();
+        // The taken-check query must filter by bucket columns
+        expect(takenCall![0]).toMatch(/service_date/);
+        expect(takenCall![0]).toMatch(/session_id/);
+      });
+
+      it("rejects malformed sessionId / serviceDate by folding to sentinel", async () => {
+        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+        queryMock
+          .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+          .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+          .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+        await request(app)
+          .post("/api/v1/seats/reserve")
+          .send({
+            routeId: "42",
+            seatNumber: "1A",
+            sessionId: "not-a-number",
+            serviceDate: "not-a-date",
+          })
+          .expect(200);
+
+        const insertCall = queryMock.mock.calls.find((c) =>
+          typeof c[0] === "string" && /INSERT INTO seat_reservations/.test(c[0]),
+        );
+        const params = insertCall![1] as unknown[];
+        expect(params).toContain("1970-01-01");
+        expect(params).toContain(0);
+      });
+    });
   });
 
   describe("GET /api/v1/rider/passes", () => {
