@@ -54,6 +54,9 @@ export function createRoutesRouter(): Router {
         detail: string | null;
         category: string;
         schedule: string | null;
+        schedule_mode: string | null;
+        operating_start: string | null;
+        operating_end: string | null;
         vehicle_type: string | null;
         is_interstate: boolean | null;
         coaches: number | null;
@@ -62,6 +65,7 @@ export function createRoutesRouter(): Router {
         coach_classes: unknown | null;
       }>(
         `SELECT route_id, name, detail, category, schedule,
+                schedule_mode, operating_start, operating_end,
                 vehicle_type, is_interstate, coaches, seats_per_coach, total_seats,
                 coach_classes
          FROM route_labels
@@ -74,6 +78,11 @@ export function createRoutesRouter(): Router {
           detail: row.detail,
           category: row.category,
           schedule: row.schedule,
+          // New in Phase 1 — default to 'sessions' for legacy rows so clients
+          // that haven't learned about scheduleMode still see current behaviour.
+          scheduleMode: row.schedule_mode ?? "sessions",
+          operatingStart: row.operating_start,
+          operatingEnd: row.operating_end,
           vehicleType: row.vehicle_type,
           isInterstate: row.is_interstate,
           coaches: row.coaches,
@@ -121,6 +130,28 @@ export function createRoutesRouter(): Router {
           : typeof scheduleRaw === "string"
             ? scheduleRaw.trim() || null
             : undefined;
+
+    // Phase 1 mode fields. `undefined` means "leave the column alone";
+    // `null` (for operating_*) explicitly clears it.
+    const scheduleModeRaw = body?.scheduleMode;
+    const scheduleMode =
+      scheduleModeRaw === undefined
+        ? undefined
+        : ["sessions", "flexible"].includes(String(scheduleModeRaw))
+          ? String(scheduleModeRaw)
+          : undefined;
+    const HHMM = /^[0-2][0-9]:[0-5][0-9]$/;
+    const parseWindow = (raw: unknown): string | null | undefined => {
+      if (raw === undefined) return undefined;
+      if (raw === null) return null;
+      if (typeof raw !== "string") return undefined;
+      const t = raw.trim();
+      if (t === "") return null;
+      return HHMM.test(t) ? t : undefined;
+    };
+    const operatingStart = parseWindow(body?.operatingStart);
+    const operatingEnd = parseWindow(body?.operatingEnd);
+
     const vehicleTypeRaw = body?.vehicleType;
     const vehicleType =
       vehicleTypeRaw === undefined ? undefined :
@@ -153,6 +184,18 @@ export function createRoutesRouter(): Router {
       res.status(400).json({ error: "schedule must be 120 characters or fewer" });
       return;
     }
+    // Reject only if the caller sent a value that failed to parse as HH:MM.
+    // `undefined` (field omitted) is fine — we just don't update that column.
+    if (operatingStart === undefined && body?.operatingStart !== undefined && body.operatingStart !== null && body.operatingStart !== "") {
+      res.status(400).json({ error: "operatingStart must be HH:MM (24h)" }); return;
+    }
+    if (operatingEnd === undefined && body?.operatingEnd !== undefined && body.operatingEnd !== null && body.operatingEnd !== "") {
+      res.status(400).json({ error: "operatingEnd must be HH:MM (24h)" }); return;
+    }
+    // Require a sensible window when both are supplied.
+    if (operatingStart && operatingEnd && operatingStart >= operatingEnd) {
+      res.status(400).json({ error: "operatingStart must be earlier than operatingEnd" }); return;
+    }
 
     // Build SET clause dynamically
     const sets: string[] = [];
@@ -161,6 +204,9 @@ export function createRoutesRouter(): Router {
     if (category !== undefined) { vals.push(category); sets.push(`category = $${vals.length}`); }
     if (detail !== undefined) { vals.push(detail); sets.push(`detail = $${vals.length}`); }
     if (schedule !== undefined) { vals.push(schedule); sets.push(`schedule = $${vals.length}`); }
+    if (scheduleMode !== undefined) { vals.push(scheduleMode); sets.push(`schedule_mode = $${vals.length}`); }
+    if (operatingStart !== undefined) { vals.push(operatingStart); sets.push(`operating_start = $${vals.length}`); }
+    if (operatingEnd !== undefined) { vals.push(operatingEnd); sets.push(`operating_end = $${vals.length}`); }
     if (vehicleType !== undefined) { vals.push(vehicleType); sets.push(`vehicle_type = $${vals.length}`); }
     if (isInterstate !== undefined) { vals.push(isInterstate); sets.push(`is_interstate = $${vals.length}`); }
     if (coaches !== undefined) { vals.push(coaches); sets.push(`coaches = $${vals.length}`); }
@@ -184,6 +230,7 @@ export function createRoutesRouter(): Router {
       const result = await pool.query(
         `UPDATE route_labels SET ${setClause} WHERE route_id = $${vals.length}
          RETURNING route_id, name, detail, category, schedule,
+                   schedule_mode, operating_start, operating_end,
                    vehicle_type, is_interstate, coaches, seats_per_coach, total_seats, coach_classes`,
         vals,
       );
@@ -193,11 +240,14 @@ export function createRoutesRouter(): Router {
       }
       const row = result.rows[0] as {
         route_id: string; name: string; detail: string | null; category: string; schedule: string | null;
+        schedule_mode: string | null; operating_start: string | null; operating_end: string | null;
         vehicle_type: string | null; is_interstate: boolean | null; coaches: number | null;
         seats_per_coach: number | null; total_seats: number | null; coach_classes: unknown | null;
       };
       res.json({ route: {
         routeId: row.route_id, name: row.name, detail: row.detail, category: row.category, schedule: row.schedule,
+        scheduleMode: row.schedule_mode ?? "sessions",
+        operatingStart: row.operating_start, operatingEnd: row.operating_end,
         vehicleType: row.vehicle_type, isInterstate: row.is_interstate,
         coaches: row.coaches, seatsPerCoach: row.seats_per_coach, totalSeats: row.total_seats,
         coachClasses: row.coach_classes ?? null,
