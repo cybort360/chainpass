@@ -123,8 +123,12 @@ CREATE TABLE IF NOT EXISTS seat_assignments (
   UNIQUE(route_id, service_date, session_id, seat_number)
 );
 CREATE INDEX IF NOT EXISTS idx_seat_assignments_route_id ON seat_assignments(route_id);
-CREATE INDEX IF NOT EXISTS idx_seat_assignments_bucket
-  ON seat_assignments(route_id, service_date, session_id);
+-- The bucket index is deliberately NOT created here. On an existing production
+-- DB the CREATE TABLE IF NOT EXISTS above is a no-op, so service_date /
+-- session_id don't exist yet — an index referencing them would fail with
+-- "column does not exist" (Postgres 42703). The bucket index is created in
+-- SEAT_ASSIGNMENTS_MIGRATE_BUCKET_SQL, which runs right after the ADD COLUMN
+-- step and is the correct home for any DDL that depends on bucket columns.
 `;
 
 /**
@@ -200,8 +204,9 @@ CREATE TABLE IF NOT EXISTS seat_reservations (
 CREATE INDEX IF NOT EXISTS idx_seat_reservations_route_id ON seat_reservations(route_id);
 CREATE INDEX IF NOT EXISTS idx_seat_reservations_holder ON seat_reservations(route_id, LOWER(holder_address))
   WHERE holder_address IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_seat_reservations_bucket
-  ON seat_reservations(route_id, service_date, session_id);
+-- The bucket index is created in SEAT_RESERVATIONS_MIGRATE_BUCKET_SQL, not
+-- here — see the comment in SEAT_ASSIGNMENTS_INIT_SQL above for the same
+-- "column does not exist" gotcha on existing databases.
 `;
 
 /**
