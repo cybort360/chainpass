@@ -432,7 +432,10 @@ export function RoutePurchasePage() {
       // claimSeat after mint is authoritative — the reservation is just a courtesy
       // hold that greys the seat out for others during checkout.
       seatToClaimRef.current = seat
-      const result = await reserveSeat(routeIdParam, seat)
+      // Passing `address` lets the server indexer auto-promote this reservation
+      // to a permanent assignment the moment the TicketMinted event lands on
+      // chain — even if the client's explicit claimSeat() call never arrives.
+      const result = await reserveSeat(routeIdParam, seat, address ?? undefined)
       if (!result.ok && result.conflict) {
         // Another passenger just grabbed it — deselect and warn
         setSelectedSeat(null)
@@ -486,14 +489,28 @@ export function RoutePurchasePage() {
         const seatToClaim = seatToClaimRef.current
         if (seatToClaim && ids.length === 1 && routeIdParam) {
           const claimed = await claimSeat(ids[0].toString(), routeIdParam, seatToClaim)
-          if (!claimed) setSeatClaimFailed(true)
+          if (!claimed) {
+            console.warn("[seat-claim] claimSeat failed", { tokenId: ids[0].toString(), routeId: routeIdParam, seat: seatToClaim })
+            setSeatClaimFailed(true)
+          }
           seatToClaimRef.current = null
+        } else if (seatToClaim && ids.length !== 1) {
+          // Shouldn't happen for single purchase — surface it loudly if it does.
+          console.warn("[seat-claim] skipped: unexpected mint id count", { ids: ids.map((i) => i.toString()), seat: seatToClaim })
         }
         if (selectedTripId !== null && ids.length === 1 && routeIdParam) {
           await linkTokenToTrip(ids[0].toString(), selectedTripId, routeIdParam)
         }
         setMintedTokenIds(ids)
       } else {
+        // Mint succeeded (writeMonAsync didn't throw) but we couldn't parse the
+        // token id from the receipt — rarely seen but leaves the seat unclaimed.
+        // Surface it in the UI so the user knows their seat may not have been locked.
+        console.warn("[seat-claim] no tokenId extracted from receipt", {
+          logCount: receipt.logs.length,
+          hasSeatToClaim: !!seatToClaimRef.current,
+        })
+        if (seatToClaimRef.current) setSeatClaimFailed(true)
         setMintedTokenIds([])
       }
     } finally {

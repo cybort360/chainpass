@@ -143,10 +143,25 @@ CREATE TABLE IF NOT EXISTS seat_reservations (
   route_id TEXT NOT NULL,
   seat_number TEXT NOT NULL,
   expires_at TIMESTAMPTZ NOT NULL,
+  holder_address TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE(route_id, seat_number)
 );
 CREATE INDEX IF NOT EXISTS idx_seat_reservations_route_id ON seat_reservations(route_id);
+CREATE INDEX IF NOT EXISTS idx_seat_reservations_holder ON seat_reservations(route_id, LOWER(holder_address))
+  WHERE holder_address IS NOT NULL;
+`;
+
+/**
+ * Back-fill holder_address on older DBs created before the column existed.
+ * The column is nullable so rows predating this migration remain valid; they
+ * simply can't be auto-reconciled by the indexer (which is fine — they've
+ * long since expired anyway).
+ */
+export const SEAT_RESERVATIONS_MIGRATE_HOLDER_SQL = `
+ALTER TABLE seat_reservations ADD COLUMN IF NOT EXISTS holder_address TEXT;
+CREATE INDEX IF NOT EXISTS idx_seat_reservations_holder ON seat_reservations(route_id, LOWER(holder_address))
+  WHERE holder_address IS NOT NULL;
 `;
 
 /**

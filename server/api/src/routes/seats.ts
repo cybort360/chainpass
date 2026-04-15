@@ -122,11 +122,19 @@ export function createSeatsRouter(): Router {
 
   // POST /seats/reserve — temporarily lock a seat while passenger pays
   // Idempotent: re-selecting the same seat refreshes the TTL.
+  //
+  // `holderAddress` is optional for backwards compatibility with older clients,
+  // but if provided it's stored lowercased so the indexer can match it against
+  // the `to` field of TicketMinted events for server-side auto-claim.
   r.post("/seats/reserve", async (req, res) => {
     if (!process.env.DATABASE_URL) { res.json({ ok: true }); return; }
     const body = req.body as Record<string, unknown>;
     const routeId = typeof body.routeId === "string" ? body.routeId.trim() : "";
     const seatNumber = typeof body.seatNumber === "string" ? body.seatNumber.trim() : "";
+    const rawHolder = typeof body.holderAddress === "string" ? body.holderAddress.trim() : "";
+    // 0x + 40 hex; anything else → silently ignore (don't reject a valid
+    // reservation just because the address was malformed).
+    const holderAddress = /^0x[0-9a-fA-F]{40}$/.test(rawHolder) ? rawHolder.toLowerCase() : null;
     if (!routeId || !seatNumber) {
       res.status(400).json({ error: "missing routeId or seatNumber" }); return;
     }
@@ -178,12 +186,13 @@ export function createSeatsRouter(): Router {
       // This single statement replaces the old non-atomic check-then-upsert which
       // allowed two concurrent requests to both succeed (race condition).
       const inserted = await pool.query(
-        `INSERT INTO seat_reservations (route_id, seat_number, expires_at)
-         VALUES ($1, $2, $3)
+        `INSERT INTO seat_reservations (route_id, seat_number, expires_at, holder_address)
+         VALUES ($1, $2, $3, $4)
          ON CONFLICT (route_id, seat_number) DO UPDATE
-           SET expires_at = EXCLUDED.expires_at
+           SET expires_at     = EXCLUDED.expires_at,
+               holder_address = EXCLUDED.holder_address
            WHERE seat_reservations.expires_at <= NOW()`,
-        [routeId, seatNumber, expiresAt],
+        [routeId, seatNumber, expiresAt, holderAddress],
       );
       if (!inserted.rowCount || inserted.rowCount === 0) {
         res.status(409).json({ error: "seat is being held by another passenger" }); return;

@@ -457,6 +457,85 @@ describe("HTTP API", () => {
     });
   });
 
+  describe("POST /api/v1/seats/reserve", () => {
+    it("returns 400 when routeId or seatNumber is missing", async () => {
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      const res = await request(app)
+        .post("/api/v1/seats/reserve")
+        .send({ routeId: "1" })
+        .expect(400);
+      expect(res.body.error).toMatch(/routeId|seatNumber/);
+    });
+
+    it("persists holder_address (lowercased) when a valid 0x address is supplied", async () => {
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      // routeRow lookup → no capacity row (skips overbooking branch)
+      // taken seat lookup → none
+      // INSERT seat_reservations → 1 row
+      queryMock
+        .mockResolvedValueOnce({ rows: [], rowCount: 0 })           // route_labels
+        .mockResolvedValueOnce({ rows: [], rowCount: 0 })           // seat_assignments (taken check)
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });          // INSERT
+
+      const mixedCase = "0xAbCdEfABCDEF1234567890aBcDeF1234567890Ab";
+      const res = await request(app)
+        .post("/api/v1/seats/reserve")
+        .send({ routeId: "42", seatNumber: "E1-1B", holderAddress: mixedCase })
+        .expect(200);
+      expect(res.body.ok).toBe(true);
+
+      // The INSERT should have been called with the 4th param lowercased.
+      const insertCall = queryMock.mock.calls.find((c) =>
+        typeof c[0] === "string" && /INSERT INTO seat_reservations/.test(c[0]),
+      );
+      expect(insertCall).toBeDefined();
+      const params = insertCall![1] as unknown[];
+      expect(params[0]).toBe("42");
+      expect(params[1]).toBe("E1-1B");
+      expect(params[3]).toBe(mixedCase.toLowerCase());
+    });
+
+    it("stores holder_address = null when the address is malformed", async () => {
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      queryMock
+        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      await request(app)
+        .post("/api/v1/seats/reserve")
+        .send({ routeId: "42", seatNumber: "E1-1C", holderAddress: "not-an-address" })
+        .expect(200);
+
+      const insertCall = queryMock.mock.calls.find((c) =>
+        typeof c[0] === "string" && /INSERT INTO seat_reservations/.test(c[0]),
+      );
+      expect(insertCall).toBeDefined();
+      const params = insertCall![1] as unknown[];
+      expect(params[3]).toBeNull();
+    });
+
+    it("stores holder_address = null when the address is omitted entirely (backwards compat)", async () => {
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      queryMock
+        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+        .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+        .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+      await request(app)
+        .post("/api/v1/seats/reserve")
+        .send({ routeId: "42", seatNumber: "E1-1D" })
+        .expect(200);
+
+      const insertCall = queryMock.mock.calls.find((c) =>
+        typeof c[0] === "string" && /INSERT INTO seat_reservations/.test(c[0]),
+      );
+      expect(insertCall).toBeDefined();
+      const params = insertCall![1] as unknown[];
+      expect(params[3]).toBeNull();
+    });
+  });
+
   describe("GET /api/v1/rider/passes", () => {
     it("returns 400 when holder is missing", async () => {
       const res = await request(app).get("/api/v1/rider/passes").expect(400);

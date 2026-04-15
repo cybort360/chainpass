@@ -90,6 +90,131 @@ async function insertMint(args: {
   );
 }
 
+/**
+ * Guarantees that a passenger who reserved a seat and paid for their ticket
+ * ends up with a permanent seat assignment — even if the client's explicit
+ * POST /seats call never reaches the server.
+ *
+ * Trigger: every TicketMinted event the indexer ingests.
+ *
+ * Logic:
+ *   1. If the token already has an assignment → nothing to do (client's fast
+ *      path already wrote it).
+ *   2. Look for a reservation on (routeId, holder = TicketMinted.to) that is
+ *      still valid, OR expired within a short grace window AND the seat is
+ *      not currently held by anyone else. The grace window covers slow RPC /
+ *      long mempool waits where the reservation TTL ran out before the mint
+ *      confirmed.
+ *   3. Exactly one candidate → promote it (INSERT assignment, DELETE
+ *      reservation) in a transaction.
+ *   4. Zero or multiple candidates → log and skip; the seat stays unclaimed
+ *      (same outcome as the pre-reconcile behaviour — no regression).
+ *
+ * All DB operations are idempotent via ON CONFLICT / constraints, so re-runs
+ * over the same block range (e.g. after indexer restart) are safe.
+ */
+const AUTO_CLAIM_GRACE_MINUTES = 10;
+
+async function autoClaimReservedSeat(args: {
+  tokenId: string;
+  routeId: string;
+  to: string;
+}): Promise<void> {
+  const holder = args.to.toLowerCase();
+  try {
+    // 1. Skip if already assigned (client beat us to it — normal fast path).
+    const already = await pool.query(
+      `SELECT 1 FROM seat_assignments WHERE token_id = $1`,
+      [args.tokenId],
+    );
+    if (already.rowCount && already.rowCount > 0) return;
+
+    // 2. Find reservation candidates. Prefer currently-valid rows; fall back
+    //    to recently-expired ones if the seat is still genuinely free.
+    const activeRes = await pool.query<{ seat_number: string }>(
+      `SELECT seat_number FROM seat_reservations
+       WHERE route_id = $1
+         AND LOWER(holder_address) = $2
+         AND expires_at > NOW()`,
+      [args.routeId, holder],
+    );
+
+    let seatNumber: string | null = null;
+    if (activeRes.rowCount === 1) {
+      seatNumber = activeRes.rows[0].seat_number;
+    } else if (activeRes.rowCount && activeRes.rowCount > 1) {
+      console.warn(
+        `[auto-claim] multiple active reservations for holder=${holder} route=${args.routeId} — skipping token=${args.tokenId}`,
+      );
+      return;
+    } else {
+      // Grace-window fallback: recently expired and seat still genuinely free.
+      const graceRes = await pool.query<{ seat_number: string }>(
+        `SELECT r.seat_number FROM seat_reservations r
+         WHERE r.route_id = $1
+           AND LOWER(r.holder_address) = $2
+           AND r.expires_at > NOW() - INTERVAL '${AUTO_CLAIM_GRACE_MINUTES} minutes'
+           AND NOT EXISTS (
+             SELECT 1 FROM seat_assignments a
+             WHERE a.route_id = r.route_id AND a.seat_number = r.seat_number
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM seat_reservations r2
+             WHERE r2.route_id = r.route_id AND r2.seat_number = r.seat_number
+               AND r2.expires_at > NOW()
+               AND LOWER(r2.holder_address) <> $2
+           )
+         ORDER BY r.expires_at DESC
+         LIMIT 1`,
+        [args.routeId, holder],
+      );
+      if (graceRes.rowCount === 1) {
+        seatNumber = graceRes.rows[0].seat_number;
+        console.log(
+          `[auto-claim] grace-window rescue for token=${args.tokenId} holder=${holder} seat=${seatNumber}`,
+        );
+      }
+    }
+
+    if (!seatNumber) return;
+
+    // 3. Promote: INSERT assignment (idempotent on conflict) + DELETE reservation.
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const ins = await client.query<{ id: number }>(
+        `INSERT INTO seat_assignments (route_id, token_id, seat_number)
+         VALUES ($1, $2, $3)
+         ON CONFLICT DO NOTHING
+         RETURNING id`,
+        [args.routeId, args.tokenId, seatNumber],
+      );
+      if (ins.rowCount) {
+        await client.query(
+          `DELETE FROM seat_reservations WHERE route_id = $1 AND seat_number = $2`,
+          [args.routeId, seatNumber],
+        );
+        console.log(
+          `[auto-claim] promoted token=${args.tokenId} route=${args.routeId} seat=${seatNumber} holder=${holder}`,
+        );
+      }
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error(
+        `[auto-claim] promotion failed token=${args.tokenId} seat=${seatNumber}:`,
+        err,
+      );
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    // Fully non-fatal: the client's POST /seats path is still the primary
+    // and this is the safety net. Log and move on.
+    console.error(`[auto-claim] unexpected error token=${args.tokenId}:`, err);
+  }
+}
+
 async function insertBurn(args: {
   txHash: string;
   logIndex: number;
@@ -175,6 +300,15 @@ async function processRange(fromBlock: bigint, toBlock: bigint): Promise<void> {
       operatorAddr: String(args.operatorAddr),
       to: String(args.to),
       paymentWei,
+    });
+
+    // Safety-net: every mint triggers an attempt to auto-promote any matching
+    // reservation into a permanent assignment. No-op when the client's
+    // POST /seats fast-path already wrote it, or when no reservation exists.
+    await autoClaimReservedSeat({
+      tokenId: String(args.tokenId),
+      routeId: String(args.routeId),
+      to: String(args.to),
     });
   }
 

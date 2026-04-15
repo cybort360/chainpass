@@ -388,13 +388,24 @@ export async function releaseSeat(routeId: string, seatNumber: string): Promise<
   } catch { /* best-effort — reservation will expire on its own */ }
 }
 
-/** Temporarily hold a seat for ~10 minutes while the passenger completes payment. */
-export async function reserveSeat(routeId: string, seatNumber: string): Promise<{ ok: boolean; conflict: boolean }> {
+/**
+ * Temporarily hold a seat for ~10 minutes while the passenger completes payment.
+ *
+ * `holderAddress` is optional but strongly recommended — the server stores it
+ * so the indexer can auto-promote this reservation into a permanent assignment
+ * the instant the TicketMinted event is observed, even if the client's explicit
+ * POST /seats call fails (tab closed, RPC glitched, etc.).
+ */
+export async function reserveSeat(
+  routeId: string,
+  seatNumber: string,
+  holderAddress?: string,
+): Promise<{ ok: boolean; conflict: boolean }> {
   try {
     const res = await fetch(`${env.apiUrl}/api/v1/seats/reserve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ routeId, seatNumber }),
+      body: JSON.stringify({ routeId, seatNumber, holderAddress }),
     })
     if (res.status === 409) return { ok: false, conflict: true }
     return { ok: res.ok, conflict: false }

@@ -13,6 +13,7 @@ import {
   SEAT_ASSIGNMENTS_INIT_SQL,
   SEAT_ASSIGNMENTS_MIGRATE_UNIQUE_SEAT_SQL,
   SEAT_RESERVATIONS_INIT_SQL,
+  SEAT_RESERVATIONS_MIGRATE_HOLDER_SQL,
   TRIPS_INIT_SQL,
   TICKET_TRIPS_INIT_SQL,
 } from "../schema.js";
@@ -57,6 +58,7 @@ export async function ensureRouteLabelsTable(): Promise<void> {
   await pool.query(SEAT_ASSIGNMENTS_INIT_SQL);
   await pool.query(SEAT_ASSIGNMENTS_MIGRATE_UNIQUE_SEAT_SQL);
   await pool.query(SEAT_RESERVATIONS_INIT_SQL);
+  await pool.query(SEAT_RESERVATIONS_MIGRATE_HOLDER_SQL);
   await pool.query(TRIPS_INIT_SQL);
   await pool.query(TICKET_TRIPS_INIT_SQL);
 
@@ -74,5 +76,15 @@ export async function ensureRouteLabelsTable(): Promise<void> {
   } catch {
     // ticket_events table not yet created by the indexer — nothing to clean up
   }
+
+  // One-time cleanup: stale diagnostic rows written during live investigation
+  // of the pre-reconcile claim bug. Safe to run every startup — DELETE is a
+  // no-op once the row is gone. Remove this block after the first deploy has
+  // run if you want to tidy the migration list.
+  try {
+    await pool.query(
+      `DELETE FROM seat_assignments WHERE token_id LIKE 'diag-test-%'`,
+    );
+  } catch { /* non-fatal */ }
 }
 
