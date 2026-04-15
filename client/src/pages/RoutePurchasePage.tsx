@@ -15,6 +15,7 @@ import { formatNgn, useExchangeRates } from "../lib/prices"
 import { extractMintedTokenIdFromReceipt } from "../lib/tx"
 import { formatWriteContractError } from "../lib/walletError"
 import { SeatMapPicker } from "../components/SeatMapPicker"
+import { SessionPicker } from "../components/SessionPicker"
 
 type PayMethod = "mon" | "usdc"
 
@@ -638,6 +639,13 @@ export function RoutePurchasePage() {
           )}
         </div>
       </div>
+
+      {/* Weekly schedule (Phase 1 — preview; trip selector below drives payment) */}
+      {routeIdParam && routeConfig?.scheduleMode === "sessions" && (
+        <div className="mt-5">
+          <SessionPicker routeId={routeIdParam} />
+        </div>
+      )}
 
       {/* Trip selector */}
       {availableTrips.length > 0 && (

@@ -187,3 +187,65 @@ CREATE TABLE IF NOT EXISTS ticket_trips (
 );
 CREATE INDEX IF NOT EXISTS idx_ticket_trips_trip_id ON ticket_trips(trip_id);
 `;
+
+/**
+ * Phase 1 — Schedule mode + weekly session templates.
+ *
+ * `schedule_mode` controls which booking flow the passenger sees:
+ *   'sessions'  — recurring weekly timetable driven by route_sessions (default,
+ *                 covers current long-haul train routes)
+ *   'flexible'  — continuous service within operating_start/operating_end,
+ *                 one trip ticket valid within the window (Phase 2)
+ *
+ * Both columns are nullable with sane defaults so existing rows stay valid
+ * without a backfill. The flexible window fields are ignored when mode is
+ * 'sessions'.
+ */
+export const ROUTE_LABELS_MIGRATE_SCHEDULE_MODE_SQL = `
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS schedule_mode TEXT NOT NULL DEFAULT 'sessions';
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS operating_start TEXT;
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS operating_end   TEXT;
+DO $$
+BEGIN
+  BEGIN
+    ALTER TABLE route_labels ADD CONSTRAINT route_labels_schedule_mode_check
+      CHECK (schedule_mode IN ('sessions','flexible'));
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE route_labels ADD CONSTRAINT route_labels_operating_start_fmt
+      CHECK (operating_start IS NULL OR operating_start ~ '^[0-2][0-9]:[0-5][0-9]$');
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE route_labels ADD CONSTRAINT route_labels_operating_end_fmt
+      CHECK (operating_end IS NULL OR operating_end ~ '^[0-2][0-9]:[0-5][0-9]$');
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+END $$;
+`;
+
+/**
+ * Weekly session template. Each row is one recurring session on one weekday.
+ *
+ *   day_of_week: 0 = Monday ... 6 = Sunday (not Postgres EXTRACT dow — we map
+ *     explicitly to keep the client code unambiguous).
+ *   name: operator-chosen label ("Morning", "Afternoon", "Express", etc.)
+ *   departure_time / arrival_time: 'HH:MM' 24-hour local time. We do not store
+ *     a timezone — routes are regional; the display layer renders in the
+ *     route's implied timezone.
+ *
+ * UNIQUE(route_id, day_of_week, name) prevents two "Morning" rows on the same
+ * day. Operators who want two morning slots name them distinctly ("Morning A",
+ * "Morning B"), which is also how real-world rail timetables handle it.
+ */
+export const ROUTE_SESSIONS_INIT_SQL = `
+CREATE TABLE IF NOT EXISTS route_sessions (
+  id             SERIAL PRIMARY KEY,
+  route_id       TEXT    NOT NULL,
+  day_of_week    INT     NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+  name           TEXT    NOT NULL CHECK (char_length(name) BETWEEN 1 AND 40),
+  departure_time TEXT    NOT NULL CHECK (departure_time ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  arrival_time   TEXT    NOT NULL CHECK (arrival_time   ~ '^[0-2][0-9]:[0-5][0-9]$'),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (route_id, day_of_week, name)
+);
+CREATE INDEX IF NOT EXISTS idx_route_sessions_route_id ON route_sessions(route_id);
+`;

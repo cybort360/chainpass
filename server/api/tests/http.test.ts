@@ -276,9 +276,18 @@ describe("HTTP API", () => {
       });
 
       const res = await request(app).get("/api/v1/routes").expect(200);
+      // Handler includes schedule/vehicle/coach fields (nullable defaults) and
+      // the Phase 1 scheduleMode default. Use objectContaining so the core
+      // identity fields are the contract and the nullable extras stay flexible.
       expect(res.body.routes).toEqual([
-        { routeId: "1", name: "Route A", detail: "Line 1", category: "North" },
-        { routeId: "2", name: "Route B", detail: null, category: "South" },
+        expect.objectContaining({
+          routeId: "1", name: "Route A", detail: "Line 1", category: "North",
+          scheduleMode: "sessions",
+        }),
+        expect.objectContaining({
+          routeId: "2", name: "Route B", detail: null, category: "South",
+          scheduleMode: "sessions",
+        }),
       ]);
       expect(queryMock).toHaveBeenCalled();
     });
@@ -351,15 +360,17 @@ describe("HTTP API", () => {
         })
         .expect(200);
 
-      expect(res.body.route).toEqual({
+      expect(res.body.route).toEqual(expect.objectContaining({
         routeId: "7402918472910384729",
         name: "Test BRT",
         detail: "Demo",
         category: "Lagos",
-      });
+      }));
+      // INSERT supplies 11 parameters (core 5 + vehicle/coach extras, all null
+      // when the client omits them). Assert on the core route identity only.
       expect(queryMock).toHaveBeenCalledWith(
-        expect.stringMatching(/INSERT INTO route_labels[\s\S]*VALUES \(\$1, \$2, \$3, \$4\)/),
-        ["7402918472910384729", "Test BRT", "Demo", "Lagos"],
+        expect.stringMatching(/INSERT INTO route_labels/),
+        expect.arrayContaining(["7402918472910384729", "Test BRT", "Demo", "Lagos"]),
       );
     });
 

@@ -2,6 +2,15 @@ import { env } from "./env"
 
 export type VehicleType = "train" | "bus" | "light_rail"
 
+/**
+ * Phase 1 schedule mode.
+ *
+ *  'sessions'  — recurring weekly timetable (operator sets per-day sessions).
+ *                Passenger picks day → session → class → pay.
+ *  'flexible'  — continuous operating window, one-trip ticket (Phase 2).
+ */
+export type ScheduleMode = "sessions" | "flexible"
+
 /** Per-class coach layout for interstate trains. */
 export type CoachClassConfig = {
   class: "first" | "business" | "economy"
@@ -21,6 +30,12 @@ export type ApiRouteLabel = {
   detail: string | null
   category: string
   schedule?: string | null
+  /** Phase 1 — 'sessions' (default) or 'flexible'. Older rows may omit this. */
+  scheduleMode?: ScheduleMode
+  /** Phase 1 (flexible mode) — HH:MM start of the daily operating window. */
+  operatingStart?: string | null
+  /** Phase 1 (flexible mode) — HH:MM end of the daily operating window. */
+  operatingEnd?: string | null
   vehicleType?: VehicleType | null
   isInterstate?: boolean | null
   /** Train (new-style): per-class coach layout — replaces coaches+seatsPerCoach. */
@@ -156,7 +171,18 @@ export type UpdateRouteLabelResult =
 
 export async function updateRouteLabel(
   routeId: string,
-  payload: { name?: string; category?: string; detail?: string | null; schedule?: string | null },
+  payload: {
+    name?: string
+    category?: string
+    detail?: string | null
+    schedule?: string | null
+    /** Phase 1 — switch between 'sessions' and 'flexible' mode. */
+    scheduleMode?: ScheduleMode
+    /** HH:MM start of daily window (flexible mode). `null` clears. */
+    operatingStart?: string | null
+    /** HH:MM end of daily window (flexible mode). `null` clears. */
+    operatingEnd?: string | null
+  },
 ): Promise<UpdateRouteLabelResult> {
   try {
     const res = await fetch(`${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}`, {
@@ -589,4 +615,97 @@ export async function linkTokenToTrip(
     })
     return res.ok
   } catch { return false }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 1 — weekly session templates (schedule_mode = 'sessions')
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A recurring weekly session on a route.
+ *
+ * dayOfWeek uses 0 = Monday … 6 = Sunday — chosen to match how the operator UI
+ * displays the week (Mon first). We deliberately do not use Postgres `EXTRACT
+ * dow` ordering (0 = Sunday) to keep server + client math trivially aligned.
+ */
+export type RouteSession = {
+  id: number
+  routeId: string
+  dayOfWeek: number
+  name: string
+  /** HH:MM 24-hour local time. */
+  departure: string
+  arrival: string
+}
+
+export async function fetchRouteSessions(routeId: string): Promise<RouteSession[]> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}/sessions`)
+    if (!res.ok) return []
+    const data = (await res.json()) as { sessions?: RouteSession[] }
+    return Array.isArray(data.sessions) ? data.sessions : []
+  } catch {
+    return []
+  }
+}
+
+export type SessionMutationResult =
+  | { ok: true; session: RouteSession }
+  | { ok: false; status: number; error: string }
+
+export async function createRouteSession(
+  routeId: string,
+  payload: { dayOfWeek: number; name: string; departure: string; arrival: string },
+): Promise<SessionMutationResult> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    const data = (await res.json().catch(() => ({}))) as { session?: RouteSession; error?: string }
+    if (res.ok && data.session) return { ok: true, session: data.session }
+    return { ok: false, status: res.status, error: data.error ?? `request failed (${res.status})` }
+  } catch (e) {
+    return { ok: false, status: 0, error: e instanceof Error ? e.message : "network error" }
+  }
+}
+
+export async function updateRouteSession(
+  routeId: string,
+  sessionId: number,
+  payload: Partial<{ dayOfWeek: number; name: string; departure: string; arrival: string }>,
+): Promise<SessionMutationResult> {
+  try {
+    const res = await fetch(
+      `${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}/sessions/${sessionId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    )
+    const data = (await res.json().catch(() => ({}))) as { session?: RouteSession; error?: string }
+    if (res.ok && data.session) return { ok: true, session: data.session }
+    return { ok: false, status: res.status, error: data.error ?? `request failed (${res.status})` }
+  } catch (e) {
+    return { ok: false, status: 0, error: e instanceof Error ? e.message : "network error" }
+  }
+}
+
+export async function deleteRouteSession(
+  routeId: string,
+  sessionId: number,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  try {
+    const res = await fetch(
+      `${env.apiUrl}/api/v1/routes/${encodeURIComponent(routeId)}/sessions/${sessionId}`,
+      { method: "DELETE" },
+    )
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    if (res.ok) return { ok: true }
+    return { ok: false, status: res.status, error: data.error ?? `request failed (${res.status})` }
+  } catch (e) {
+    return { ok: false, status: 0, error: e instanceof Error ? e.message : "network error" }
+  }
 }

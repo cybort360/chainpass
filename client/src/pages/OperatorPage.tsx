@@ -3,6 +3,7 @@ import { formatEther, formatUnits, isAddress, keccak256, parseAbiItem, parseEthe
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { chainPassTicketAbi, monadTestnet, newRouteIdDecimalFromUuid } from "@chainpass/shared"
 import { createTrip, deleteTrip, deleteRouteLabel, fetchOperatorStats, fetchOperatorTimeseries, fetchRouteCapacity, fetchRouteLabels, fetchTrips, registerRouteLabel, updateRouteLabel, updateTripStatus, type ApiRouteLabel, type ApiTrip, type CoachClassConfig, type OperatorStats, type RouteCapacity, type TimeseriesBucket, type TripStatus } from "../lib/api"
+import { ScheduleRouteEditor } from "../components/ScheduleRouteEditor"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
 import { formatWriteContractError } from "../lib/walletError"
@@ -1010,24 +1011,26 @@ export function OperatorPage() {
   const [deleteInProgress, setDeleteInProgress] = useState(false)
   const [routeCapacities, setRouteCapacities] = useState<Record<string, RouteCapacity>>({})
 
-  useEffect(() => {
-    void fetchRouteLabels().then((labels) => {
-      if (!labels) return
-      setEditRoutes(labels)
-      // Load capacity for each route in parallel
-      void Promise.all(
-        labels.map(async (r) => {
-          const cap = await fetchRouteCapacity(r.routeId)
-          if (cap) return [r.routeId, cap] as [string, RouteCapacity]
-          return null
-        }),
-      ).then((entries) => {
-        const map: Record<string, RouteCapacity> = {}
-        for (const e of entries) { if (e) map[e[0]] = e[1] }
-        setRouteCapacities(map)
-      })
-    })
+  /**
+   * Single source of truth for refreshing the editable route list.
+   * Called on mount and whenever a child mutation (e.g. schedule mode change)
+   * might have altered a row we care about.
+   */
+  const reloadRoutes = useCallback(async () => {
+    const labels = await fetchRouteLabels()
+    if (!labels) return
+    setEditRoutes(labels)
+    const entries = await Promise.all(
+      labels.map(async (r) => {
+        const cap = await fetchRouteCapacity(r.routeId)
+        return cap ? ([r.routeId, cap] as [string, RouteCapacity]) : null
+      }),
+    )
+    const map: Record<string, RouteCapacity> = {}
+    for (const e of entries) { if (e) map[e[0]] = e[1] }
+    setRouteCapacities(map)
   }, [])
+  useEffect(() => { void reloadRoutes() }, [reloadRoutes])
 
   const startEdit = (r: ApiRouteLabel) => {
     setEditingRouteId(r.routeId)
@@ -1513,6 +1516,19 @@ export function OperatorPage() {
               ))}
             </ul>
           )}
+        </div>
+      </details>
+
+      {/* Weekly schedule — mode toggle + per-day session editor (Phase 1) */}
+      <details className="mb-6 overflow-hidden rounded-2xl border border-outline-variant/20 bg-surface-container">
+        <summary className="flex cursor-pointer items-center justify-between px-5 py-4 font-headline text-sm font-semibold text-white hover:bg-surface-container-high transition-colors">
+          Weekly schedule
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-headline text-[9px] font-bold uppercase tracking-widest text-primary">
+            Admin only
+          </span>
+        </summary>
+        <div className="border-t border-outline-variant/15 px-5 pb-5 pt-4">
+          <ScheduleRouteEditor routes={editRoutes} onRouteUpdated={() => void reloadRoutes()} />
         </div>
       </details>
 

@@ -9,6 +9,7 @@ import { createRatingsRouter } from "./routes/ratings.js";
 import { createRiderRouter } from "./routes/rider.js";
 import { createRoutesRouter } from "./routes/routes.js";
 import { createSeatsRouter } from "./routes/seats.js";
+import { createSessionsRouter } from "./routes/sessions.js";
 import { createTripsRouter } from "./routes/trips.js";
 
 export function createApp(): Express {
@@ -55,6 +56,7 @@ export function createApp(): Express {
   app.use("/api/v1", createRatingsRouter());
   app.use("/api/v1", createRoutesRouter());
   app.use("/api/v1", createSeatsRouter());
+  app.use("/api/v1", createSessionsRouter());
   app.use("/api/v1", createTripsRouter());
 
   return app;
