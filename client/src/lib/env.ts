@@ -72,4 +72,11 @@ export const env = {
    * scanning the full chain is slow; prefer setting this in prod.
    */
   contractDeployBlock: parseBigintEnv(raw.VITE_CONTRACT_DEPLOY_BLOCK as string | undefined) ?? 0n,
+  /**
+   * Optional dedicated Monad RPC URL (Alchemy, QuickNode, Ankr, etc.).
+   * When unset, viem falls back to the public testnet-rpc.monad.xyz endpoint,
+   * which aggressively rate-limits (HTTP 429) under normal app load.
+   * Set VITE_MONAD_RPC_URL in prod to avoid throttling.
+   */
+  monadRpcUrl: (raw.VITE_MONAD_RPC_URL as string | undefined)?.trim() || undefined,
 }

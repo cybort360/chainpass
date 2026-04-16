@@ -16,8 +16,13 @@
 /** Conservative default. Most public RPCs accept up to 10k blocks per getLogs call. */
 const DEFAULT_CHUNK_SIZE = 10_000n
 
-/** How many chunk requests we allow in flight simultaneously. */
-const DEFAULT_CONCURRENCY = 5
+/**
+ * How many chunk requests we allow in flight simultaneously.
+ * Kept low (2) because two call sites (burn + mint scans) run in parallel, so the
+ * effective concurrency against Monad's public RPC is 2× this number. Higher values
+ * trigger HTTP 429 rate limits on testnet-rpc.monad.xyz.
+ */
+const DEFAULT_CONCURRENCY = 2
 
 export async function fetchLogsChunked<T>(
   fetchRange: (fromBlock: bigint, toBlock: bigint) => Promise<T[]>,
