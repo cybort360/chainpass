@@ -149,24 +149,15 @@ CREATE INDEX IF NOT EXISTS idx_seat_assignments_route_id ON seat_assignments(rou
 -- step and is the correct home for any DDL that depends on bucket columns.
 `;
 
-/**
- * Back-fills the (route_id, seat_number) uniqueness guarantee on older databases
- * that were created before the constraint was added to SEAT_ASSIGNMENTS_INIT_SQL.
- * Safe to run repeatedly — skips if the constraint already exists.
- */
-export const SEAT_ASSIGNMENTS_MIGRATE_UNIQUE_SEAT_SQL = `
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conrelid = 'seat_assignments'::regclass
-      AND contype = 'u'
-      AND conname = 'seat_assignments_route_id_seat_number_key'
-  ) THEN
-    ALTER TABLE seat_assignments ADD CONSTRAINT seat_assignments_route_id_seat_number_key UNIQUE(route_id, seat_number);
-  END IF;
-END $$;
-`;
+// NOTE: SEAT_ASSIGNMENTS_MIGRATE_UNIQUE_SEAT_SQL lived here and back-filled the
+// narrow UNIQUE(route_id, seat_number) constraint on pre-bucket databases. It
+// was removed because SEAT_ASSIGNMENTS_MIGRATE_BUCKET_SQL below supersedes it
+// and, on any DB that has already run the bucket migration, re-adding the
+// narrow constraint would reject legitimate bucket-legal duplicates (same seat
+// sold for two different (service_date, session_id) departures) and crash
+// startup with 23505. The bucket migration is self-contained and covers all
+// DB states (fresh / pre-bucket / post-bucket), so the narrow migration is no
+// longer needed anywhere in the pipeline.
 
 /**
  * Phase 1.5 — session/date bucketing for seat_assignments.

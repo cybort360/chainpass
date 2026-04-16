@@ -12,7 +12,6 @@ import {
   ROUTE_RATINGS_INIT_SQL,
   ROUTE_SESSIONS_INIT_SQL,
   SEAT_ASSIGNMENTS_INIT_SQL,
-  SEAT_ASSIGNMENTS_MIGRATE_UNIQUE_SEAT_SQL,
   SEAT_ASSIGNMENTS_MIGRATE_BUCKET_SQL,
   SEAT_RESERVATIONS_INIT_SQL,
   SEAT_RESERVATIONS_MIGRATE_HOLDER_SQL,
@@ -60,7 +59,14 @@ export async function ensureRouteLabelsTable(): Promise<void> {
   await pool.query(ROUTE_RATINGS_INIT_SQL);
   await pool.query(ROUTE_SESSIONS_INIT_SQL);
   await pool.query(SEAT_ASSIGNMENTS_INIT_SQL);
-  await pool.query(SEAT_ASSIGNMENTS_MIGRATE_UNIQUE_SEAT_SQL);
+  // NOTE: SEAT_ASSIGNMENTS_MIGRATE_UNIQUE_SEAT_SQL used to run here to back-fill
+  // a narrow UNIQUE(route_id, seat_number) constraint on pre-bucket databases.
+  // It was removed because on any DB that has already been through the bucket
+  // migration, the narrow constraint was DROPPED on purpose (per-route uniqueness
+  // is now (route_id, service_date, session_id, seat_number)) and legitimate
+  // bucket-legal duplicates — e.g. seat E1-1D sold for two different departures —
+  // would cause the re-add to crash startup (Postgres 23505). Bucket migration
+  // below is self-contained and handles all states.
   await pool.query(SEAT_ASSIGNMENTS_MIGRATE_BUCKET_SQL);
   await pool.query(SEAT_RESERVATIONS_INIT_SQL);
   await pool.query(SEAT_RESERVATIONS_MIGRATE_HOLDER_SQL);
