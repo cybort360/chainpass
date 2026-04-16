@@ -5,6 +5,8 @@ import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
 import { getContractAddress } from "../lib/contract"
 import { formatWriteContractError } from "../lib/walletError"
 import { parseAbiItem } from "viem"
+import { env } from "../lib/env"
+import { fetchLogsChunked } from "../lib/chainLogs"
 
 const MINTER_ROLE  = keccak256(toBytes("MINTER_ROLE"))
 const ADMIN_ROLE   = "0x0000000000000000000000000000000000000000000000000000000000000000" as `0x${string}`
@@ -104,10 +106,27 @@ export function AdminPage() {
     if (!publicClient || !contractAddress) return
     setLoadingRoles(true)
     try {
+      // Scan from contract deploy block → head in chunks. A 0→latest scan against
+      // Monad's public RPC returns HTTP 413; chunked helper paginates + swallows
+      // failures so partial results still render.
+      const latest = await publicClient.getBlockNumber()
+      const from = env.contractDeployBlock
       const [opLogs, grantLogs, revokeLogs] = await Promise.all([
-        publicClient.getLogs({ address: contractAddress, event: OPERATOR_APPROVED_EVENT, fromBlock: 0n, toBlock: "latest" }),
-        publicClient.getLogs({ address: contractAddress, event: ROLE_GRANTED_EVENT, fromBlock: 0n, toBlock: "latest" }),
-        publicClient.getLogs({ address: contractAddress, event: ROLE_REVOKED_EVENT, fromBlock: 0n, toBlock: "latest" }),
+        fetchLogsChunked(
+          (fromBlock, toBlock) =>
+            publicClient.getLogs({ address: contractAddress, event: OPERATOR_APPROVED_EVENT, fromBlock, toBlock }),
+          from, latest,
+        ),
+        fetchLogsChunked(
+          (fromBlock, toBlock) =>
+            publicClient.getLogs({ address: contractAddress, event: ROLE_GRANTED_EVENT, fromBlock, toBlock }),
+          from, latest,
+        ),
+        fetchLogsChunked(
+          (fromBlock, toBlock) =>
+            publicClient.getLogs({ address: contractAddress, event: ROLE_REVOKED_EVENT, fromBlock, toBlock }),
+          from, latest,
+        ),
       ])
 
       // Latest state per operator address

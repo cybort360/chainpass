@@ -6,6 +6,7 @@ import { createTrip, deleteTrip, deleteRouteLabel, fetchOperatorStats, fetchOper
 import { ScheduleRouteEditor } from "../components/ScheduleRouteEditor"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
+import { fetchLogsChunked } from "../lib/chainLogs"
 import { formatWriteContractError } from "../lib/walletError"
 
 type Period = "24h" | "7d" | "30d"
@@ -882,9 +883,20 @@ export function OperatorPage() {
     if (!publicClient || !contractAddress) return
     setBurnersLoading(true)
     try {
+      // Chunked scan to avoid HTTP 413 on Monad's public RPC — see chainLogs.ts.
+      const latest = await publicClient.getBlockNumber()
+      const from = env.contractDeployBlock
       const [grantLogs, revokeLogs] = await Promise.all([
-        publicClient.getLogs({ address: contractAddress, event: BURNER_GRANTED_EVENT, fromBlock: 0n, toBlock: "latest" }),
-        publicClient.getLogs({ address: contractAddress, event: BURNER_REVOKED_EVENT, fromBlock: 0n, toBlock: "latest" }),
+        fetchLogsChunked(
+          (fromBlock, toBlock) =>
+            publicClient.getLogs({ address: contractAddress, event: BURNER_GRANTED_EVENT, fromBlock, toBlock }),
+          from, latest,
+        ),
+        fetchLogsChunked(
+          (fromBlock, toBlock) =>
+            publicClient.getLogs({ address: contractAddress, event: BURNER_REVOKED_EVENT, fromBlock, toBlock }),
+          from, latest,
+        ),
       ])
       const burnerMap = new Map<string, boolean>()
       for (const l of grantLogs) {

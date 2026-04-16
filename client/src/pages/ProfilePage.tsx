@@ -17,7 +17,11 @@ import { useLoyalty } from "../hooks/useLoyalty"
 import { useNotifications } from "../hooks/useNotifications"
 import { DEMO_ROUTES } from "../constants/demoRoutes"
 
-const REFETCH_MS = 8000
+// Polls hit the public Monad RPC for every active ticket (balanceOf → tokenOfOwnerByIndex
+// → routeOf/validUntil/seatClassOf). 8s was far too aggressive and combined with
+// chunked burn-history scans caused HTTP 413/429 storms. 60s keeps the UI fresh
+// without hammering the RPC.
+const REFETCH_MS = 60_000
 const explorerTxBase = `${monadTestnet.blockExplorers.default.url}/tx`
 
 type TabId = "active" | "history"
@@ -190,9 +194,18 @@ export function ProfilePage() {
       const used = api?.used ?? []
 
       if (ticket && publicClient) {
+        // Only scan on-chain burn history on initial/manual loads — not on every poll.
+        // Chain scan is a chunked getLogs fan-out that's expensive against Monad's
+        // public RPC; the API's `used` list already covers the common case and we
+        // only use chain data to fill gaps. If VITE_CONTRACT_DEPLOY_BLOCK isn't set,
+        // skip it entirely — a 0→latest scan would page thousands of chunks.
+        const shouldScanBurns =
+          mode !== "poll" && env.contractDeployBlock > 0n
         const [chainActive, chainBurned] = await Promise.all([
           fetchActivePassesFromChain(publicClient, ticket, address),
-          fetchBurnedPassesFromChain(publicClient, ticket, address),
+          shouldScanBurns
+            ? fetchBurnedPassesFromChain(publicClient, ticket, address)
+            : Promise.resolve([] as Awaited<ReturnType<typeof fetchBurnedPassesFromChain>>),
         ])
         if (chainActive === null) {
           setErr("Could not read NFTs from the chain (RPC error). Check your connection.")

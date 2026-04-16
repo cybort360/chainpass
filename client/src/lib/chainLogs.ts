@@ -13,16 +13,20 @@
  * losing results from chunks that did succeed.
  */
 
-/** Conservative default. Most public RPCs accept up to 10k blocks per getLogs call. */
-const DEFAULT_CHUNK_SIZE = 10_000n
+/**
+ * Default chunk size. Monad testnet's public RPC returns HTTP 413 "Content Too
+ * Large" when the *response* body is too big — not when the block range itself
+ * is too wide. 1k blocks keeps individual responses small enough that events
+ * from a busy contract still fit.
+ */
+const DEFAULT_CHUNK_SIZE = 1_000n
 
 /**
- * How many chunk requests we allow in flight simultaneously.
- * Kept low (2) because two call sites (burn + mint scans) run in parallel, so the
- * effective concurrency against Monad's public RPC is 2× this number. Higher values
- * trigger HTTP 429 rate limits on testnet-rpc.monad.xyz.
+ * Concurrency kept at 1 (serial) against Monad's public RPC. Callers often run
+ * two scans (burn + mint) in parallel already, so effective concurrency is 2.
+ * Higher values trip rate-limit (429) and content-size (413) guards.
  */
-const DEFAULT_CONCURRENCY = 2
+const DEFAULT_CONCURRENCY = 1
 
 export async function fetchLogsChunked<T>(
   fetchRange: (fromBlock: bigint, toBlock: bigint) => Promise<T[]>,
