@@ -2,6 +2,8 @@ import { parseAbiItem } from "viem"
 import type { PublicClient } from "viem"
 import { chainPassTicketAbi } from "@chainpass/shared"
 import type { RiderPassEventRow } from "./api"
+import { env } from "./env"
+import { fetchLogsChunked } from "./chainLogs"
 
 const MAX_TOKENS = 200
 
@@ -92,9 +94,23 @@ export async function fetchBurnedPassesFromChain(
   holder: `0x${string}`,
 ): Promise<RiderPassEventRow[]> {
   try {
+    // Scan from deploy block → current head in chunks so we don't trip the
+    // public RPC's 413 "Content Too Large" limit (Monad testnet rejects
+    // wide fromBlock:0→latest scans).
+    const latest = await client.getBlockNumber()
     const [burnLogs, mintLogs] = await Promise.all([
-      client.getLogs({ address: contract, event: BURNED_EVENT,  args: { from: holder }, fromBlock: 0n, toBlock: "latest" }),
-      client.getLogs({ address: contract, event: MINTED_EVENT,  args: { to:   holder }, fromBlock: 0n, toBlock: "latest" }),
+      fetchLogsChunked(
+        (fromBlock, toBlock) =>
+          client.getLogs({ address: contract, event: BURNED_EVENT, args: { from: holder }, fromBlock, toBlock }),
+        env.contractDeployBlock,
+        latest,
+      ),
+      fetchLogsChunked(
+        (fromBlock, toBlock) =>
+          client.getLogs({ address: contract, event: MINTED_EVENT, args: { to: holder }, fromBlock, toBlock }),
+        env.contractDeployBlock,
+        latest,
+      ),
     ])
 
     if (burnLogs.length === 0) return []

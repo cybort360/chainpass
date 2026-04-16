@@ -32,6 +32,14 @@ function parseOperatorWallets(value: string | undefined): Set<string> {
   )
 }
 
+/** Parse a bigint-safe integer env var. Returns undefined for empty / invalid. */
+function parseBigintEnv(value: string | undefined): bigint | undefined {
+  if (!value) return undefined
+  const trimmed = value.trim()
+  if (!/^\d+$/.test(trimmed)) return undefined
+  try { return BigInt(trimmed) } catch { return undefined }
+}
+
 export const env = {
   apiUrl: (raw.VITE_CHAINPASS_API_URL as string | undefined) ?? "http://localhost:3001",
   contractAddress: optionalAddress(raw.VITE_CHAINPASS_CONTRACT_ADDRESS as string | undefined),
@@ -56,4 +64,12 @@ export const env = {
    * Example: VITE_OPERATOR_WALLETS=0xAbc…
    */
   operatorWallets: parseOperatorWallets(raw.VITE_OPERATOR_WALLETS as string | undefined),
+  /**
+   * Block number the current ticket contract was deployed at. Used as the lower
+   * bound for on-chain getLogs scans so we don't hammer the RPC with 0→latest
+   * scans that trigger HTTP 413 "Content Too Large" on Monad's public endpoint.
+   * Falls back to 0n if unset — chunked helpers still protect against 413s but
+   * scanning the full chain is slow; prefer setting this in prod.
+   */
+  contractDeployBlock: parseBigintEnv(raw.VITE_CONTRACT_DEPLOY_BLOCK as string | undefined) ?? 0n,
 }
