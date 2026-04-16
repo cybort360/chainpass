@@ -244,6 +244,41 @@ export function ProfilePage() {
     return () => window.clearInterval(id)
   }, [isConnected, address, load])
 
+  // Combined history list: expired (still held) first, then burned — newest burned first.
+  // Defined HERE (before the early return below) so the hook call order is stable across
+  // renders where isConnected flips — otherwise React throws #310 "rendered fewer hooks
+  // than expected" because these hooks only ran on the connected-path render.
+  const historyItems = useMemo(() => [
+    ...expiredPasses.map((p) => ({ type: "expired" as const, data: p })),
+    ...(data?.used ?? []).map((p) => ({ type: "burned" as const, data: p })),
+  ], [expiredPasses, data?.used])
+
+  const downloadHistoryCSV = useCallback(() => {
+    if (historyItems.length === 0) return
+    const headers = ["Type", "Route", "Seat Class", "Token ID", "Date", "Tx Hash"]
+    const rows = historyItems.map((item) => {
+      const row = item.data
+      const { name: routeName } = resolveRouteDisplay(row.route_id ?? undefined, apiRouteLabels)
+      const type = item.type === "expired" ? "Expired" : "Used"
+      const date = item.type === "expired"
+        ? (row.valid_until_epoch ? new Date(Number(row.valid_until_epoch) * 1000).toISOString().slice(0, 10) : "")
+        : (row.created_at ? new Date(row.created_at).toISOString().slice(0, 10) : "")
+      const seatClass = row.seat_class ?? "Economy"
+      const txHash = "tx_hash" in row ? (row.tx_hash ?? "") : ""
+      return [type, routeName, seatClass, row.token_id, date, txHash]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(",")
+    })
+    const csv = [headers.join(","), ...rows].join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `chainpass-history-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [historyItems, apiRouteLabels])
+
   if (!isConnected || !address) {
     return (
       <div className="mx-auto max-w-lg">
@@ -271,43 +306,12 @@ export function ProfilePage() {
   const usedCount = data?.used.length ?? 0
   const historyCount = expiredPasses.length + usedCount
 
-  // Combined history list: expired (still held) first, then burned — newest burned first
-  const historyItems = useMemo(() => [
-    ...expiredPasses.map((p) => ({ type: "expired" as const, data: p })),
-    ...(data?.used ?? []).map((p) => ({ type: "burned" as const, data: p })),
-  ], [expiredPasses, data?.used])
-
+  // historyItems + downloadHistoryCSV hooks live above the early return — see comment there.
   const historyPageCount = Math.max(1, Math.ceil(historyItems.length / HISTORY_PAGE_SIZE))
   const historySlice = historyItems.slice(
     historyPage * HISTORY_PAGE_SIZE,
     (historyPage + 1) * HISTORY_PAGE_SIZE,
   )
-
-  const downloadHistoryCSV = useCallback(() => {
-    if (historyItems.length === 0) return
-    const headers = ["Type", "Route", "Seat Class", "Token ID", "Date", "Tx Hash"]
-    const rows = historyItems.map((item) => {
-      const row = item.data
-      const { name: routeName } = resolveRouteDisplay(row.route_id ?? undefined, apiRouteLabels)
-      const type = item.type === "expired" ? "Expired" : "Used"
-      const date = item.type === "expired"
-        ? (row.valid_until_epoch ? new Date(Number(row.valid_until_epoch) * 1000).toISOString().slice(0, 10) : "")
-        : (row.created_at ? new Date(row.created_at).toISOString().slice(0, 10) : "")
-      const seatClass = row.seat_class ?? "Economy"
-      const txHash = "tx_hash" in row ? (row.tx_hash ?? "") : ""
-      return [type, routeName, seatClass, row.token_id, date, txHash]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-        .join(",")
-    })
-    const csv = [headers.join(","), ...rows].join("\n")
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `chainpass-history-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }, [historyItems, apiRouteLabels])
 
   return (
     <div className="mx-auto max-w-lg">
