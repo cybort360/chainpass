@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { formatEther, formatUnits, isAddress, keccak256, parseAbiItem, parseEther, parseUnits, toBytes } from "viem"
+import { formatEther, formatUnits, isAddress, keccak256, parseEther, parseUnits, toBytes } from "viem"
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { chainPassTicketAbi, monadTestnet, newRouteIdDecimalFromUuid } from "@chainpass/shared"
-import { createTrip, deleteTrip, deleteRouteLabel, fetchOperatorStats, fetchOperatorTimeseries, fetchRouteCapacity, fetchRouteLabels, fetchTrips, registerRouteLabel, updateRouteLabel, updateTripStatus, type ApiRouteLabel, type ApiTrip, type CoachClassConfig, type OperatorStats, type RouteCapacity, type TimeseriesBucket, type TripStatus } from "../lib/api"
+import { createTrip, deleteTrip, deleteRouteLabel, fetchOperatorBurners, fetchOperatorStats, fetchOperatorTimeseries, fetchRouteCapacity, fetchRouteLabels, fetchTrips, registerRouteLabel, updateRouteLabel, updateTripStatus, type ApiRouteLabel, type ApiTrip, type CoachClassConfig, type OperatorStats, type RouteCapacity, type TimeseriesBucket, type TripStatus } from "../lib/api"
 import { ScheduleRouteEditor } from "../components/ScheduleRouteEditor"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
-import { fetchLogsChunked } from "../lib/chainLogs"
 import { formatWriteContractError } from "../lib/walletError"
 
 type Period = "24h" | "7d" | "30d"
@@ -530,14 +529,10 @@ function GroupBookingPanel() {
 
 const REFETCH_MS = 8000
 
+// Still needed for grantRole / revokeRole write calls below. The matching
+// `RoleGranted` / `RoleRevoked` event scan was removed in favour of the
+// /api/v1/operator/burners endpoint.
 const BURNER_ROLE_HASH = keccak256(toBytes("BURNER_ROLE"))
-
-const BURNER_GRANTED_EVENT = parseAbiItem(
-  "event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)"
-)
-const BURNER_REVOKED_EVENT = parseAbiItem(
-  "event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)"
-)
 
 export function OperatorPage() {
   const contract = env.contractAddress
@@ -880,48 +875,21 @@ export function OperatorPage() {
     useWaitForTransactionReceipt({ hash: burnerWriteHash })
 
   const loadBurners = useCallback(async () => {
-    if (!publicClient || !contractAddress) return
-    // Refuse to scan from block 0. With a chain millions of blocks deep and
-    // 1k-block chunks, an unconfigured VITE_CONTRACT_DEPLOY_BLOCK would fan out
-    // tens of thousands of requests — the exact 413 storm we're avoiding.
-    // Ops: set VITE_CONTRACT_DEPLOY_BLOCK to the deploy block and redeploy to
-    // populate the conductor list.
-    if (env.contractDeployBlock === 0n) {
-      setBurners([])
-      return
-    }
+    if (!contractAddress) return
     setBurnersLoading(true)
     try {
-      // Chunked scan to avoid HTTP 413 on Monad's public RPC — see chainLogs.ts.
-      const latest = await publicClient.getBlockNumber()
-      const from = env.contractDeployBlock
-      const [grantLogs, revokeLogs] = await Promise.all([
-        fetchLogsChunked(
-          (fromBlock, toBlock) =>
-            publicClient.getLogs({ address: contractAddress, event: BURNER_GRANTED_EVENT, fromBlock, toBlock }),
-          from, latest,
-        ),
-        fetchLogsChunked(
-          (fromBlock, toBlock) =>
-            publicClient.getLogs({ address: contractAddress, event: BURNER_REVOKED_EVENT, fromBlock, toBlock }),
-          from, latest,
-        ),
-      ])
-      const burnerMap = new Map<string, boolean>()
-      for (const l of grantLogs) {
-        if (l.args.role?.toLowerCase() === BURNER_ROLE_HASH.toLowerCase() && l.args.account)
-          burnerMap.set(l.args.account.toLowerCase(), true)
-      }
-      for (const l of revokeLogs) {
-        if (l.args.role?.toLowerCase() === BURNER_ROLE_HASH.toLowerCase() && l.args.account)
-          burnerMap.set(l.args.account.toLowerCase(), false)
-      }
-      setBurners([...burnerMap.entries()].map(([address, active]) => ({ address, active })))
+      // Conductor (burner) state comes from the API now — it reads role_events
+      // (populated by the indexer) and returns the latest state per address.
+      // The old path scanned chain logs from the browser which tripped HTTP 413
+      // on Monad's public RPC. Null response = API down or indexer hasn't run
+      // yet; keep the list empty rather than erroring.
+      const res = await fetchOperatorBurners()
+      setBurners(res ? res.burners : [])
     } catch {
       // silent
     }
     setBurnersLoading(false)
-  }, [publicClient, contractAddress])
+  }, [contractAddress])
 
   useEffect(() => { void loadBurners() }, [loadBurners])
 

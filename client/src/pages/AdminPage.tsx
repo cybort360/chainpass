@@ -1,27 +1,15 @@
 import { useCallback, useEffect, useState } from "react"
-import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { isAddress, keccak256, toBytes } from "viem"
 import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
 import { getContractAddress } from "../lib/contract"
 import { formatWriteContractError } from "../lib/walletError"
-import { parseAbiItem } from "viem"
-import { env } from "../lib/env"
-import { fetchLogsChunked } from "../lib/chainLogs"
+import { fetchAdminRoles } from "../lib/api"
 
 const MINTER_ROLE  = keccak256(toBytes("MINTER_ROLE"))
 const ADMIN_ROLE   = "0x0000000000000000000000000000000000000000000000000000000000000000" as `0x${string}`
 
 const explorerBase = `${monadTestnet.blockExplorers.default.url}/address`
-
-const OPERATOR_APPROVED_EVENT = parseAbiItem(
-  "event OperatorApproved(address indexed operator, bool approved)"
-)
-const ROLE_GRANTED_EVENT = parseAbiItem(
-  "event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)"
-)
-const ROLE_REVOKED_EVENT = parseAbiItem(
-  "event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)"
-)
 
 function shortenAddr(addr: string) {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`
@@ -82,7 +70,6 @@ function SectionHeader({ title, sub }: { title: string; sub?: string }) {
 
 export function AdminPage() {
   const { address, isConnected } = useAccount()
-  const publicClient = usePublicClient()
   const contractAddress = getContractAddress()
 
   // ── Check if connected wallet is admin ──────────────────────────────────
@@ -103,65 +90,27 @@ export function AdminPage() {
   const [loadingRoles, setLoadingRoles] = useState(false)
 
   const loadRoles = useCallback(async () => {
-    if (!publicClient || !contractAddress) return
-    // Refuse to scan from block 0. With a chain millions of blocks deep and
-    // 1k-block chunks, an unconfigured VITE_CONTRACT_DEPLOY_BLOCK would fan out
-    // tens of thousands of requests — the exact 413 storm we're avoiding.
-    // Ops: set VITE_CONTRACT_DEPLOY_BLOCK to the deploy block and redeploy to
-    // populate the operator/minter tables.
-    if (env.contractDeployBlock === 0n) {
-      setOperators([])
-      setMinters([])
-      return
-    }
+    if (!contractAddress) return
     setLoadingRoles(true)
     try {
-      // Scan from contract deploy block → head in chunks. A 0→latest scan against
-      // Monad's public RPC returns HTTP 413; chunked helper paginates + swallows
-      // failures so partial results still render.
-      const latest = await publicClient.getBlockNumber()
-      const from = env.contractDeployBlock
-      const [opLogs, grantLogs, revokeLogs] = await Promise.all([
-        fetchLogsChunked(
-          (fromBlock, toBlock) =>
-            publicClient.getLogs({ address: contractAddress, event: OPERATOR_APPROVED_EVENT, fromBlock, toBlock }),
-          from, latest,
-        ),
-        fetchLogsChunked(
-          (fromBlock, toBlock) =>
-            publicClient.getLogs({ address: contractAddress, event: ROLE_GRANTED_EVENT, fromBlock, toBlock }),
-          from, latest,
-        ),
-        fetchLogsChunked(
-          (fromBlock, toBlock) =>
-            publicClient.getLogs({ address: contractAddress, event: ROLE_REVOKED_EVENT, fromBlock, toBlock }),
-          from, latest,
-        ),
-      ])
-
-      // Latest state per operator address
-      const opMap = new Map<string, boolean>()
-      for (const l of opLogs) {
-        if (l.args.operator) opMap.set(l.args.operator.toLowerCase(), l.args.approved!)
+      // Operator/minter state comes from the API now — it reads role_events
+      // (populated by the indexer) and returns the latest state per address.
+      // The old path scanned chain logs from the browser which tripped HTTP 413
+      // on Monad's public RPC. Null response = API down or indexer hasn't run
+      // yet; keep the tables empty rather than erroring.
+      const roles = await fetchAdminRoles()
+      if (roles) {
+        setOperators(roles.operators)
+        setMinters(roles.minters)
+      } else {
+        setOperators([])
+        setMinters([])
       }
-      setOperators([...opMap.entries()].map(([address, approved]) => ({ address, approved })))
-
-      // Minters
-      const minterMap = new Map<string, boolean>()
-      for (const l of grantLogs) {
-        if (l.args.role?.toLowerCase() === MINTER_ROLE.toLowerCase() && l.args.account)
-          minterMap.set(l.args.account.toLowerCase(), true)
-      }
-      for (const l of revokeLogs) {
-        if (l.args.role?.toLowerCase() === MINTER_ROLE.toLowerCase() && l.args.account)
-          minterMap.set(l.args.account.toLowerCase(), false)
-      }
-      setMinters([...minterMap.entries()].map(([address, active]) => ({ address, active })))
     } catch {
-      // silent
+      // silent — keep whatever we last had
     }
     setLoadingRoles(false)
-  }, [publicClient, contractAddress])
+  }, [contractAddress])
 
   useEffect(() => { void loadRoles() }, [loadRoles])
 

@@ -364,6 +364,44 @@ export async function fetchMyPasses(holder: `0x${string}`): Promise<MyPassesResp
   }
 }
 
+// ── Admin / Operator role state ──────────────────────────────────────────────
+// These endpoints replaced the old client-side chain scans that used to call
+// `publicClient.getLogs()` from AdminPage.loadRoles and OperatorPage.loadBurners.
+// Scanning from the browser triggered HTTP 413 on Monad's public RPC and ate
+// the free-tier getLogs budget on Alchemy/QuickNode. The indexer writes the
+// same events to role_events server-side and these endpoints return the latest
+// state per address. Null return = endpoint unavailable (API down / indexer
+// not yet populated); callers fall back to an empty list.
+
+export type AdminRolesResponse = {
+  operators: { address: string; approved: boolean }[]
+  minters: { address: string; active: boolean }[]
+}
+
+export async function fetchAdminRoles(): Promise<AdminRolesResponse | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/admin/roles`)
+    if (!res.ok) return null
+    return (await res.json()) as AdminRolesResponse
+  } catch {
+    return null
+  }
+}
+
+export type OperatorBurnersResponse = {
+  burners: { address: string; active: boolean }[]
+}
+
+export async function fetchOperatorBurners(): Promise<OperatorBurnersResponse | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/operator/burners`)
+    if (!res.ok) return null
+    return (await res.json()) as OperatorBurnersResponse
+  } catch {
+    return null
+  }
+}
+
 export async function submitRating(tokenId: string, routeId: string, rating: number): Promise<boolean> {
   try {
     const res = await fetch(`${env.apiUrl}/api/v1/ratings`, {

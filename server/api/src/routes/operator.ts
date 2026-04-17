@@ -1,8 +1,46 @@
 import { Router } from "express";
 import { getPool } from "../lib/db.js";
 
+/**
+ * keccak256("BURNER_ROLE") — matches `keccak256(toBytes("BURNER_ROLE"))` on the
+ * client (see OperatorPage.tsx). Used to filter role_events rows down to
+ * conductor (burner) grants/revokes.
+ */
+const BURNER_ROLE_HASH = "0x3c11d16cbaffd01df69ce1c404f6340ee057498f5f00246190ea54220576a848";
+
 export function createOperatorRouter(): Router {
   const r = Router();
+
+  /**
+   * GET /api/v1/operator/burners
+   *
+   * Replaces the client-side chain scan in OperatorPage.loadBurners. Reads
+   * role_events (populated by the indexer) and collapses to the latest state
+   * per address. Response shape matches what OperatorPage already consumes:
+   *   { burners: [{ address, active }] }
+   */
+  r.get("/burners", async (_req, res) => {
+    if (!process.env.DATABASE_URL) {
+      res.status(503).json({ error: "database is not configured (DATABASE_URL)" });
+      return;
+    }
+    try {
+      const pool = getPool();
+      const { rows } = await pool.query<{ subject: string; granted: boolean }>(
+        `SELECT DISTINCT ON (subject) subject, granted
+         FROM role_events
+         WHERE kind IN ('role_granted', 'role_revoked') AND role_hash = $1
+         ORDER BY subject, block_number DESC, log_index DESC`,
+        [BURNER_ROLE_HASH],
+      );
+      res.json({
+        burners: rows.map((row) => ({ address: row.subject, active: row.granted })),
+      });
+    } catch (err) {
+      console.error("[operator/burners]", err);
+      res.status(500).json({ error: "failed to read burners" });
+    }
+  });
 
   r.get("/events", async (_req, res) => {
     if (!process.env.DATABASE_URL) {

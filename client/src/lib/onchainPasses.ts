@@ -1,9 +1,6 @@
-import { parseAbiItem } from "viem"
 import type { PublicClient } from "viem"
 import { chainPassTicketAbi } from "@chainpass/shared"
 import type { RiderPassEventRow } from "./api"
-import { env } from "./env"
-import { fetchLogsChunked } from "./chainLogs"
 
 const MAX_TOKENS = 200
 
@@ -80,66 +77,8 @@ export async function fetchActivePassesFromChain(
   }
 }
 
-const BURNED_EVENT  = parseAbiItem("event TicketBurned(address indexed from, uint256 indexed tokenId, uint256 routeId)")
-const MINTED_EVENT  = parseAbiItem("event TicketMinted(address indexed to, uint256 indexed tokenId, uint256 routeId, uint64 validUntilEpoch, address operatorAddr, uint8 seatClass)")
-
-/**
- * Read burned ticket history for `holder` directly from chain event logs.
- * Cross-references TicketMinted logs to recover validUntil and seatClass.
- * Returns [] on any error so the caller can fall back to API data.
- */
-export async function fetchBurnedPassesFromChain(
-  client: PublicClient,
-  contract: `0x${string}`,
-  holder: `0x${string}`,
-): Promise<RiderPassEventRow[]> {
-  try {
-    // Scan from deploy block → current head in chunks so we don't trip the
-    // public RPC's 413 "Content Too Large" limit (Monad testnet rejects
-    // wide fromBlock:0→latest scans).
-    const latest = await client.getBlockNumber()
-    const [burnLogs, mintLogs] = await Promise.all([
-      fetchLogsChunked(
-        (fromBlock, toBlock) =>
-          client.getLogs({ address: contract, event: BURNED_EVENT, args: { from: holder }, fromBlock, toBlock }),
-        env.contractDeployBlock,
-        latest,
-      ),
-      fetchLogsChunked(
-        (fromBlock, toBlock) =>
-          client.getLogs({ address: contract, event: MINTED_EVENT, args: { to: holder }, fromBlock, toBlock }),
-        env.contractDeployBlock,
-        latest,
-      ),
-    ])
-
-    if (burnLogs.length === 0) return []
-
-    // Map tokenId → mint log for cross-referencing validUntil / seatClass
-    const mintMap = new Map(mintLogs.map((l) => [l.args.tokenId?.toString(), l]))
-
-    // Fetch timestamps for unique blocks (burns are rare so this is cheap)
-    const uniqueBlocks = [...new Set(burnLogs.map((l) => l.blockNumber!))]
-    const blockArr = await Promise.all(uniqueBlocks.map((bn) => client.getBlock({ blockNumber: bn })))
-    const blockTimeMap = new Map(uniqueBlocks.map((bn, i) => [bn.toString(), blockArr[i].timestamp]))
-
-    return burnLogs.map((l) => {
-      const tokenId = l.args.tokenId!
-      const mint    = mintMap.get(tokenId.toString())
-      const ts      = blockTimeMap.get(l.blockNumber!.toString()) ?? BigInt(Math.floor(Date.now() / 1000))
-      return {
-        id:               Number(tokenId % 1_000_000_000n),
-        event_type:       "burn",
-        tx_hash:          l.transactionHash ?? "",
-        token_id:         tokenId.toString(),
-        route_id:         l.args.routeId?.toString() ?? "",
-        block_number:     l.blockNumber?.toString() ?? "",
-        valid_until_epoch: mint?.args.validUntilEpoch?.toString() ?? null,
-        created_at:       new Date(Number(ts) * 1000).toISOString(),
-        seat_class:       mint?.args.seatClass === 1 ? "Business" : "Economy",
-      } satisfies RiderPassEventRow
-    })
-  } catch {
-    return []
-  }
-}
+// Burn history used to be scanned from chain logs here with a chunked getLogs
+// helper. That path is gone — the indexer writes every TicketBurned to
+// ticket_events server-side and `fetchMyPasses()` returns it. Scanning from
+// the browser tripped HTTP 413 on Monad's public RPC and ate through free-tier
+// getLogs budgets on Alchemy/QuickNode.

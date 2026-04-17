@@ -5,8 +5,7 @@ import { monadTestnet, chainPassTicketAbi } from "@chainpass/shared"
 
 import { fetchMyPasses, fetchRouteLabels, fetchSeatAssignment, type MyPassesResponse } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
-import { env } from "../lib/env"
-import { fetchActivePassesFromChain, fetchBurnedPassesFromChain } from "../lib/onchainPasses"
+import { fetchActivePassesFromChain } from "../lib/onchainPasses"
 import { resolveRouteDisplay, shortenNumericId } from "../lib/passDisplay"
 import { isExpiringSoon } from "../lib/passDisplay"
 import { extractMintedTokenIdFromReceipt } from "../lib/tx"
@@ -194,19 +193,14 @@ export function ProfilePage() {
       const used = api?.used ?? []
 
       if (ticket && publicClient) {
-        // Only scan on-chain burn history on initial/manual loads — not on every poll.
-        // Chain scan is a chunked getLogs fan-out that's expensive against Monad's
-        // public RPC; the API's `used` list already covers the common case and we
-        // only use chain data to fill gaps. If VITE_CONTRACT_DEPLOY_BLOCK isn't set,
-        // skip it entirely — a 0→latest scan would page thousands of chunks.
-        const shouldScanBurns =
-          mode !== "poll" && env.contractDeployBlock > 0n
-        const [chainActive, chainBurned] = await Promise.all([
-          fetchActivePassesFromChain(publicClient, ticket, address),
-          shouldScanBurns
-            ? fetchBurnedPassesFromChain(publicClient, ticket, address)
-            : Promise.resolve([] as Awaited<ReturnType<typeof fetchBurnedPassesFromChain>>),
-        ])
+        // Burn history comes exclusively from the API's `used` list now — the
+        // indexer writes every TicketBurned event to ticket_events server-side,
+        // so the browser no longer needs to scan chain logs (which tripped HTTP
+        // 413 on Monad's public RPC and burned the free-tier getLogs budget).
+        // Active passes still come from the chain because they need live
+        // validUntil / seatClass reads — those use regular contract calls, not
+        // getLogs, and work fine on any RPC.
+        const chainActive = await fetchActivePassesFromChain(publicClient, ticket, address)
         if (chainActive === null) {
           setErr("Could not read NFTs from the chain (RPC error). Check your connection.")
           setData({ holder: address, active: [], used })
@@ -219,13 +213,8 @@ export function ProfilePage() {
           const expired = chainActive.filter(
             (p) => p.valid_until_epoch !== null && Number(p.valid_until_epoch) <= now
           )
-          // Merge chain burns with API burns — chain is source of truth, API fills any gaps
-          const mergedUsed = [
-            ...chainBurned,
-            ...used.filter((a) => !chainBurned.some((c) => c.token_id === a.token_id)),
-          ]
           setErr(null)
-          setData({ holder: address, active: activeOnly, used: mergedUsed })
+          setData({ holder: address, active: activeOnly, used })
           setExpiredPasses(expired)
         }
       } else {

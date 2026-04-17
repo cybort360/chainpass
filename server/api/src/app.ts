@@ -3,6 +3,7 @@ import cors from "cors";
 import express, { type Express } from "express";
 import morgan from "morgan";
 import { getPool } from "./lib/db.js";
+import { createAdminRouter } from "./routes/admin.js";
 import { createOperatorRouter } from "./routes/operator.js";
 import { createQrRouter } from "./routes/qr.js";
 import { createRatingsRouter } from "./routes/ratings.js";
@@ -51,6 +52,7 @@ export function createApp(): Express {
   });
 
   app.use("/api/v1/qr", createQrRouter());
+  app.use("/api/v1/admin", createAdminRouter());
   app.use("/api/v1/operator", createOperatorRouter());
   app.use("/api/v1/rider", createRiderRouter());
   app.use("/api/v1", createRatingsRouter());

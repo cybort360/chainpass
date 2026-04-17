@@ -37,18 +37,17 @@ const pool = getPool(cfg.databaseUrl);
 await pool.query(INIT_SQL);
 
 async function nextFromBlock(): Promise<bigint> {
-  const cRes = await pool.query<{ c: string }>(
-    "SELECT COUNT(*)::text AS c FROM ticket_events",
-  );
-  const count = Number(cRes.rows[0]?.c ?? "0");
-  if (count === 0) {
-    return cfg.fromBlock;
-  }
+  // Resume from one past the highest block we've indexed across BOTH ticket_events
+  // and role_events. If we only tracked ticket_events and a role change landed in
+  // a later block, a restart would silently skip it.
   const mRes = await pool.query<{ m: string | null }>(
-    "SELECT MAX(block_number)::text AS m FROM ticket_events",
+    `SELECT GREATEST(
+       COALESCE((SELECT MAX(block_number) FROM ticket_events), 0),
+       COALESCE((SELECT MAX(block_number) FROM role_events), 0)
+     )::text AS m`,
   );
   const m = mRes.rows[0]?.m;
-  if (m === null || m === undefined || m === "") {
+  if (!m || m === "0") {
     return cfg.fromBlock;
   }
   return BigInt(m) + 1n;
@@ -267,6 +266,37 @@ async function insertBurn(args: {
   );
 }
 
+async function insertRoleEvent(args: {
+  kind: "operator_approved" | "role_granted" | "role_revoked";
+  txHash: string;
+  logIndex: number;
+  blockNumber: bigint;
+  blockHash: string | null;
+  contractAddress: string;
+  subject: string;
+  roleHash: string | null;
+  granted: boolean;
+}): Promise<void> {
+  await pool.query(
+    `INSERT INTO role_events (
+      kind, tx_hash, log_index, block_number, block_hash, contract_address,
+      subject, role_hash, granted
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ON CONFLICT (tx_hash, log_index) DO NOTHING`,
+    [
+      args.kind,
+      args.txHash,
+      args.logIndex,
+      args.blockNumber.toString(),
+      args.blockHash,
+      args.contractAddress,
+      args.subject.toLowerCase(),
+      args.roleHash ? args.roleHash.toLowerCase() : null,
+      args.granted,
+    ],
+  );
+}
+
 async function processRange(fromBlock: bigint, toBlock: bigint): Promise<void> {
   const address = cfg.ticketContractAddress!;
 
@@ -282,6 +312,30 @@ async function processRange(fromBlock: bigint, toBlock: bigint): Promise<void> {
     address,
     abi: chainPassTicketAbi,
     eventName: "TicketBurned",
+    fromBlock,
+    toBlock,
+  });
+
+  // Role/admin events — written to role_events so AdminPage + OperatorPage don't
+  // have to scan logs from the browser (which trips HTTP 413 on public RPCs).
+  const operatorApprovedEvents = await getContractEvents(client, {
+    address,
+    abi: chainPassTicketAbi,
+    eventName: "OperatorApproved",
+    fromBlock,
+    toBlock,
+  });
+  const roleGrantedEvents = await getContractEvents(client, {
+    address,
+    abi: chainPassTicketAbi,
+    eventName: "RoleGranted",
+    fromBlock,
+    toBlock,
+  });
+  const roleRevokedEvents = await getContractEvents(client, {
+    address,
+    abi: chainPassTicketAbi,
+    eventName: "RoleRevoked",
     fromBlock,
     toBlock,
   });
@@ -345,10 +399,63 @@ async function processRange(fromBlock: bigint, toBlock: bigint): Promise<void> {
     });
   }
 
-  const total = mintEvents.length + burnEvents.length;
+  for (const log of operatorApprovedEvents) {
+    const { transactionHash, logIndex, blockNumber, blockHash, address: logAddress } = log;
+    const a = log.args as { operator: `0x${string}`; approved: boolean };
+    await insertRoleEvent({
+      kind: "operator_approved",
+      txHash: transactionHash,
+      logIndex,
+      blockNumber,
+      blockHash: blockHash ?? null,
+      contractAddress: logAddress,
+      subject: String(a.operator),
+      roleHash: null,
+      granted: Boolean(a.approved),
+    });
+  }
+
+  for (const log of roleGrantedEvents) {
+    const { transactionHash, logIndex, blockNumber, blockHash, address: logAddress } = log;
+    const a = log.args as { role: `0x${string}`; account: `0x${string}` };
+    await insertRoleEvent({
+      kind: "role_granted",
+      txHash: transactionHash,
+      logIndex,
+      blockNumber,
+      blockHash: blockHash ?? null,
+      contractAddress: logAddress,
+      subject: String(a.account),
+      roleHash: String(a.role),
+      granted: true,
+    });
+  }
+
+  for (const log of roleRevokedEvents) {
+    const { transactionHash, logIndex, blockNumber, blockHash, address: logAddress } = log;
+    const a = log.args as { role: `0x${string}`; account: `0x${string}` };
+    await insertRoleEvent({
+      kind: "role_revoked",
+      txHash: transactionHash,
+      logIndex,
+      blockNumber,
+      blockHash: blockHash ?? null,
+      contractAddress: logAddress,
+      subject: String(a.account),
+      roleHash: String(a.role),
+      granted: false,
+    });
+  }
+
+  const total =
+    mintEvents.length +
+    burnEvents.length +
+    operatorApprovedEvents.length +
+    roleGrantedEvents.length +
+    roleRevokedEvents.length;
   if (total > 0) {
     console.log(
-      `[chainpass-indexer] blocks ${fromBlock}-${toBlock}: mint=${mintEvents.length} burn=${burnEvents.length}`,
+      `[chainpass-indexer] blocks ${fromBlock}-${toBlock}: mint=${mintEvents.length} burn=${burnEvents.length} opApproved=${operatorApprovedEvents.length} roleGranted=${roleGrantedEvents.length} roleRevoked=${roleRevokedEvents.length}`,
     );
   }
 }

@@ -41,6 +41,41 @@ ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT
 ALTER TABLE ticket_events ADD COLUMN IF NOT EXISTS payment_wei TEXT;
 CREATE INDEX IF NOT EXISTS ticket_events_created_at_idx ON ticket_events (created_at DESC);
 
+-- Role/operator admin events. Populated by the indexer so AdminPage + OperatorPage
+-- can list approved operators / minters / burners without scanning chain logs from
+-- the browser (which trips HTTP 413 on Monad's public RPC). The latest row per
+-- (kind, subject) wins — see /admin/roles and /operator/burners endpoints.
+--
+-- kind values:
+--   'operator_approved' — OperatorApproved(operator, approved)
+--                          subject = operator, granted = approved
+--   'role_granted'       — RoleGranted(role, account, sender)
+--                          subject = account, role_hash = role, granted = true
+--   'role_revoked'       — RoleRevoked(role, account, sender)
+--                          subject = account, role_hash = role, granted = false
+CREATE TABLE IF NOT EXISTS role_events (
+  id SERIAL PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('operator_approved', 'role_granted', 'role_revoked')),
+  tx_hash TEXT NOT NULL,
+  log_index INTEGER NOT NULL,
+  block_number BIGINT NOT NULL,
+  block_hash TEXT,
+  contract_address TEXT NOT NULL,
+  -- For operator_approved: the operator address. For role_*: the account receiving
+  -- / losing the role. Stored lowercase for case-insensitive lookups.
+  subject TEXT NOT NULL,
+  -- keccak256("MINTER_ROLE") / keccak256("BURNER_ROLE") / etc. NULL for operator_approved.
+  role_hash TEXT,
+  -- true for grants / approvals, false for revokes / disapprovals.
+  granted BOOLEAN NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tx_hash, log_index)
+);
+
+CREATE INDEX IF NOT EXISTS role_events_block_idx ON role_events (block_number DESC, log_index DESC);
+CREATE INDEX IF NOT EXISTS role_events_kind_subject_idx ON role_events (kind, subject);
+CREATE INDEX IF NOT EXISTS role_events_role_hash_idx ON role_events (role_hash) WHERE role_hash IS NOT NULL;
+
 -- General indexes for high-frequency query patterns
 CREATE INDEX IF NOT EXISTS ticket_events_event_type_idx ON ticket_events (event_type);
 CREATE INDEX IF NOT EXISTS ticket_events_token_id_idx ON ticket_events (token_id);
