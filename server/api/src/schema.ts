@@ -366,3 +366,131 @@ CREATE TABLE IF NOT EXISTS route_sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_route_sessions_route_id ON route_sessions(route_id);
 `;
+
+/**
+ * Phase 1 — multi-tenant foundation.
+ *
+ * Represents one transit operator on the marketplace (ABC Transport, GIGM, etc.).
+ * The first row is a default "ChainPass Transit" operator that every pre-existing
+ * route_labels row is retrofitted onto (see OPERATORS_SEED_DEFAULT_SQL and
+ * ROUTE_LABELS_MIGRATE_OPERATOR_ID_SQL).
+ *
+ * slug: URL-safe identifier chosen at signup. Lowercase alphanumeric + dashes,
+ *   1-40 chars. Public endpoints key on slug, not id, so operator URLs are
+ *   stable across DB reseeds.
+ * admin_wallet / treasury_wallet: nullable for the seed row (ChainPass Transit
+ *   predates the wallet-on-signup flow). Required for operators created via
+ *   the onboarding endpoint (enforced in application code, not DB, so the seed
+ *   row can exist without a wallet).
+ * status: pending (awaiting KYB) / active (visible + mintable) / suspended
+ *   (hidden + mint disabled). Seed row starts 'active'.
+ */
+export const OPERATORS_INIT_SQL = `
+CREATE TABLE IF NOT EXISTS operators (
+  id              SERIAL PRIMARY KEY,
+  slug            TEXT NOT NULL UNIQUE,
+  name            TEXT NOT NULL,
+  admin_wallet    TEXT,
+  treasury_wallet TEXT,
+  status          TEXT NOT NULL DEFAULT 'active',
+  logo_url        TEXT,
+  contact_email   TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- CHECK constraints added separately with DO/EXCEPTION guards so re-runs on a
+-- partially-migrated DB (column exists but constraint doesn't) don't crash.
+DO $$
+BEGIN
+  BEGIN
+    ALTER TABLE operators ADD CONSTRAINT operators_slug_fmt
+      CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND char_length(slug) BETWEEN 1 AND 40);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE operators ADD CONSTRAINT operators_name_len
+      CHECK (char_length(name) BETWEEN 1 AND 100);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE operators ADD CONSTRAINT operators_admin_wallet_fmt
+      CHECK (admin_wallet IS NULL OR admin_wallet ~ '^0x[0-9a-fA-F]{40}$');
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE operators ADD CONSTRAINT operators_treasury_wallet_fmt
+      CHECK (treasury_wallet IS NULL OR treasury_wallet ~ '^0x[0-9a-fA-F]{40}$');
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE operators ADD CONSTRAINT operators_status_check
+      CHECK (status IN ('pending', 'active', 'suspended'));
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE operators ADD CONSTRAINT operators_logo_url_len
+      CHECK (logo_url IS NULL OR char_length(logo_url) <= 500);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE operators ADD CONSTRAINT operators_contact_email_len
+      CHECK (contact_email IS NULL OR char_length(contact_email) <= 200);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_operators_status ON operators(status);
+`;
+
+/**
+ * Idempotent seed of the default operator. Every existing route_labels row is
+ * attached to this operator by ROUTE_LABELS_MIGRATE_OPERATOR_ID_SQL. If the
+ * row already exists, ON CONFLICT makes this a no-op.
+ */
+export const OPERATORS_SEED_DEFAULT_SQL = `
+INSERT INTO operators (slug, name, status)
+VALUES ('chainpass-transit', 'ChainPass Transit', 'active')
+ON CONFLICT (slug) DO NOTHING;
+`;
+
+/**
+ * Attach every route_labels row to an operator.
+ *
+ * Runs in three phases inside one SQL block so partial-failure states converge
+ * on re-run:
+ *   1. ADD COLUMN IF NOT EXISTS operator_id INTEGER (nullable on first run).
+ *   2. UPDATE rows where operator_id IS NULL to the default operator's id
+ *      (resolved by slug lookup — the serial id isn't knowable ahead of time).
+ *   3. ALTER COLUMN NOT NULL + ADD CONSTRAINT FK operator_id REFERENCES
+ *      operators(id), both guarded so re-runs are no-ops.
+ *
+ * Depends on OPERATORS_INIT_SQL + OPERATORS_SEED_DEFAULT_SQL having run first.
+ *
+ * ON DELETE RESTRICT: we never want to accidentally orphan routes by deleting
+ * an operator row. Soft-delete (status='suspended') is the correct move.
+ *
+ * Safe under concurrent multi-instance boot: ADD COLUMN IF NOT EXISTS, UPDATE,
+ * ALTER SET NOT NULL, and the duplicate_object-guarded ADD CONSTRAINT are each
+ * idempotent. The only way this leaves the column nullable is if a third writer
+ * inserts a row with NULL operator_id between the UPDATE and the SET NOT NULL;
+ * today every INSERT path specifies operator_id, so any future INSERT that
+ * omits it must be updated to specify the caller's operator id.
+ */
+export const ROUTE_LABELS_MIGRATE_OPERATOR_ID_SQL = `
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS operator_id INTEGER;
+
+UPDATE route_labels
+SET operator_id = (SELECT id FROM operators WHERE slug = 'chainpass-transit')
+WHERE operator_id IS NULL;
+
+DO $$
+BEGIN
+  -- Set NOT NULL only if every row is populated. If a row slipped through as
+  -- NULL (shouldn't happen because the UPDATE above covers everything, but
+  -- defensive) this raises 23502 and we'll see it in startup logs rather than
+  -- silently continuing.
+  IF NOT EXISTS (SELECT 1 FROM route_labels WHERE operator_id IS NULL) THEN
+    ALTER TABLE route_labels ALTER COLUMN operator_id SET NOT NULL;
+  END IF;
+
+  BEGIN
+    ALTER TABLE route_labels ADD CONSTRAINT route_labels_operator_id_fk
+      FOREIGN KEY (operator_id) REFERENCES operators(id) ON DELETE RESTRICT;
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_route_labels_operator_id ON route_labels(operator_id);
+`;

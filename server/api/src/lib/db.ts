@@ -9,6 +9,9 @@ import {
   ROUTE_LABELS_MIGRATE_SCHEDULE_MODE_SQL,
   ROUTE_LABELS_MIGRATE_VEHICLE_SQL,
   ROUTE_LABELS_MIGRATE_COACH_CLASSES_SQL,
+  ROUTE_LABELS_MIGRATE_OPERATOR_ID_SQL,
+  OPERATORS_INIT_SQL,
+  OPERATORS_SEED_DEFAULT_SQL,
   ROUTE_RATINGS_INIT_SQL,
   ROUTE_SESSIONS_INIT_SQL,
   SEAT_ASSIGNMENTS_INIT_SQL,
@@ -48,6 +51,13 @@ export async function ensureRouteLabelsTable(): Promise<void> {
   }
   const pool = getPool();
   await pool.query(ROUTE_LABELS_INIT_SQL);
+  // Multi-tenant foundation: operators table must exist and be seeded before
+  // route_labels.operator_id is back-filled. Order matters:
+  //   1. CREATE TABLE operators + constraints
+  //   2. INSERT default operator (idempotent)
+  //   3. ADD operator_id to route_labels + backfill + NOT NULL + FK
+  await pool.query(OPERATORS_INIT_SQL);
+  await pool.query(OPERATORS_SEED_DEFAULT_SQL);
   await pool.query(ROUTE_LABELS_MIGRATE_CATEGORY_SQL);
   await pool.query(ROUTE_LABELS_MIGRATE_ROUTE_ID_TO_TEXT_SQL);
   await pool.query(ROUTE_LABELS_MIGRATE_LENGTH_CONSTRAINTS_SQL);
@@ -56,6 +66,12 @@ export async function ensureRouteLabelsTable(): Promise<void> {
   await pool.query(ROUTE_LABELS_MIGRATE_SCHEDULE_MODE_SQL);
   await pool.query(ROUTE_LABELS_MIGRATE_VEHICLE_SQL);
   await pool.query(ROUTE_LABELS_MIGRATE_COACH_CLASSES_SQL);
+  // Runs AFTER every other route_labels migration so legacy column work
+  // (BIGINT→TEXT on route_id, length CHECKs, schedule/vehicle/coach_classes
+  // additions) has already landed before we ADD COLUMN + FK. Placing the
+  // operator_id migration here also keeps FK creation at the end of the
+  // table's evolution, where a failed run is easiest to retry idempotently.
+  await pool.query(ROUTE_LABELS_MIGRATE_OPERATOR_ID_SQL);
   await pool.query(ROUTE_RATINGS_INIT_SQL);
   await pool.query(ROUTE_SESSIONS_INIT_SQL);
   await pool.query(SEAT_ASSIGNMENTS_INIT_SQL);

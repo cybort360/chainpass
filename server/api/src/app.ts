@@ -5,6 +5,7 @@ import morgan from "morgan";
 import { getPool } from "./lib/db.js";
 import { createAdminRouter } from "./routes/admin.js";
 import { createOperatorRouter } from "./routes/operator.js";
+import { createOperatorsRouter } from "./routes/operators.js";
 import { createQrRouter } from "./routes/qr.js";
 import { createRatingsRouter } from "./routes/ratings.js";
 import { createRiderRouter } from "./routes/rider.js";
@@ -57,6 +58,7 @@ export function createApp(): Express {
   app.use("/api/v1/rider", createRiderRouter());
   app.use("/api/v1", createRatingsRouter());
   app.use("/api/v1", createRoutesRouter());
+  app.use("/api/v1", createOperatorsRouter());
   app.use("/api/v1", createSeatsRouter());
   app.use("/api/v1", createSessionsRouter());
   app.use("/api/v1", createTripsRouter());

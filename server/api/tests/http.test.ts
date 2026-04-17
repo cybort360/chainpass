@@ -721,5 +721,180 @@ describe("HTTP API", () => {
       expect(res.body.error).toMatch(/failed/i);
     });
   });
+
+  describe("GET /api/v1/operators", () => {
+    it("returns empty list when DATABASE_URL is unset", async () => {
+      const res = await request(app).get("/api/v1/operators").expect(200);
+      expect(res.body).toEqual({ operators: [] });
+    });
+
+    it("returns operators from the DB, newest first, suspended excluded", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 2,
+            slug: "abc-transport",
+            name: "ABC Transport",
+            admin_wallet: "0x0000000000000000000000000000000000000002",
+            treasury_wallet: null,
+            status: "active",
+            logo_url: null,
+            created_at: new Date("2026-04-01T00:00:00Z"),
+          },
+          {
+            id: 1,
+            slug: "chainpass-transit",
+            name: "ChainPass Transit",
+            admin_wallet: null,
+            treasury_wallet: null,
+            status: "active",
+            logo_url: null,
+            created_at: new Date("2026-01-01T00:00:00Z"),
+          },
+        ],
+        rowCount: 2,
+      });
+
+      const res = await request(app).get("/api/v1/operators").expect(200);
+      expect(res.body.operators).toHaveLength(2);
+      expect(res.body.operators[0]).toMatchObject({
+        id: 2,
+        slug: "abc-transport",
+        name: "ABC Transport",
+        adminWallet: "0x0000000000000000000000000000000000000002",
+        treasuryWallet: null,
+        status: "active",
+        logoUrl: null,
+      });
+      expect(res.body.operators[0].createdAt).toBe("2026-04-01T00:00:00.000Z");
+      expect(res.body.operators[0]).not.toHaveProperty("contactEmail");
+      expect(res.body.operators[1].slug).toBe("chainpass-transit");
+
+      // Sanity: the SQL actually filters suspended rows and orders newest-first.
+      // Without these pins, the "newest first" assertion above would only prove
+      // that the mock was constructed in the expected order, not that the router
+      // requested that order from Postgres.
+      const sql = queryMock.mock.calls[0]?.[0] as string;
+      expect(sql).toMatch(/status\s*<>\s*'suspended'/);
+      expect(sql).toMatch(/ORDER BY\s+created_at\s+DESC/i);
+    });
+
+    it("returns generic 500 + logs tag when the DB errors", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      queryMock.mockRejectedValueOnce(new Error("sensitive connection detail"));
+
+      const res = await request(app).get("/api/v1/operators").expect(500);
+      expect(res.body).toEqual({ error: "failed to read operators" });
+      // Never leak the underlying error message in the response
+      expect(JSON.stringify(res.body)).not.toContain("sensitive connection detail");
+      // But it must reach the server log with the [operators] tag
+      expect(errSpy).toHaveBeenCalledWith("[operators]", expect.any(Error));
+
+      errSpy.mockRestore();
+    });
+  });
+
+  describe("GET /api/v1/operators/:slug", () => {
+    it("returns 400 on a malformed slug", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      const res = await request(app)
+        .get("/api/v1/operators/NOT_A_SLUG")
+        .expect(400);
+      expect(res.body.error).toBe("invalid slug");
+    });
+
+    it("returns 404 when DATABASE_URL is unset", async () => {
+      const res = await request(app)
+        .get("/api/v1/operators/chainpass-transit")
+        .expect(404);
+      expect(res.body.error).toBe("not found");
+    });
+
+    it("returns 404 when the slug does not match any operator", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      const res = await request(app)
+        .get("/api/v1/operators/does-not-exist")
+        .expect(404);
+      expect(res.body.error).toBe("not found");
+    });
+
+    it("returns the matching operator", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 1,
+            slug: "chainpass-transit",
+            name: "ChainPass Transit",
+            admin_wallet: null,
+            treasury_wallet: null,
+            status: "active",
+            logo_url: null,
+            created_at: new Date("2026-01-01T00:00:00Z"),
+          },
+        ],
+        rowCount: 1,
+      });
+      const res = await request(app)
+        .get("/api/v1/operators/chainpass-transit")
+        .expect(200);
+      expect(res.body.operator).toMatchObject({
+        id: 1,
+        slug: "chainpass-transit",
+        name: "ChainPass Transit",
+        status: "active",
+      });
+      expect(res.body.operator).not.toHaveProperty("contactEmail");
+    });
+
+    it("returns generic 500 + logs tag on DB error", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      queryMock.mockRejectedValueOnce(new Error("some db error"));
+
+      const res = await request(app)
+        .get("/api/v1/operators/chainpass-transit")
+        .expect(500);
+      expect(res.body).toEqual({ error: "failed to read operator" });
+      expect(errSpy).toHaveBeenCalledWith("[operators]", expect.any(Error));
+
+      errSpy.mockRestore();
+    });
+  });
+
+  // Named "wiring" rather than "idempotency" because with a fully-mocked pg.Pool
+  // we can't actually prove DB-level idempotency; we can only prove the function
+  // issues the expected SQL fragments and doesn't throw on repeated calls. True
+  // idempotency is asserted at the SQL level (IF NOT EXISTS / DO $$ / ON CONFLICT
+  // DO NOTHING) and verified against a live DB by the deployment pipeline.
+  describe("ensureRouteLabelsTable operators wiring", () => {
+    it("issues the operators DDL on repeated boots without throwing (mocked)", async () => {
+      const { ensureRouteLabelsTable } = await import("../src/lib/db.js");
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValue({ rows: [], rowCount: 0 });
+
+      await ensureRouteLabelsTable();
+      await ensureRouteLabelsTable();
+
+      const sqlCalls = queryMock.mock.calls.map((c) => String(c[0]));
+      expect(sqlCalls.some((s) => /CREATE TABLE IF NOT EXISTS operators/i.test(s))).toBe(true);
+      expect(
+        sqlCalls.some(
+          (s) =>
+            /INSERT INTO operators[\s\S]*chainpass-transit[\s\S]*ON CONFLICT[\s\S]*DO NOTHING/i.test(
+              s,
+            ),
+        ),
+      ).toBe(true);
+      expect(
+        sqlCalls.some((s) =>
+          /ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS operator_id/i.test(s),
+        ),
+      ).toBe(true);
+    });
+  });
 });
 
