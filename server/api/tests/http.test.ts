@@ -721,5 +721,145 @@ describe("HTTP API", () => {
       expect(res.body.error).toMatch(/failed/i);
     });
   });
+
+  describe("GET /api/v1/operators", () => {
+    it("returns empty list when DATABASE_URL is unset", async () => {
+      const res = await request(app).get("/api/v1/operators").expect(200);
+      expect(res.body).toEqual({ operators: [] });
+    });
+
+    it("returns operators from the DB, newest first, suspended excluded", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 2,
+            slug: "abc-transport",
+            name: "ABC Transport",
+            admin_wallet: "0x0000000000000000000000000000000000000002",
+            treasury_wallet: null,
+            status: "active",
+            logo_url: null,
+            created_at: new Date("2026-04-01T00:00:00Z"),
+          },
+          {
+            id: 1,
+            slug: "chainpass-transit",
+            name: "ChainPass Transit",
+            admin_wallet: null,
+            treasury_wallet: null,
+            status: "active",
+            logo_url: null,
+            created_at: new Date("2026-01-01T00:00:00Z"),
+          },
+        ],
+        rowCount: 2,
+      });
+
+      const res = await request(app).get("/api/v1/operators").expect(200);
+      expect(res.body.operators).toHaveLength(2);
+      expect(res.body.operators[0]).toMatchObject({
+        id: 2,
+        slug: "abc-transport",
+        name: "ABC Transport",
+        adminWallet: "0x0000000000000000000000000000000000000002",
+        treasuryWallet: null,
+        status: "active",
+        logoUrl: null,
+      });
+      expect(res.body.operators[0].createdAt).toBe("2026-04-01T00:00:00.000Z");
+      expect(res.body.operators[0]).not.toHaveProperty("contactEmail");
+      expect(res.body.operators[1].slug).toBe("chainpass-transit");
+
+      // Sanity: the SQL actually filters suspended rows.
+      const sql = queryMock.mock.calls[0]?.[0] as string;
+      expect(sql).toMatch(/status\s*<>\s*'suspended'/);
+    });
+
+    it("returns generic 500 + logs tag when the DB errors", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      queryMock.mockRejectedValueOnce(new Error("sensitive connection detail"));
+
+      const res = await request(app).get("/api/v1/operators").expect(500);
+      expect(res.body).toEqual({ error: "failed to read operators" });
+      // Never leak the underlying error message in the response
+      expect(JSON.stringify(res.body)).not.toContain("sensitive connection detail");
+      // But it must reach the server log with the [operators] tag
+      expect(errSpy).toHaveBeenCalledWith("[operators]", expect.any(Error));
+
+      errSpy.mockRestore();
+    });
+  });
+
+  describe("GET /api/v1/operators/:slug", () => {
+    it("returns 400 on a malformed slug", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      const res = await request(app)
+        .get("/api/v1/operators/NOT_A_SLUG")
+        .expect(400);
+      expect(res.body.error).toBe("invalid slug");
+    });
+
+    it("returns 404 when DATABASE_URL is unset", async () => {
+      const res = await request(app)
+        .get("/api/v1/operators/chainpass-transit")
+        .expect(404);
+      expect(res.body.error).toBe("not found");
+    });
+
+    it("returns 404 when the slug does not match any operator", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      const res = await request(app)
+        .get("/api/v1/operators/does-not-exist")
+        .expect(404);
+      expect(res.body.error).toBe("not found");
+    });
+
+    it("returns the matching operator", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 1,
+            slug: "chainpass-transit",
+            name: "ChainPass Transit",
+            admin_wallet: null,
+            treasury_wallet: null,
+            status: "active",
+            logo_url: null,
+            created_at: new Date("2026-01-01T00:00:00Z"),
+          },
+        ],
+        rowCount: 1,
+      });
+      const res = await request(app)
+        .get("/api/v1/operators/chainpass-transit")
+        .expect(200);
+      expect(res.body.operator).toMatchObject({
+        id: 1,
+        slug: "chainpass-transit",
+        name: "ChainPass Transit",
+        status: "active",
+      });
+      expect(res.body.operator).not.toHaveProperty("contactEmail");
+    });
+
+    it("returns generic 500 + logs tag on DB error", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      queryMock.mockRejectedValueOnce(new Error("some db error"));
+
+      const res = await request(app)
+        .get("/api/v1/operators/chainpass-transit")
+        .expect(500);
+      expect(res.body).toEqual({ error: "failed to read operator" });
+      expect(errSpy).toHaveBeenCalledWith("[operators]", expect.any(Error));
+
+      errSpy.mockRestore();
+    });
+  });
+
 });
 
