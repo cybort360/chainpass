@@ -861,5 +861,31 @@ describe("HTTP API", () => {
     });
   });
 
+  describe("ensureRouteLabelsTable idempotency", () => {
+    it("runs the new operators DDL each boot without error (mocked)", async () => {
+      const { ensureRouteLabelsTable } = await import("../src/lib/db.js");
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValue({ rows: [], rowCount: 0 });
+
+      await ensureRouteLabelsTable();
+      await ensureRouteLabelsTable();
+
+      const sqlCalls = queryMock.mock.calls.map((c) => String(c[0]));
+      expect(sqlCalls.some((s) => /CREATE TABLE IF NOT EXISTS operators/i.test(s))).toBe(true);
+      expect(
+        sqlCalls.some(
+          (s) =>
+            /INSERT INTO operators[\s\S]*chainpass-transit[\s\S]*ON CONFLICT[\s\S]*DO NOTHING/i.test(
+              s,
+            ),
+        ),
+      ).toBe(true);
+      expect(
+        sqlCalls.some((s) =>
+          /ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS operator_id/i.test(s),
+        ),
+      ).toBe(true);
+    });
+  });
 });
 
