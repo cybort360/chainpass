@@ -445,3 +445,47 @@ INSERT INTO operators (slug, name, status)
 VALUES ('chainpass-transit', 'ChainPass Transit', 'active')
 ON CONFLICT (slug) DO NOTHING;
 `;
+
+/**
+ * Attach every route_labels row to an operator.
+ *
+ * Runs in three phases inside one SQL block so partial-failure states converge
+ * on re-run:
+ *   1. ADD COLUMN IF NOT EXISTS operator_id INTEGER (nullable on first run).
+ *   2. UPDATE rows where operator_id IS NULL to the default operator's id
+ *      (resolved by slug lookup — the serial id isn't knowable ahead of time).
+ *   3. ALTER COLUMN NOT NULL + ADD CONSTRAINT FK operator_id REFERENCES
+ *      operators(id), both guarded so re-runs are no-ops.
+ *
+ * Depends on OPERATORS_INIT_SQL + OPERATORS_SEED_DEFAULT_SQL having run first.
+ *
+ * ON DELETE RESTRICT: we never want to accidentally orphan routes by deleting
+ * an operator row. Soft-delete (status='suspended') is the correct move.
+ */
+export const ROUTE_LABELS_MIGRATE_OPERATOR_ID_SQL = `
+ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS operator_id INTEGER;
+
+UPDATE route_labels
+SET operator_id = (SELECT id FROM operators WHERE slug = 'chainpass-transit')
+WHERE operator_id IS NULL;
+
+DO $$
+BEGIN
+  -- Set NOT NULL only if every row is populated. If a row slipped through as
+  -- NULL (shouldn't happen because the UPDATE above covers everything, but
+  -- defensive) this raises 23502 and we'll see it in startup logs rather than
+  -- silently continuing.
+  IF NOT EXISTS (SELECT 1 FROM route_labels WHERE operator_id IS NULL) THEN
+    BEGIN
+      ALTER TABLE route_labels ALTER COLUMN operator_id SET NOT NULL;
+    EXCEPTION WHEN others THEN NULL; END;
+  END IF;
+
+  BEGIN
+    ALTER TABLE route_labels ADD CONSTRAINT route_labels_operator_id_fk
+      FOREIGN KEY (operator_id) REFERENCES operators(id) ON DELETE RESTRICT;
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_route_labels_operator_id ON route_labels(operator_id);
+`;
