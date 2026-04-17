@@ -7,10 +7,12 @@ import { getPool } from "../lib/db.js";
  * GET /operators        — list all non-suspended operators, newest first.
  * GET /operators/:slug  — single operator by slug; 404 if not found or suspended.
  *
- * Both endpoints are public read — no auth. Private fields (contact_email,
- * admin_wallet) are intentionally included because they're part of the trust
- * signal the rider sees ("is this operator real?"). Revisit if we later add
- * private-only fields.
+ * Both endpoints are public read (no auth). admin_wallet and treasury_wallet
+ * are intentionally included because they are already on-chain (every mint
+ * and role event emits them) so the API surface adds no new disclosure.
+ * contact_email is deliberately NOT returned here — emails on unauthenticated
+ * JSON endpoints are a phishing harvest target; we'll add an explicit public
+ * contact channel when an operator opts in, not by default.
  */
 type OperatorRow = {
   id: number;
@@ -20,9 +22,13 @@ type OperatorRow = {
   treasury_wallet: string | null;
   status: string;
   logo_url: string | null;
-  contact_email: string | null;
   created_at: Date;
 };
+
+const OPERATOR_SELECT_COLUMNS = `
+  id, slug, name, admin_wallet, treasury_wallet, status,
+  logo_url, created_at
+`;
 
 function toResponse(row: OperatorRow) {
   return {
@@ -33,8 +39,7 @@ function toResponse(row: OperatorRow) {
     treasuryWallet: row.treasury_wallet,
     status: row.status,
     logoUrl: row.logo_url,
-    contactEmail: row.contact_email,
-    createdAt: row.created_at.toISOString(),
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
   };
 }
 
@@ -48,15 +53,14 @@ export function createOperatorsRouter(): Router {
     }
     try {
       const { rows } = await getPool().query<OperatorRow>(
-        `SELECT id, slug, name, admin_wallet, treasury_wallet, status,
-                logo_url, contact_email, created_at
-         FROM operators
+        `SELECT ${OPERATOR_SELECT_COLUMNS} FROM operators
          WHERE status <> 'suspended'
          ORDER BY created_at DESC, id DESC`,
       );
       res.json({ operators: rows.map(toResponse) });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : "db error" });
+      console.error("[operators]", err);
+      res.status(500).json({ error: "failed to read operators" });
     }
   });
 
@@ -72,9 +76,7 @@ export function createOperatorsRouter(): Router {
     }
     try {
       const { rows } = await getPool().query<OperatorRow>(
-        `SELECT id, slug, name, admin_wallet, treasury_wallet, status,
-                logo_url, contact_email, created_at
-         FROM operators
+        `SELECT ${OPERATOR_SELECT_COLUMNS} FROM operators
          WHERE slug = $1 AND status <> 'suspended'
          LIMIT 1`,
         [slug],
@@ -85,7 +87,8 @@ export function createOperatorsRouter(): Router {
       }
       res.json({ operator: toResponse(rows[0]!) });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : "db error" });
+      console.error("[operators]", err);
+      res.status(500).json({ error: "failed to read operator" });
     }
   });
 
