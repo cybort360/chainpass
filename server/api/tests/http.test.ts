@@ -771,9 +771,13 @@ describe("HTTP API", () => {
       expect(res.body.operators[0]).not.toHaveProperty("contactEmail");
       expect(res.body.operators[1].slug).toBe("chainpass-transit");
 
-      // Sanity: the SQL actually filters suspended rows.
+      // Sanity: the SQL actually filters suspended rows and orders newest-first.
+      // Without these pins, the "newest first" assertion above would only prove
+      // that the mock was constructed in the expected order, not that the router
+      // requested that order from Postgres.
       const sql = queryMock.mock.calls[0]?.[0] as string;
       expect(sql).toMatch(/status\s*<>\s*'suspended'/);
+      expect(sql).toMatch(/ORDER BY\s+created_at\s+DESC/i);
     });
 
     it("returns generic 500 + logs tag when the DB errors", async () => {
@@ -861,8 +865,13 @@ describe("HTTP API", () => {
     });
   });
 
-  describe("ensureRouteLabelsTable idempotency", () => {
-    it("runs the new operators DDL each boot without error (mocked)", async () => {
+  // Named "wiring" rather than "idempotency" because with a fully-mocked pg.Pool
+  // we can't actually prove DB-level idempotency; we can only prove the function
+  // issues the expected SQL fragments and doesn't throw on repeated calls. True
+  // idempotency is asserted at the SQL level (IF NOT EXISTS / DO $$ / ON CONFLICT
+  // DO NOTHING) and verified against a live DB by the deployment pipeline.
+  describe("ensureRouteLabelsTable operators wiring", () => {
+    it("issues the operators DDL on repeated boots without throwing (mocked)", async () => {
       const { ensureRouteLabelsTable } = await import("../src/lib/db.js");
       process.env.DATABASE_URL = "postgres://fake";
       queryMock.mockResolvedValue({ rows: [], rowCount: 0 });
