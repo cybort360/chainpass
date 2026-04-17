@@ -461,6 +461,13 @@ ON CONFLICT (slug) DO NOTHING;
  *
  * ON DELETE RESTRICT: we never want to accidentally orphan routes by deleting
  * an operator row. Soft-delete (status='suspended') is the correct move.
+ *
+ * Safe under concurrent multi-instance boot: ADD COLUMN IF NOT EXISTS, UPDATE,
+ * ALTER SET NOT NULL, and the duplicate_object-guarded ADD CONSTRAINT are each
+ * idempotent. The only way this leaves the column nullable is if a third writer
+ * inserts a row with NULL operator_id between the UPDATE and the SET NOT NULL;
+ * today every INSERT path specifies operator_id, so any future INSERT that
+ * omits it must be updated to specify the caller's operator id.
  */
 export const ROUTE_LABELS_MIGRATE_OPERATOR_ID_SQL = `
 ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS operator_id INTEGER;
@@ -476,9 +483,7 @@ BEGIN
   -- defensive) this raises 23502 and we'll see it in startup logs rather than
   -- silently continuing.
   IF NOT EXISTS (SELECT 1 FROM route_labels WHERE operator_id IS NULL) THEN
-    BEGIN
-      ALTER TABLE route_labels ALTER COLUMN operator_id SET NOT NULL;
-    EXCEPTION WHEN others THEN NULL; END;
+    ALTER TABLE route_labels ALTER COLUMN operator_id SET NOT NULL;
   END IF;
 
   BEGIN
