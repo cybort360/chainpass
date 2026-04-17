@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { formatEther, formatUnits, isAddress, keccak256, parseEther, parseUnits, toBytes } from "viem"
-import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
+import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { chainPassTicketAbi, monadTestnet, newRouteIdDecimalFromUuid } from "@chainpass/shared"
 import { createTrip, deleteTrip, deleteRouteLabel, fetchOperatorBurners, fetchOperatorStats, fetchOperatorTimeseries, fetchRouteCapacity, fetchRouteLabels, fetchTrips, registerRouteLabel, updateRouteLabel, updateTripStatus, type ApiRouteLabel, type ApiTrip, type CoachClassConfig, type OperatorStats, type RouteCapacity, type TimeseriesBucket, type TripStatus } from "../lib/api"
 import { ScheduleRouteEditor } from "../components/ScheduleRouteEditor"
@@ -538,7 +538,6 @@ export function OperatorPage() {
   const contract = env.contractAddress
   const contractAddress = getContractAddress()
   const { address } = useAccount()
-  const publicClient = usePublicClient()
 
   /* ── Input field style ── */
   const inputClass =

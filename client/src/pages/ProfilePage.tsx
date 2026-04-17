@@ -5,6 +5,7 @@ import { monadTestnet, chainPassTicketAbi } from "@chainpass/shared"
 
 import { fetchMyPasses, fetchRouteLabels, fetchSeatAssignment, type MyPassesResponse } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
+import { env } from "../lib/env"
 import { fetchActivePassesFromChain } from "../lib/onchainPasses"
 import { resolveRouteDisplay, shortenNumericId } from "../lib/passDisplay"
 import { isExpiringSoon } from "../lib/passDisplay"
