@@ -2,6 +2,22 @@ import { Router } from "express";
 import { getPool } from "../lib/db.js";
 
 /**
+ * NAMING: this is the SINGULAR `createOperatorRouter` mounted at
+ * `/api/v1/operator/*`. It serves the legacy single-tenant admin views
+ * (burners, events, stats) before any caller auth exists — every request is
+ * implicitly "the one operator in the system."
+ *
+ * Not to be confused with the PLURAL `createOperatorsRouter` in
+ * `./operators.ts`, mounted at `/api/v1/operators` — the public directory
+ * returning { operators: [...] } for the rider-facing picker.
+ *
+ * When Phase 1 Step 4 (operator-scoped auth middleware) lands, these routes
+ * will likely migrate under `/api/v1/operators/:slug/admin/*` and this file
+ * will collapse into per-operator handlers. Update `app.ts` and OperatorPage
+ * together at that point.
+ */
+
+/**
  * keccak256("BURNER_ROLE") — matches `keccak256(toBytes("BURNER_ROLE"))` on the
  * client (see OperatorPage.tsx). Used to filter role_events rows down to
  * conductor (burner) grants/revokes.

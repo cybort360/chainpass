@@ -66,7 +66,11 @@ export async function ensureRouteLabelsTable(): Promise<void> {
   await pool.query(ROUTE_LABELS_MIGRATE_SCHEDULE_MODE_SQL);
   await pool.query(ROUTE_LABELS_MIGRATE_VEHICLE_SQL);
   await pool.query(ROUTE_LABELS_MIGRATE_COACH_CLASSES_SQL);
-  // Depends on all prior route_labels migrations and operators being seeded.
+  // Runs AFTER every other route_labels migration so legacy column work
+  // (BIGINT→TEXT on route_id, length CHECKs, schedule/vehicle/coach_classes
+  // additions) has already landed before we ADD COLUMN + FK. Placing the
+  // operator_id migration here also keeps FK creation at the end of the
+  // table's evolution, where a failed run is easiest to retry idempotently.
   await pool.query(ROUTE_LABELS_MIGRATE_OPERATOR_ID_SQL);
   await pool.query(ROUTE_RATINGS_INIT_SQL);
   await pool.query(ROUTE_SESSIONS_INIT_SQL);
