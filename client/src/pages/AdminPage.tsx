@@ -104,6 +104,16 @@ export function AdminPage() {
 
   const loadRoles = useCallback(async () => {
     if (!publicClient || !contractAddress) return
+    // Refuse to scan from block 0. With a chain millions of blocks deep and
+    // 1k-block chunks, an unconfigured VITE_CONTRACT_DEPLOY_BLOCK would fan out
+    // tens of thousands of requests — the exact 413 storm we're avoiding.
+    // Ops: set VITE_CONTRACT_DEPLOY_BLOCK to the deploy block and redeploy to
+    // populate the operator/minter tables.
+    if (env.contractDeployBlock === 0n) {
+      setOperators([])
+      setMinters([])
+      return
+    }
     setLoadingRoles(true)
     try {
       // Scan from contract deploy block → head in chunks. A 0→latest scan against

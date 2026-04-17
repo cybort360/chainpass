@@ -68,8 +68,11 @@ export const env = {
    * Block number the current ticket contract was deployed at. Used as the lower
    * bound for on-chain getLogs scans so we don't hammer the RPC with 0→latest
    * scans that trigger HTTP 413 "Content Too Large" on Monad's public endpoint.
-   * Falls back to 0n if unset — chunked helpers still protect against 413s but
-   * scanning the full chain is slow; prefer setting this in prod.
+   * Falls back to 0n if unset. When 0n, AdminPage/OperatorPage/ProfilePage
+   * skip their role/burner/burn scans entirely (see contractDeployBlock guards
+   * in those pages) because a 1k-chunk scan from block 0 across millions of
+   * blocks fans out tens of thousands of requests and floods the RPC with 413s.
+   * Set this in prod so the role tables populate.
    */
   contractDeployBlock: parseBigintEnv(raw.VITE_CONTRACT_DEPLOY_BLOCK as string | undefined) ?? 0n,
   /**
