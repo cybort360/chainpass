@@ -40,9 +40,15 @@ async function main(): Promise<void> {
     await pool.query(ROUTE_LABELS_MIGRATE_ROUTE_ID_TO_TEXT_SQL);
     for (const row of data.routes) {
       const category = row.category?.trim() || "General";
+      // operator_id is NOT NULL post-migration. Attach new seed rows to the
+      // default operator via subquery so the script works against a freshly
+      // migrated DB without needing a separate lookup round trip. Existing
+      // rows keep their operator_id through the DO UPDATE (operator_id is
+      // not in the SET list, so ON CONFLICT leaves it alone).
       await pool.query(
-        `INSERT INTO route_labels (route_id, name, detail, category)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO route_labels (route_id, name, detail, category, operator_id)
+         VALUES ($1, $2, $3, $4,
+           (SELECT id FROM operators WHERE slug = 'chainpass-transit' AND status = 'active'))
          ON CONFLICT (route_id) DO UPDATE SET
            name = EXCLUDED.name,
            detail = EXCLUDED.detail,
