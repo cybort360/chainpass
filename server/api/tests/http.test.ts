@@ -835,6 +835,36 @@ describe("HTTP API", () => {
         ),
       ).toBe(true);
     });
+
+    it("issues the marketplace fields migration (region/description/website_url)", async () => {
+      const { ensureRouteLabelsTable } = await import("../src/lib/db.js");
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValue({ rows: [], rowCount: 0 });
+
+      await ensureRouteLabelsTable();
+
+      const sqlCalls = queryMock.mock.calls.map((c) => String(c[0]));
+      // All three ADD COLUMN IF NOT EXISTS fragments land
+      expect(
+        sqlCalls.some((s) =>
+          /ALTER TABLE operators ADD COLUMN IF NOT EXISTS region\b/i.test(s),
+        ),
+      ).toBe(true);
+      expect(
+        sqlCalls.some((s) =>
+          /ALTER TABLE operators ADD COLUMN IF NOT EXISTS description\b/i.test(s),
+        ),
+      ).toBe(true);
+      expect(
+        sqlCalls.some((s) =>
+          /ALTER TABLE operators ADD COLUMN IF NOT EXISTS website_url\b/i.test(s),
+        ),
+      ).toBe(true);
+      // Length / format CHECK constraints are emitted (duplicate_object-guarded)
+      expect(sqlCalls.some((s) => /operators_region_len/.test(s))).toBe(true);
+      expect(sqlCalls.some((s) => /operators_description_len/.test(s))).toBe(true);
+      expect(sqlCalls.some((s) => /operators_website_url_fmt/.test(s))).toBe(true);
+    });
   });
 });
 
