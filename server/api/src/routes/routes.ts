@@ -530,18 +530,24 @@ export function createRoutesRouter(): Router {
     try {
       const pool = getPool();
       // operator_id is NOT NULL since the 2026-04-17 operators migration. Until
-      // per-operator auth middleware lands (Phase 1 Step 4), all new routes are
-      // attached to the default seed operator by slug lookup inside the INSERT.
-      // If the seed row is missing or suspended the subquery returns NULL and
-      // Postgres throws 23502 — which is the right failure mode (visible, not
-      // silent) because the server cannot invent an operator for the row.
+      // per-operator auth middleware lands (Phase 1 Step 4), the server has no
+      // caller identity to derive the owning operator from, so new rows are
+      // attached to the earliest-created still-active operator — which is the
+      // seed row in every current deployment. No magic slug string, no coupling
+      // to a specific brand name. If the operators table is empty or every row
+      // is suspended, the subquery returns NULL and Postgres raises 23502 —
+      // the right failure mode (visible, not silent) because the server cannot
+      // invent an operator for the row.
+      //
+      // When auth middleware lands, replace this subquery with `req.operator.id`
+      // resolved from the authenticated session.
       await pool.query(
         `INSERT INTO route_labels
            (route_id, name, detail, category, schedule, short_code,
             vehicle_type, is_interstate, coaches, seats_per_coach, total_seats, coach_classes,
             operator_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-           (SELECT id FROM operators WHERE slug = 'chainpass-transit' AND status = 'active'))`,
+           (SELECT id FROM operators WHERE status = 'active' ORDER BY id ASC LIMIT 1))`,
         [String(routeId), name, detail, category, schedulePost, shortCodePost,
          vehicleType, isInterstate, coaches, seatsPerCoach, totalSeats,
          coachClasses ? JSON.stringify(coachClasses) : null],
