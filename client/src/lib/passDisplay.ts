@@ -1,4 +1,3 @@
-import { DEMO_ROUTES } from "../constants/demoRoutes"
 import type { ApiRouteLabel } from "./api"
 
 /** Shorten long numeric strings for UI (e.g. token / route ids). */
@@ -8,24 +7,30 @@ export function shortenNumericId(id: string, head = 5, tail = 4): string {
   return `${s.slice(0, head)}…${s.slice(-tail)}`
 }
 
-/** Match on-chain route id to demo config (name, category, etc.). */
-export function routeMetaForRouteId(routeId: string | null | undefined) {
+/**
+ * Look up the operator-registered label for an on-chain route id.
+ *
+ * Returns `undefined` when the route isn't (yet) in the API catalog — e.g.
+ * the ticket was minted against a route that the operator has since deleted,
+ * or the catalog hasn't loaded. Callers are expected to fall back gracefully
+ * (see `resolveRouteDisplay` below).
+ */
+export function routeMetaForRouteId(
+  routeId: string | null | undefined,
+  apiLabels?: Pick<ApiRouteLabel, "routeId" | "name" | "category">[] | null,
+): Pick<ApiRouteLabel, "routeId" | "name" | "category"> | undefined {
   if (routeId == null || routeId === "") return undefined
-  return DEMO_ROUTES.find((r) => r.routeId === routeId)
+  return apiLabels?.find((r) => r.routeId === routeId)
 }
 
 /**
- * Resolve display name + short code for an on-chain route id against both the
- * operator-registered API catalog AND the built-in demo routes.
+ * Resolve display name + short code for an on-chain route id against the
+ * operator-registered API catalog.
  *
- * Why it exists: pass cards only had access to DEMO_ROUTES, so any ticket for
- * an operator-registered route fell through to "Route 11770…6329" even though
- * the name was sitting right there in the GET /routes response. Pass whatever
- * API labels you already have loaded; missing/empty arrays fold gracefully.
- *
- * Falls back to a shortened numeric id when nothing matches — preserves the
- * previous behaviour instead of showing a blank line for tickets whose route
- * was deleted server-side or predates the API catalog entirely.
+ * Pass whatever API labels you already have loaded; missing/empty arrays
+ * fold gracefully to a shortened numeric id so tickets whose route isn't
+ * in the catalog (deleted, not yet loaded, predates the catalog) still
+ * show something human-readable instead of a blank line.
  */
 export function resolveRouteDisplay(
   routeId: string | null | undefined,
@@ -37,10 +42,6 @@ export function resolveRouteDisplay(
   const fromApi = apiLabels?.find((r) => r.routeId === routeId)
   if (fromApi) {
     return { name: fromApi.name, shortCode: fromApi.shortCode ?? null }
-  }
-  const demo = DEMO_ROUTES.find((r) => r.routeId === routeId)
-  if (demo) {
-    return { name: demo.name, shortCode: null }
   }
   return { name: `Route ${shortenNumericId(routeId)}`, shortCode: null }
 }

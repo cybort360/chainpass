@@ -1,6 +1,3 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import { createApp } from "../src/app.js";
@@ -27,8 +24,6 @@ describe("HTTP API", () => {
     delete process.env.DATABASE_URL;
     delete process.env.QR_SIGNING_SECRET;
     delete process.env.QR_TTL_SECONDS;
-    delete process.env.NIGERIA_ROUTES_JSON_PATH;
-    delete process.env.NIGERIA_ROUTES_SYNC;
   });
 
   afterEach(() => {
@@ -36,8 +31,6 @@ describe("HTTP API", () => {
     delete process.env.DATABASE_URL;
     delete process.env.QR_SIGNING_SECRET;
     delete process.env.QR_TTL_SECONDS;
-    delete process.env.NIGERIA_ROUTES_JSON_PATH;
-    delete process.env.NIGERIA_ROUTES_SYNC;
   });
 
   describe("GET /health", () => {
@@ -402,64 +395,6 @@ describe("HTTP API", () => {
       expect(res.body.error).toMatch(/failed to register route/i);
     });
 
-    it("returns 400 for invalid priceMon", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
-      const res = await request(app)
-        .post("/api/v1/routes")
-        .send({ routeId: "1", name: "A", category: "North", priceMon: -1 })
-        .expect(400);
-      expect(res.body.error).toMatch(/priceMon/i);
-    });
-
-    it("merges priceMon into nigeria-routes json when path is writable", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
-      process.env.NIGERIA_ROUTES_SYNC = "1";
-      const dir = mkdtempSync(join(tmpdir(), "chainpass-nigeria-routes-"));
-      const jsonPath = join(dir, "nigeria-routes.json");
-      writeFileSync(
-        jsonPath,
-        JSON.stringify({
-          description: "test",
-          network: "monad-testnet",
-          routes: [
-            {
-              routeId: "1",
-              category: "X",
-              name: "Existing",
-              detail: "",
-              priceMon: 0.01,
-              priceWei: "10000000000000000",
-            },
-          ],
-        }),
-        "utf8",
-      );
-      process.env.NIGERIA_ROUTES_JSON_PATH = jsonPath;
-      queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
-
-      const res = await request(app)
-        .post("/api/v1/routes")
-        .send({
-          routeId: "7402918472910384729",
-          name: "New BRT",
-          detail: "Line",
-          category: "Lagos",
-          priceMon: 0.075,
-        })
-        .expect(200);
-
-      expect(res.body.nigeriaRoutesFile).toEqual({ ok: true });
-      const doc = JSON.parse(readFileSync(jsonPath, "utf8")) as {
-        routes: Array<{ routeId: string; name: string; priceWei: string; priceMon: number }>;
-      };
-      expect(doc.routes).toHaveLength(2);
-      const added = doc.routes.find((r) => r.routeId === "7402918472910384729");
-      expect(added?.name).toBe("New BRT");
-      expect(added?.priceMon).toBe(0.075);
-      expect(added?.priceWei).toBe("75000000000000000");
-
-      rmSync(dir, { recursive: true, force: true });
-    });
   });
 
   describe("POST /api/v1/seats/reserve", () => {

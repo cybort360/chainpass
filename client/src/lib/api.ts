@@ -95,11 +95,7 @@ export async function fetchRouteLabels(): Promise<ApiRouteLabel[] | null> {
 }
 
 export type RegisterRouteLabelResult =
-  | {
-      ok: true
-      route: ApiRouteLabel
-      nigeriaRoutesFile?: { ok: true } | { ok: false; reason: string }
-    }
+  | { ok: true; route: ApiRouteLabel }
   | { ok: false; status: number; error: string }
 
 /** Register a new route label (insert-only). Requires API + DATABASE_URL. */
@@ -111,8 +107,6 @@ export async function registerRouteLabel(payload: {
   schedule?: string | null
   /** 1-8 uppercase alphanumeric chars — normalised + validated server-side. */
   shortCode?: string | null
-  /** When set, API appends to config/nigeria-routes.json (server filesystem). */
-  priceMon?: number
   vehicleType?: VehicleType | null
   isInterstate?: boolean | null
   /** New-style train seat config (per class). */
@@ -137,9 +131,6 @@ export async function registerRouteLabel(payload: {
     if (payload.shortCode !== undefined && payload.shortCode !== null && String(payload.shortCode).trim() !== "") {
       body.shortCode = String(payload.shortCode).trim().toUpperCase()
     }
-    if (payload.priceMon !== undefined && Number.isFinite(payload.priceMon)) {
-      body.priceMon = payload.priceMon
-    }
     if (payload.vehicleType) body.vehicleType = payload.vehicleType
     if (payload.isInterstate !== undefined && payload.isInterstate !== null) body.isInterstate = payload.isInterstate
     if (payload.coachClasses && payload.coachClasses.length > 0) body.coachClasses = payload.coachClasses
@@ -154,14 +145,9 @@ export async function registerRouteLabel(payload: {
     const data = (await res.json().catch(() => ({}))) as {
       error?: string
       route?: ApiRouteLabel
-      nigeriaRoutesFile?: { ok: true } | { ok: false; reason: string }
     }
     if (res.ok && data.route) {
-      return {
-        ok: true,
-        route: data.route,
-        ...(data.nigeriaRoutesFile !== undefined ? { nigeriaRoutesFile: data.nigeriaRoutesFile } : {}),
-      }
+      return { ok: true, route: data.route }
     }
     return {
       ok: false,

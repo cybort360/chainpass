@@ -5,8 +5,6 @@ import { Link, useNavigate, useParams } from "react-router-dom"
 import { formatEther, formatUnits } from "viem"
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
-import type { DemoRoute } from "../constants/demoRoutes"
-import { DEMO_ROUTES } from "../constants/demoRoutes"
 import { fetchRouteLabels, fetchRouteRating, fetchTrips, fetchRouteCapacity, claimSeat, linkTokenToTrip, reserveSeat, releaseSeat, routeHasClasses, routeHasSeats, type ApiTrip, type RouteCapacity, type RouteRating, type RouteSession, type SeatBucket } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
@@ -88,10 +86,8 @@ export function RoutePurchasePage() {
     void fetchRouteRating(routeIdParam).then(setRouteRating)
   }, [routeIdParam])
 
-  const routeMeta = useMemo((): DemoRoute | undefined => {
+  const routeMeta = useMemo((): { routeId: string; category: string; name: string; detail: string } | undefined => {
     if (!routeIdParam) return undefined
-    const demo = DEMO_ROUTES.find((r) => r.routeId === routeIdParam)
-    if (demo) return demo
     if (!apiLabels) return undefined
     const row = apiLabels.find((r) => r.routeId === routeIdParam)
     if (!row) return undefined
@@ -178,8 +174,7 @@ export function RoutePurchasePage() {
   const metaLoading =
     routeIdParam !== undefined &&
     routeMeta === undefined &&
-    apiLabels === undefined &&
-    !DEMO_ROUTES.some((r) => r.routeId === routeIdParam)
+    apiLabels === undefined
 
   const contractAddress = getContractAddress()
   const usdcAddress = env.usdcAddress

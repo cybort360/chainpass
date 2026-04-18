@@ -1,6 +1,5 @@
 import { Router } from "express";
 import { getPool } from "../lib/db.js";
-import { appendNigeriaRoutesFileEntry } from "../lib/nigeriaRoutesFile.js";
 
 const UINT256_MAX = 2n ** 256n - 1n;
 
@@ -482,22 +481,6 @@ export function createRoutesRouter(): Router {
         ? Math.floor(Number(totalSeatsRaw)) : null;
     const coachClasses = parseCoachClasses(body?.coachClasses);
 
-    const priceMonRaw = body?.priceMon;
-    let priceMon: number | undefined;
-    if (priceMonRaw !== undefined && priceMonRaw !== null) {
-      const n =
-        typeof priceMonRaw === "number"
-          ? priceMonRaw
-          : typeof priceMonRaw === "string"
-            ? Number(priceMonRaw.trim())
-            : NaN;
-      if (!Number.isFinite(n) || n < 0) {
-        res.status(400).json({ error: "invalid priceMon (non-negative number)" });
-        return;
-      }
-      priceMon = n;
-    }
-
     if (routeId === null) {
       res.status(400).json({ error: "invalid or missing routeId (decimal uint256)" });
       return;
@@ -553,20 +536,6 @@ export function createRoutesRouter(): Router {
          coachClasses ? JSON.stringify(coachClasses) : null],
       );
 
-      let nigeriaRoutesFile: { ok: true } | { ok: false; reason: string } | undefined;
-      if (priceMon !== undefined) {
-        nigeriaRoutesFile = await appendNigeriaRoutesFileEntry({
-          routeId: String(routeId),
-          name,
-          category,
-          detail,
-          priceMon,
-        });
-        if (!nigeriaRoutesFile.ok) {
-          console.warn("[routes POST] nigeria-routes.json:", nigeriaRoutesFile.reason);
-        }
-      }
-
       res.status(200).json({
         route: {
           routeId: String(routeId),
@@ -582,7 +551,6 @@ export function createRoutesRouter(): Router {
           totalSeats,
           coachClasses: coachClasses ?? null,
         },
-        ...(nigeriaRoutesFile !== undefined ? { nigeriaRoutesFile } : {}),
       });
     } catch (err) {
       const code = typeof err === "object" && err !== null && "code" in err ? String((err as { code?: string }).code) : "";
