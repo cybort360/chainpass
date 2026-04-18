@@ -205,8 +205,52 @@ function RoutesPanel({
   )
 }
 
-function AboutPanel({ operator: _operator }: { operator: ApiOperatorDetail }) {
-  return <div className="text-xs text-on-surface-variant">About tab — filled in Task 13.</div>
+function AboutPanel({ operator }: { operator: ApiOperatorDetail }) {
+  const hasAnyDetail = operator.description || operator.region || operator.websiteUrl
+  if (!hasAnyDetail) {
+    return (
+      <p className="rounded-2xl border border-outline-variant/15 bg-surface-container p-6 text-center text-xs text-on-surface-variant">
+        No operator details yet.
+      </p>
+    )
+  }
+  return (
+    <div className="space-y-4">
+      {/* Description */}
+      <div className="rounded-2xl border border-outline-variant/15 bg-surface-container p-4">
+        <p className="text-sm leading-relaxed text-on-surface">
+          {operator.description || "This operator hasn't added a description yet."}
+        </p>
+      </div>
+
+      {/* Details */}
+      {(operator.region || operator.websiteUrl) && (
+        <dl className="space-y-2 rounded-2xl border border-outline-variant/15 bg-surface-container p-4 text-xs">
+          {operator.region && (
+            <div className="flex gap-3">
+              <dt className="w-20 shrink-0 text-on-surface-variant">Region</dt>
+              <dd className="text-on-surface">{operator.region}</dd>
+            </div>
+          )}
+          {operator.websiteUrl && (
+            <div className="flex gap-3">
+              <dt className="w-20 shrink-0 text-on-surface-variant">Website</dt>
+              <dd>
+                <a
+                  href={operator.websiteUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  {operator.websiteUrl}
+                </a>
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </div>
+  )
 }
 
 function SchedulePanel({ operator: _operator }: { operator: ApiOperatorDetail }) {
