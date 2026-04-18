@@ -25,6 +25,14 @@ type OperatorRow = {
   created_at: Date;
 };
 
+type OperatorDirectoryRow = OperatorRow & {
+  region: string | null;
+  description: string | null;
+  website_url: string | null;
+  route_count: number;
+  primary_category: string | null;
+};
+
 const OPERATOR_SELECT_COLUMNS = `
   id, slug, name, admin_wallet, treasury_wallet, status,
   logo_url, created_at
@@ -43,6 +51,17 @@ function toResponse(row: OperatorRow) {
   };
 }
 
+function toDirectoryResponse(row: OperatorDirectoryRow) {
+  return {
+    ...toResponse(row),
+    region: row.region,
+    description: row.description,
+    websiteUrl: row.website_url,
+    routeCount: Number(row.route_count),
+    primaryCategory: row.primary_category,
+  };
+}
+
 export function createOperatorsRouter(): Router {
   const r = Router();
 
@@ -52,12 +71,19 @@ export function createOperatorsRouter(): Router {
       return;
     }
     try {
-      const { rows } = await getPool().query<OperatorRow>(
-        `SELECT ${OPERATOR_SELECT_COLUMNS} FROM operators
-         WHERE status <> 'suspended'
-         ORDER BY created_at DESC, id DESC`,
+      const { rows } = await getPool().query<OperatorDirectoryRow>(
+        `SELECT o.id, o.slug, o.name, o.admin_wallet, o.treasury_wallet, o.status,
+                o.logo_url, o.region, o.description, o.website_url, o.created_at,
+                COUNT(r.route_id)::int                    AS route_count,
+                MODE() WITHIN GROUP (ORDER BY r.category) AS primary_category
+         FROM operators o
+         LEFT JOIN route_labels r ON r.operator_id = o.id
+         WHERE o.status <> 'suspended'
+         GROUP BY o.id
+         HAVING COUNT(r.route_id) > 0
+         ORDER BY route_count DESC, o.created_at DESC, o.id DESC`,
       );
-      res.json({ operators: rows.map(toResponse) });
+      res.json({ operators: rows.map(toDirectoryResponse) });
     } catch (err) {
       console.error("[operators]", err);
       res.status(500).json({ error: "failed to read operators" });

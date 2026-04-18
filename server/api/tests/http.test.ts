@@ -668,7 +668,7 @@ describe("HTTP API", () => {
       expect(res.body).toEqual({ operators: [] });
     });
 
-    it("returns operators from the DB, newest first, suspended excluded", async () => {
+    it("returns operators from the DB, busiest-first then newest, suspended excluded", async () => {
       process.env.DATABASE_URL = "postgres://fake";
       queryMock.mockResolvedValueOnce({
         rows: [
@@ -680,7 +680,12 @@ describe("HTTP API", () => {
             treasury_wallet: null,
             status: "active",
             logo_url: null,
+            region: null,
+            description: null,
+            website_url: null,
             created_at: new Date("2026-04-01T00:00:00Z"),
+            route_count: 5,
+            primary_category: null,
           },
           {
             id: 1,
@@ -690,7 +695,12 @@ describe("HTTP API", () => {
             treasury_wallet: null,
             status: "active",
             logo_url: null,
+            region: null,
+            description: null,
+            website_url: null,
             created_at: new Date("2026-01-01T00:00:00Z"),
+            route_count: 1,
+            primary_category: null,
           },
         ],
         rowCount: 2,
@@ -711,13 +721,62 @@ describe("HTTP API", () => {
       expect(res.body.operators[0]).not.toHaveProperty("contactEmail");
       expect(res.body.operators[1].slug).toBe("chainpass-transit");
 
-      // Sanity: the SQL actually filters suspended rows and orders newest-first.
-      // Without these pins, the "newest first" assertion above would only prove
-      // that the mock was constructed in the expected order, not that the router
+      // Sanity: the SQL actually filters suspended rows and orders busiest-first.
+      // Without these pins, the order assertion above would only prove that the
+      // mock was constructed in the expected order, not that the router
       // requested that order from Postgres.
       const sql = queryMock.mock.calls[0]?.[0] as string;
       expect(sql).toMatch(/status\s*<>\s*'suspended'/);
-      expect(sql).toMatch(/ORDER BY\s+created_at\s+DESC/i);
+      expect(sql).toMatch(/ORDER BY\s+route_count\s+DESC/i);
+    });
+
+    it("returns marketplace fields and aggregates", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({
+        rows: [
+          {
+            id: 1,
+            slug: "chainpass-transit",
+            name: "ChainPass Transit",
+            admin_wallet: null,
+            treasury_wallet: null,
+            status: "active",
+            logo_url: null,
+            region: "Lagos, NG",
+            description: "A test operator",
+            website_url: "https://example.com",
+            created_at: new Date("2026-04-01T00:00:00Z"),
+            route_count: 3,
+            primary_category: "Coach",
+          },
+        ],
+        rowCount: 1,
+      });
+
+      const res = await request(app).get("/api/v1/operators").expect(200);
+      const op = res.body.operators.find((o: { slug: string }) => o.slug === "chainpass-transit");
+      expect(op).toMatchObject({
+        slug: "chainpass-transit",
+        region: "Lagos, NG",
+        description: "A test operator",
+        websiteUrl: "https://example.com",
+        routeCount: 3,
+        primaryCategory: "Coach",
+      });
+      expect(op).not.toHaveProperty("contactEmail");
+    });
+
+    it("SQL joins route_labels, hides zero-route operators, orders busiest-first", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      await request(app).get("/api/v1/operators").expect(200);
+      const sql = String(queryMock.mock.calls[0]?.[0] ?? "");
+      expect(sql).toMatch(/LEFT JOIN\s+route_labels/i);
+      expect(sql).toMatch(/GROUP BY\s+o\.id/i);
+      expect(sql).toMatch(/HAVING\s+COUNT\s*\(\s*r\.route_id\s*\)\s*>\s*0/i);
+      expect(sql).toMatch(/ORDER BY\s+route_count\s+DESC/i);
+      expect(sql).toMatch(/MODE\(\)\s+WITHIN GROUP\s*\(\s*ORDER BY\s+r\.category\s*\)/i);
+      expect(sql).toMatch(/o\.status\s*<>\s*'suspended'/i);
     });
 
     it("returns generic 500 + logs tag when the DB errors", async () => {
