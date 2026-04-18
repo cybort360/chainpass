@@ -6,7 +6,6 @@ import { useAccount, useReadContract, useReadContracts } from "wagmi"
 import { useQuery } from "@tanstack/react-query"
 import { createPublicClient, http } from "viem"
 import { chainPassTicketAbi, erc20Abi, monadTestnet } from "@chainpass/shared"
-import { DEMO_ROUTES } from "../constants/demoRoutes"
 import { fetchRouteLabels, updateRouteLabel, deleteRouteLabel, fetchRouteStats } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
@@ -581,11 +580,6 @@ export function RoutesPage() {
         })
       }
     }
-    for (const r of DEMO_ROUTES) {
-      if (!byId.has(r.routeId)) {
-        byId.set(r.routeId, { routeId: r.routeId, name: r.name, detail: r.detail, category: r.category })
-      }
-    }
     return [...byId.values()].sort((a, b) => {
       const c = a.category.localeCompare(b.category)
       if (c !== 0) return c
@@ -824,12 +818,18 @@ export function RoutesPage() {
       {apiLabels !== undefined && filtered.length === 0 && (
         <div className="rounded-2xl border border-outline-variant/20 bg-surface-container px-6 py-10 text-center">
           <p className="font-headline text-sm font-semibold text-white">
-            {showFavsOnly ? "No favourites yet" : "No routes found"}
+            {showFavsOnly
+              ? "No favourites yet"
+              : searchQuery
+                ? "No routes found"
+                : "No routes yet"}
           </p>
           <p className="mt-1 text-xs text-on-surface-variant">
             {showFavsOnly
               ? "Tap the ♥ on any route to save it here."
-              : `No routes match "${searchQuery}". Try a different search.`}
+              : searchQuery
+                ? `No routes match "${searchQuery}". Try a different search.`
+                : "The catalogue is empty. Register a route from the Operator page to see it here."}
           </p>
           {(showFavsOnly || searchQuery) && (
             <button

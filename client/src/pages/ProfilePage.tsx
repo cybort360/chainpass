@@ -15,8 +15,6 @@ import { ExpiryWarningBanner } from "../components/ui/ExpiryWarningBanner"
 import { TierCard } from "../components/ui/TierCard"
 import { useLoyalty } from "../hooks/useLoyalty"
 import { useNotifications } from "../hooks/useNotifications"
-import { DEMO_ROUTES } from "../constants/demoRoutes"
-
 // Polls hit the public Monad RPC for every active ticket (balanceOf → tokenOfOwnerByIndex
 // → routeOf/validUntil/seatClassOf). 8s was far too aggressive and combined with
 // chunked burn-history scans caused HTTP 413/429 storms. 60s keeps the UI fresh
@@ -109,12 +107,10 @@ export function ProfilePage() {
   const [claimOpen, setClaimOpen] = useState(false)
   const [claimRouteId, setClaimRouteId] = useState<string>("")
 
-  // Merge API + demo routes for the picker
+  // Routes available for the "claim free ride" picker. Sourced entirely from
+  // the operator-registered API catalog — no demo fallback.
   const allRoutes = useMemo(() => {
-    const byId = new Map<string, { routeId: string; name: string; category: string }>()
-    for (const r of apiRouteLabels ?? []) byId.set(r.routeId, r)
-    for (const r of DEMO_ROUTES) if (!byId.has(r.routeId)) byId.set(r.routeId, r)
-    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name))
+    return [...(apiRouteLabels ?? [])].sort((a, b) => a.name.localeCompare(b.name))
   }, [apiRouteLabels])
 
   // Fetch API route labels once on mount

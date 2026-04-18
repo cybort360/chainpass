@@ -641,8 +641,6 @@ export function OperatorPage() {
     const category = regCategory.trim()
     const detail = regDetail.trim()
     const shortCode = regShortCode.trim().toUpperCase() || null
-    const monNum = Number(regPriceMon.trim())
-    const priceMon = Number.isFinite(monNum) && monNum >= 0 ? monNum : undefined
     // Derived: trains are always interstate; light rail is always intrastate
     const effectiveVehicleType = regVehicleType
     const effectiveIsInterstate = regVehicleType === "train" ? true : regVehicleType === "light_rail" ? false : regIsInterstate
@@ -665,31 +663,20 @@ export function OperatorPage() {
       category,
       detail: detail || null,
       shortCode,
-      priceMon,
       vehicleType: effectiveVehicleType,
       isInterstate: effectiveIsInterstate,
       coachClasses: coachClasses.length > 0 ? coachClasses : null,
       totalSeats: totalSeatsNum,
     }).then((result) => {
       if (result.ok) {
-        const fileOk = result.nigeriaRoutesFile?.ok === true
-        const fileFail = result.nigeriaRoutesFile && result.nigeriaRoutesFile.ok === false
-        if (fileOk) {
-          setRegLabelMsg("New route registered on-chain, in the routes list")
-        } else if (fileFail && result.nigeriaRoutesFile && result.nigeriaRoutesFile.ok === false) {
-          setRegLabelMsg(
-            `New route registered on-chain and in the routes list. nigeria-routes.json: ${result.nigeriaRoutesFile.reason}`,
-          )
-        } else {
-          setRegLabelMsg("New route registered on-chain and in the routes list.")
-        }
+        setRegLabelMsg("New route registered on-chain and in the routes list.")
         setRegFormErr(null)
       } else if (result.status === 409) {
         setRegFormErr(result.error)
         setRegLabelMsg(null)
       } else if (result.status === 503) {
         setRegLabelMsg(
-          "Price set on-chain. The routes list needs the API with DATABASE_URL configured (or run seed) to register this route by name.",
+          "Price set on-chain. The routes list needs the API with DATABASE_URL configured to register this route by name.",
         )
         setRegFormErr(null)
       } else {
@@ -697,7 +684,7 @@ export function OperatorPage() {
         setRegLabelMsg(null)
       }
     })
-  }, [routePriceSuccess, routePriceHash, regName, regCategory, regDetail, regShortCode, regPriceMon,
+  }, [routePriceSuccess, routePriceHash, regName, regCategory, regDetail, regShortCode,
       regVehicleType, regIsInterstate, regTotalSeats, regClasses])
 
   // ── MON price config ──────────────────────────────────────────────────────

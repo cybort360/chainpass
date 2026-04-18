@@ -12,8 +12,6 @@
     "dev:api": "pnpm --filter @chainpass/api dev",
     "dev:indexer": "pnpm --filter @chainpass/indexer dev",
     "test": "pnpm --filter @chainpass/api test && pnpm --filter @chainpass/indexer test",
-    "sync-route-prices": "tsx scripts/sync-nigeria-route-prices.ts",
-    "sync-nigeria-route-ids": "tsx scripts/sync-nigeria-route-ids.ts",
     "keep-alive:render": "node scripts/keep-alive-render.mjs"
   },
   "dependencies": {

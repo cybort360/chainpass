@@ -22,8 +22,10 @@ export function newRouteIdDecimalFromUuid(): string {
 }
 
 /**
- * Deterministic route id for a labeled row (demo list + `config/nigeria-routes.json`).
- * UUID v5(category|name) → keccak256 → uint256 decimal string.
+ * Deterministic route id from a (category, name) pair. Used by the operator
+ * admin form so a given label always produces the same on-chain uint256 id,
+ * letting operators re-register the same route from a fresh DB without
+ * minting a new id. UUID v5(category|name) → keccak256 → uint256 decimal.
  */
 export function stableRouteIdDecimalForLabel(category: string, name: string): string {
   const key = `${category.trim()}|${name.trim()}`;
