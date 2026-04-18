@@ -67,8 +67,8 @@ END$$;
 Called from `ensureRouteLabelsTable()` in `server/api/src/lib/db.ts`, placed after the existing `OPERATORS_INIT_SQL` block and before the `ROUTE_LABELS_MIGRATE_*` blocks. Same idempotent pattern as the existing migrations.
 
 ### Existing fields reused
-- `operators.contact_email` (nullable, already present) — shown on the About tab.
 - `operators.logo_url` (nullable, already present) — reserved for when logo upload ships; MVP uses a deterministic color block fallback.
+- `operators.contact_email` (nullable, already present) — **not exposed** on the marketplace endpoints. The existing `server/api/src/routes/operators.ts` handler explicitly omits `contact_email` from responses on anti-phishing grounds (see comment lines 13–15). We preserve that posture: the About tab does **not** display an email. An opt-in public contact channel is deferred to a later phase.
 
 ### No other tables touched
 - `route_labels.operator_id` already exists and is already populated (previous migration).
@@ -81,7 +81,7 @@ Existing handler in `server/api/src/routes/operators.ts` updated. Single query w
 
 ```sql
 SELECT o.id, o.slug, o.name, o.status, o.logo_url,
-       o.region, o.description, o.website_url, o.contact_email,
+       o.region, o.description, o.website_url,
        o.created_at,
        COUNT(r.route_id)::int                                     AS route_count,
        MODE() WITHIN GROUP (ORDER BY r.category)                  AS primary_category
@@ -109,7 +109,7 @@ type OperatorResponse = {
   region: string | null;
   description: string | null;
   websiteUrl: string | null;
-  contactEmail: string | null;
+  // contactEmail intentionally omitted — see §3 "Existing fields reused".
   createdAt: string; // ISO
   routeCount: number;
   primaryCategory: string | null;
@@ -124,7 +124,7 @@ Two queries run in parallel:
 ```sql
 -- 1) Operator row + aggregates
 SELECT o.id, o.slug, o.name, o.status, o.logo_url,
-       o.region, o.description, o.website_url, o.contact_email,
+       o.region, o.description, o.website_url,
        o.created_at,
        COUNT(r.route_id)::int                                     AS route_count,
        MODE() WITHIN GROUP (ORDER BY r.category)                  AS primary_category
@@ -335,13 +335,12 @@ Controlled via URL query param `?tab=routes|about|schedule`. No param → defaul
 [ Details ]
     Region:    {region}                    (shown only if non-null)
     Website:   {websiteUrl}                (shown only if non-null)
-    Email:     {contactEmail}              (shown only if non-null)
 ```
 
 - `websiteUrl` is an `<a target="_blank" rel="noopener noreferrer">`.
-- `contactEmail` is a `mailto:` link.
 - Fields with null values are hidden entirely (not rendered as "—" or "None").
-- If **all** of `description`, `region`, `websiteUrl`, `contactEmail` are null: render "No operator details yet."
+- If **all** of `description`, `region`, `websiteUrl` are null: render "No operator details yet."
+- Email is **not** shown here, per the anti-phishing posture in §3.
 
 ### 7.6 Schedule tab
 
@@ -367,7 +366,7 @@ Uses `schedule.{firstDeparture, lastDeparture, routesWithSessions}` from the ope
 - All three tabs render with a populated operator.
 - Tab switching updates `?tab=` and vice versa.
 - About tab hides null fields row-by-row.
-- About tab shows "No operator details yet." when all four fields are null.
+- About tab shows "No operator details yet." when all three fields (description, region, websiteUrl) are null.
 - Schedule tab shows the "hasn't published a schedule yet" copy when `firstDeparture` is null.
 - Unknown slug → 404 page.
 - Routes tab's card click navigates to `/routes/:routeId` with `{ state: { fromOperator } }`.
@@ -404,7 +403,7 @@ Favourites, search, filters, empty state — all unchanged.
 |---|---|---|
 | `/operators` directory | Zero operators with routes | "No operators yet. The marketplace is empty. Once an operator registers and adds a route, you'll see them here." + CTA → `/operator` |
 | `/operators/:slug` Routes tab | Operator has zero routes | "This operator hasn't added any routes yet." |
-| `/operators/:slug` About tab | All of `description`, `region`, `websiteUrl`, `contactEmail` are null | "No operator details yet." |
+| `/operators/:slug` About tab | All of `description`, `region`, `websiteUrl` are null | "No operator details yet." |
 | `/operators/:slug` Schedule tab | Zero sessions across all operator's routes | "This operator hasn't published a schedule yet. Individual route pages may still show upcoming departures once sessions are added." |
 | `/routes` | Zero routes total | Existing "No routes yet..." copy, unchanged |
 
