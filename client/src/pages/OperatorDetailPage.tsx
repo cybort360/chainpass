@@ -7,6 +7,7 @@ import {
   type ApiRouteLabel,
 } from "../lib/api"
 import { Breadcrumb } from "../components/marketplace/Breadcrumb"
+import { RouteCard } from "../components/routes/RouteCard"
 
 /** Tab ids, used both in state and in the `?tab=` URL param. */
 type Tab = "routes" | "about" | "schedule"
@@ -163,8 +164,45 @@ function OperatorLogo({ operator }: { operator: ApiOperatorDetail }) {
 // Parameters are underscore-prefixed here to satisfy noUnusedParameters; the
 // real implementations in Tasks 12-14 will consume them.
 
-function RoutesPanel({ operator: _operator, routes: _routes }: { operator: ApiOperatorDetail; routes: ApiRouteLabel[] | null | undefined }) {
-  return <div className="text-xs text-on-surface-variant">Routes tab — filled in Task 12.</div>
+function RoutesPanel({
+  operator,
+  routes,
+}: {
+  operator: ApiOperatorDetail
+  routes: ApiRouteLabel[] | null | undefined
+}) {
+  if (routes === undefined) {
+    return (
+      <div className="space-y-2.5">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-16 w-full animate-pulse rounded-2xl border border-outline-variant/15 bg-surface-container"
+          />
+        ))}
+      </div>
+    )
+  }
+  if (routes === null || routes.length === 0) {
+    return (
+      <p className="rounded-2xl border border-outline-variant/15 bg-surface-container p-6 text-center text-xs text-on-surface-variant">
+        This operator hasn't added any routes yet.
+      </p>
+    )
+  }
+  return (
+    <ul className="space-y-2.5">
+      {routes.map((r) => (
+        <li key={r.routeId}>
+          <RouteCard
+            route={r}
+            showOperator={false}
+            navigateState={{ fromOperator: { slug: operator.slug, name: operator.name } }}
+          />
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function AboutPanel({ operator: _operator }: { operator: ApiOperatorDetail }) {
