@@ -820,23 +820,33 @@ describe("HTTP API", () => {
       expect(res.body.error).toBe("not found");
     });
 
-    it("returns the matching operator", async () => {
+    it("returns the matching operator with aggregates and empty schedule", async () => {
       process.env.DATABASE_URL = "postgres://fake";
-      queryMock.mockResolvedValueOnce({
-        rows: [
-          {
-            id: 1,
-            slug: "chainpass-transit",
-            name: "ChainPass Transit",
-            admin_wallet: null,
-            treasury_wallet: null,
-            status: "active",
-            logo_url: null,
-            created_at: new Date("2026-01-01T00:00:00Z"),
-          },
-        ],
-        rowCount: 1,
-      });
+      queryMock
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 1,
+              slug: "chainpass-transit",
+              name: "ChainPass Transit",
+              admin_wallet: null,
+              treasury_wallet: null,
+              status: "active",
+              logo_url: null,
+              region: null,
+              description: null,
+              website_url: null,
+              created_at: new Date("2026-01-01T00:00:00Z"),
+              route_count: 0,
+              primary_category: null,
+            },
+          ],
+          rowCount: 1,
+        })
+        .mockResolvedValueOnce({
+          rows: [{ first_departure: null, last_departure: null, routes_with_sessions: 0 }],
+          rowCount: 1,
+        });
       const res = await request(app)
         .get("/api/v1/operators/chainpass-transit")
         .expect(200);
@@ -845,8 +855,77 @@ describe("HTTP API", () => {
         slug: "chainpass-transit",
         name: "ChainPass Transit",
         status: "active",
+        region: null,
+        description: null,
+        websiteUrl: null,
+        routeCount: 0,
+        primaryCategory: null,
+        schedule: {
+          firstDeparture: null,
+          lastDeparture: null,
+          routesWithSessions: 0,
+        },
       });
       expect(res.body.operator).not.toHaveProperty("contactEmail");
+    });
+
+    it("returns populated schedule when sessions exist", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: 1,
+              slug: "chainpass-transit",
+              name: "ChainPass Transit",
+              admin_wallet: null,
+              treasury_wallet: null,
+              status: "active",
+              logo_url: null,
+              region: "Lagos, NG",
+              description: "A test operator",
+              website_url: "https://example.com",
+              created_at: new Date("2026-01-01T00:00:00Z"),
+              route_count: 1,
+              primary_category: "Coach",
+            },
+          ],
+          rowCount: 1,
+        })
+        .mockResolvedValueOnce({
+          rows: [
+            { first_departure: "06:00", last_departure: "22:15", routes_with_sessions: 1 },
+          ],
+          rowCount: 1,
+        });
+      const res = await request(app)
+        .get("/api/v1/operators/chainpass-transit")
+        .expect(200);
+      expect(res.body.operator).toMatchObject({
+        slug: "chainpass-transit",
+        region: "Lagos, NG",
+        description: "A test operator",
+        websiteUrl: "https://example.com",
+        routeCount: 1,
+        primaryCategory: "Coach",
+        schedule: {
+          firstDeparture: "06:00",
+          lastDeparture: "22:15",
+          routesWithSessions: 1,
+        },
+      });
+      expect(res.body.operator).not.toHaveProperty("contactEmail");
+    });
+
+    it("SQL: slug handler has no HAVING (zero-route operators still resolve) and selects by slug", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      await request(app).get("/api/v1/operators/something").expect(404);
+      const opSql = String(queryMock.mock.calls[0]?.[0] ?? "");
+      expect(opSql).not.toMatch(/HAVING/i);
+      expect(opSql).toMatch(/WHERE\s+o\.slug\s*=\s*\$1/i);
+      expect(opSql).toMatch(/LEFT JOIN\s+route_labels/i);
+      expect(opSql).toMatch(/status\s*<>\s*'suspended'/i);
     });
 
     it("returns generic 500 + logs tag on DB error", async () => {
