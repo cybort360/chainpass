@@ -4,8 +4,12 @@ import { getPool } from "../lib/db.js";
 /**
  * Public operator directory.
  *
- * GET /operators        — list all non-suspended operators, newest first.
- * GET /operators/:slug  — single operator by slug; 404 if not found or suspended.
+ * GET /operators        — non-suspended operators with ≥1 route, ordered
+ *                         busiest first (by route count) then newest. Operators
+ *                         with zero routes are hidden so the directory never
+ *                         shows dead-end listings to riders.
+ * GET /operators/:slug  — single operator by slug (current shape; will grow
+ *                         aggregates in Task 3); 404 if not found or suspended.
  *
  * Both endpoints are public read (no auth). admin_wallet and treasury_wallet
  * are intentionally included because they are already on-chain (every mint
