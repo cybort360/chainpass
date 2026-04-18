@@ -253,6 +253,35 @@ function AboutPanel({ operator }: { operator: ApiOperatorDetail }) {
   )
 }
 
-function SchedulePanel({ operator: _operator }: { operator: ApiOperatorDetail }) {
-  return <div className="text-xs text-on-surface-variant">Schedule tab — filled in Task 14.</div>
+function SchedulePanel({ operator }: { operator: ApiOperatorDetail }) {
+  const { firstDeparture, lastDeparture, routesWithSessions } = operator.schedule
+  if (firstDeparture === null || lastDeparture === null) {
+    return (
+      <p className="rounded-2xl border border-outline-variant/15 bg-surface-container p-6 text-center text-xs text-on-surface-variant">
+        This operator hasn't published a schedule yet. Individual route pages may still show
+        upcoming departures once sessions are added.
+      </p>
+    )
+  }
+  return (
+    <div className="rounded-2xl border border-outline-variant/15 bg-surface-container p-4">
+      <dl className="space-y-2 text-xs">
+        <div className="flex gap-3">
+          <dt className="w-32 shrink-0 text-on-surface-variant">Service hours</dt>
+          <dd className="font-mono text-on-surface">
+            {firstDeparture} – {lastDeparture}
+          </dd>
+        </div>
+        <div className="flex gap-3">
+          <dt className="w-32 shrink-0 text-on-surface-variant">Active routes</dt>
+          <dd className="text-on-surface">
+            {routesWithSessions} of {operator.routeCount} published
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-3 text-[11px] text-on-surface-variant/80">
+        Derived from the operator's current session data. Refreshes when sessions change.
+      </p>
+    </div>
+  )
 }
