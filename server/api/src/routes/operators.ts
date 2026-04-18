@@ -155,5 +155,82 @@ export function createOperatorsRouter(): Router {
     }
   });
 
+  r.get("/operators/:slug/routes", async (req, res) => {
+    const slug = String(req.params.slug ?? "").trim().toLowerCase();
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(slug) || slug.length > 40) {
+      res.status(400).json({ error: "invalid slug" });
+      return;
+    }
+    if (!process.env.DATABASE_URL) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    try {
+      const pool = getPool();
+
+      // Look up operator id by slug first so we can distinguish 404 (unknown
+      // operator) from 200 empty (known operator with zero routes).
+      const opRes = await pool.query<{ id: number }>(
+        `SELECT id FROM operators WHERE slug = $1 AND status <> 'suspended' LIMIT 1`,
+        [slug],
+      );
+      if (opRes.rows.length === 0) {
+        res.status(404).json({ error: "not found" });
+        return;
+      }
+      const operatorId = opRes.rows[0]!.id;
+
+      const { rows } = await pool.query<{
+        route_id: string;
+        name: string;
+        detail: string | null;
+        category: string;
+        schedule: string | null;
+        short_code: string | null;
+        schedule_mode: string | null;
+        operating_start: string | null;
+        operating_end: string | null;
+        vehicle_type: string | null;
+        is_interstate: boolean | null;
+        coaches: number | null;
+        seats_per_coach: number | null;
+        total_seats: number | null;
+        coach_classes: unknown | null;
+      }>(
+        `SELECT route_id, name, detail, category, schedule, short_code,
+                schedule_mode, operating_start, operating_end,
+                vehicle_type, is_interstate, coaches, seats_per_coach, total_seats,
+                coach_classes
+         FROM route_labels
+         WHERE operator_id = $1
+         ORDER BY category, route_id::numeric`,
+        [operatorId],
+      );
+
+      res.json({
+        routes: rows.map((row) => ({
+          routeId: String(row.route_id),
+          name: row.name,
+          detail: row.detail,
+          category: row.category,
+          schedule: row.schedule,
+          shortCode: row.short_code,
+          scheduleMode: row.schedule_mode ?? "sessions",
+          operatingStart: row.operating_start,
+          operatingEnd: row.operating_end,
+          vehicleType: row.vehicle_type,
+          isInterstate: row.is_interstate,
+          coaches: row.coaches,
+          seatsPerCoach: row.seats_per_coach,
+          totalSeats: row.total_seats,
+          coachClasses: row.coach_classes ?? null,
+        })),
+      });
+    } catch (err) {
+      console.error("[operators slug routes]", err);
+      res.status(500).json({ error: "failed to read routes" });
+    }
+  });
+
   return r;
 }

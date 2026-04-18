@@ -943,6 +943,109 @@ describe("HTTP API", () => {
     });
   });
 
+  describe("GET /api/v1/operators/:slug/routes", () => {
+    it("returns 400 for invalid slug format", async () => {
+      await request(app)
+        .get("/api/v1/operators/BAD_SLUG/routes")
+        .expect(400);
+    });
+
+    it("returns 404 when DATABASE_URL is unset", async () => {
+      const res = await request(app)
+        .get("/api/v1/operators/chainpass-transit/routes")
+        .expect(404);
+      expect(res.body.error).toBe("not found");
+    });
+
+    it("returns 404 when slug does not match any operator", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      const res = await request(app)
+        .get("/api/v1/operators/does-not-exist-xyz/routes")
+        .expect(404);
+      expect(res.body.error).toBe("not found");
+    });
+
+    it("returns empty array for a known operator with zero routes", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock
+        .mockResolvedValueOnce({ rows: [{ id: 7 }], rowCount: 1 })
+        .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      const res = await request(app)
+        .get("/api/v1/operators/empty-op-for-routes/routes")
+        .expect(200);
+      expect(res.body.routes).toEqual([]);
+    });
+
+    it("returns camelCased routes scoped to the operator", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock
+        .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1 })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              route_id: "42",
+              name: "Marina → Alaba",
+              detail: null,
+              category: "Rail",
+              schedule: null,
+              short_code: "LAG",
+              schedule_mode: "sessions",
+              operating_start: null,
+              operating_end: null,
+              vehicle_type: "light_rail",
+              is_interstate: false,
+              coaches: null,
+              seats_per_coach: null,
+              total_seats: 80,
+              coach_classes: null,
+            },
+          ],
+          rowCount: 1,
+        });
+      const res = await request(app)
+        .get("/api/v1/operators/chainpass-transit/routes")
+        .expect(200);
+      expect(res.body.routes).toHaveLength(1);
+      expect(res.body.routes[0]).toMatchObject({
+        routeId: "42",
+        name: "Marina → Alaba",
+        category: "Rail",
+        shortCode: "LAG",
+        scheduleMode: "sessions",
+        vehicleType: "light_rail",
+        isInterstate: false,
+        totalSeats: 80,
+      });
+    });
+
+    it("SQL scopes routes by operator_id and orders by category + numeric route_id", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock
+        .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1 })
+        .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      await request(app).get("/api/v1/operators/chainpass-transit/routes").expect(200);
+      const opSql = String(queryMock.mock.calls[0]?.[0] ?? "");
+      const routesSql = String(queryMock.mock.calls[1]?.[0] ?? "");
+      expect(opSql).toMatch(/SELECT\s+id\s+FROM\s+operators/i);
+      expect(opSql).toMatch(/status\s*<>\s*'suspended'/i);
+      expect(routesSql).toMatch(/WHERE\s+operator_id\s*=\s*\$1/i);
+      expect(routesSql).toMatch(/ORDER BY\s+category,\s*route_id::numeric/i);
+    });
+
+    it("returns generic 500 + logs tag on DB error", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      queryMock.mockRejectedValueOnce(new Error("some db error"));
+      const res = await request(app)
+        .get("/api/v1/operators/chainpass-transit/routes")
+        .expect(500);
+      expect(res.body).toEqual({ error: "failed to read routes" });
+      expect(errSpy).toHaveBeenCalledWith("[operators slug routes]", expect.any(Error));
+      errSpy.mockRestore();
+    });
+  });
+
   // Named "wiring" rather than "idempotency" because with a fully-mocked pg.Pool
   // we can't actually prove DB-level idempotency; we can only prove the function
   // issues the expected SQL fragments and doesn't throw on repeated calls. True
