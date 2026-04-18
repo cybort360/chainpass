@@ -73,7 +73,7 @@ export function Header() {
 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <Link
-              to="/routes"
+              to="/operators"
               className="inline-flex items-center justify-center rounded-full bg-primary px-4 py-2 font-headline text-sm font-bold text-on-primary transition-all hover:bg-primary-container hover:shadow-[0_0_20px_rgba(110,84,255,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface active:scale-95 sm:px-7 sm:py-2 sm:text-base"
             >
               Get Started
@@ -135,7 +135,7 @@ export function Header() {
                 </a>
               ))}
               <Link
-                to="/routes"
+                to="/operators"
                 className="mt-4 rounded-xl bg-primary px-4 py-3.5 text-center font-headline text-base font-bold text-on-primary hover:bg-primary-container"
                 onClick={close}
               >

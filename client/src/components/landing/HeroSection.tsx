@@ -87,7 +87,7 @@ export function HeroSection() {
             transition={springTap}
           >
             <Link
-              to="/routes"
+              to="/operators"
               className="inline-flex items-center justify-center rounded-full bg-primary px-8 py-4 font-headline text-lg font-bold text-on-primary transition-[box-shadow,background-color] duration-300 hover:bg-primary-container hover:shadow-[0_0_20px_rgba(110,84,255,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
               Get Started

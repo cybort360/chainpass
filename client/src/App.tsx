@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router-dom"
 import { LandingPage } from "./components/landing/LandingPage"
 import { AppLayout } from "./layouts/AppLayout"
+import { OperatorsDirectoryPage } from "./pages/OperatorsDirectoryPage"
 import { RoutesPage } from "./pages/RoutesPage"
 import { RoutePurchasePage } from "./pages/RoutePurchasePage"
 import { PassPage } from "./pages/PassPage"
@@ -14,6 +15,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route element={<AppLayout />}>
+        <Route path="operators" element={<OperatorsDirectoryPage />} />
         <Route path="routes" element={<RoutesPage />} />
         <Route path="routes/:routeId" element={<RoutePurchasePage />} />
         <Route path="pass/:tokenId" element={<PassPage />} />

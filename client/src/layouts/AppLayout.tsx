@@ -347,7 +347,7 @@ function HeaderWalletControls() {
 
 /* ─────────── Bottom navigation bar ─────────── */
 const allBottomTabs = [
-  { to: "/routes",    label: "Routes", Icon: RoutesIcon, end: true,  gate: false, ops: false },
+  { to: "/operators", label: "Marketplace", Icon: RoutesIcon, end: true,  gate: false, ops: false },
   { to: "/profile",  label: "Passes", Icon: PassesIcon, end: false, gate: false, ops: false },
   { to: "/conductor",label: "Gate",   Icon: GateIcon,   end: false, gate: true,  ops: false },
   { to: "/operator", label: "Ops",    Icon: OpsIcon,    end: false, gate: false, ops: true  },
@@ -422,7 +422,7 @@ export function AppLayout() {
 
           {/* Desktop nav */}
           <nav className="hidden flex-1 items-center justify-center gap-8 md:flex">
-            <NavLink to="/routes" className={desktopNavLink} end>Routes</NavLink>
+            <NavLink to="/operators" className={desktopNavLink} end>Marketplace</NavLink>
             <NavLink to="/profile" className={desktopNavLink}>My Passes</NavLink>
             {showGate && <NavLink to="/conductor" className={desktopNavLink}>Gate</NavLink>}
             {showOps && <NavLink to="/operator" className={desktopNavLink}>Operations</NavLink>}
