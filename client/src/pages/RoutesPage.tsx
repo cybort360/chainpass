@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import { Link } from "react-router-dom"
 import { useShareRoute } from "../hooks/useShareRoute"
 import { formatEther, formatUnits } from "viem"
 import { useAccount, useReadContract, useReadContracts } from "wagmi"
@@ -603,6 +604,15 @@ export function RoutesPage() {
         <h1 className="mt-1.5 font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
           Choose a route
         </h1>
+        <p className="mt-1 text-xs text-on-surface-variant">
+          All routes across every operator on ChainPass.
+        </p>
+        <Link
+          to="/operators"
+          className="mt-2 inline-block text-xs text-primary hover:underline"
+        >
+          ← Back to operators
+        </Link>
         <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
           Pick a route and pay with MON or USDC on Monad testnet. Fares are enforced on-chain.
         </p>
