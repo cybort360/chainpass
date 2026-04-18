@@ -41,14 +41,15 @@ async function main(): Promise<void> {
     for (const row of data.routes) {
       const category = row.category?.trim() || "General";
       // operator_id is NOT NULL post-migration. Attach new seed rows to the
-      // default operator via subquery so the script works against a freshly
-      // migrated DB without needing a separate lookup round trip. Existing
+      // earliest-created still-active operator (the seed row in every current
+      // deployment) so the script works against a freshly migrated DB without
+      // needing a separate lookup round trip or a hardcoded slug. Existing
       // rows keep their operator_id through the DO UPDATE (operator_id is
       // not in the SET list, so ON CONFLICT leaves it alone).
       await pool.query(
         `INSERT INTO route_labels (route_id, name, detail, category, operator_id)
          VALUES ($1, $2, $3, $4,
-           (SELECT id FROM operators WHERE slug = 'chainpass-transit' AND status = 'active'))
+           (SELECT id FROM operators WHERE status = 'active' ORDER BY id ASC LIMIT 1))
          ON CONFLICT (route_id) DO UPDATE SET
            name = EXCLUDED.name,
            detail = EXCLUDED.detail,

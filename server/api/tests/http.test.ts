@@ -368,12 +368,13 @@ describe("HTTP API", () => {
       }));
       // INSERT supplies 12 bound parameters (core 5 + vehicle/coach extras, all
       // null when the client omits them). operator_id is NOT bound — it is
-      // resolved via a subquery against the operators table using the default
-      // seed slug, so the 13-column INSERT lines up with 12 placeholders + 1
-      // subquery. Pin BOTH halves so regressions (e.g. silently dropping the
-      // subquery) show up as failing tests rather than prod 500s.
+      // resolved via a subquery that picks the earliest-created still-active
+      // operator, so the 13-column INSERT lines up with 12 placeholders + 1
+      // subquery. Pin both the column and the subquery shape so regressions
+      // (e.g. silently dropping the subquery, reintroducing a hardcoded slug)
+      // show up as failing tests rather than prod 500s.
       expect(queryMock).toHaveBeenCalledWith(
-        expect.stringMatching(/INSERT INTO route_labels[\s\S]*operator_id[\s\S]*SELECT id FROM operators WHERE slug = 'chainpass-transit'/),
+        expect.stringMatching(/INSERT INTO route_labels[\s\S]*operator_id[\s\S]*SELECT id FROM operators WHERE status = 'active' ORDER BY id ASC LIMIT 1/),
         expect.arrayContaining(["7402918472910384729", "Test BRT", "Demo", "Lagos"]),
       );
     });
