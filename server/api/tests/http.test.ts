@@ -263,8 +263,10 @@ describe("HTTP API", () => {
       process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
       queryMock.mockResolvedValue({
         rows: [
-          { route_id: "1", name: "Route A", detail: "Line 1", category: "North" },
-          { route_id: "2", name: "Route B", detail: null, category: "South" },
+          { route_id: "1", name: "Route A", detail: "Line 1", category: "North",
+            operator_slug: "chainpass-transit", operator_name: "ChainPass Transit" },
+          { route_id: "2", name: "Route B", detail: null, category: "South",
+            operator_slug: "chainpass-transit", operator_name: "ChainPass Transit" },
         ],
       });
 
@@ -283,6 +285,40 @@ describe("HTTP API", () => {
         }),
       ]);
       expect(queryMock).toHaveBeenCalled();
+    });
+
+    it("returns operatorSlug + operatorName on each row", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({
+        rows: [
+          {
+            route_id: "1", name: "R1", detail: null, category: "Rail",
+            schedule: null, short_code: null, schedule_mode: "sessions",
+            operating_start: null, operating_end: null,
+            vehicle_type: null, is_interstate: null,
+            coaches: null, seats_per_coach: null, total_seats: null,
+            coach_classes: null,
+            operator_slug: "chainpass-transit", operator_name: "ChainPass Transit",
+          },
+        ],
+        rowCount: 1,
+      });
+      const res = await request(app).get("/api/v1/routes").expect(200);
+      expect(res.body.routes[0]).toMatchObject({
+        routeId: "1",
+        operatorSlug: "chainpass-transit",
+        operatorName: "ChainPass Transit",
+      });
+    });
+
+    it("SQL joins operators and projects slug + name", async () => {
+      process.env.DATABASE_URL = "postgres://fake";
+      queryMock.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      await request(app).get("/api/v1/routes").expect(200);
+      const sql = String(queryMock.mock.calls[0]?.[0] ?? "");
+      expect(sql).toMatch(/JOIN\s+operators\s+o\s+ON\s+o\.id\s*=\s*rl\.operator_id/i);
+      expect(sql).toMatch(/o\.slug\s+AS\s+operator_slug/i);
+      expect(sql).toMatch(/o\.name\s+AS\s+operator_name/i);
     });
 
     it("returns 200 with empty routes when table is empty", async () => {
