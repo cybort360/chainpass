@@ -17,7 +17,7 @@ export function FinalCtaSection() {
           </p>
           <div className="flex flex-col sm:flex-row gap-6">
             <Link
-              to="/routes"
+              to="/operators"
               className="inline-flex items-center justify-center rounded-full bg-primary px-10 py-5 font-headline text-xl font-bold text-on-primary transition-all hover:bg-primary-container hover:shadow-[0_0_30px_rgba(110,84,255,0.55)] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-surface active:scale-95"
             >
               Get Started

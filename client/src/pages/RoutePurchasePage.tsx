@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { usePrivy } from "@privy-io/react-auth"
 import { useShareRoute } from "../hooks/useShareRoute"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom"
 import { formatEther, formatUnits } from "viem"
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
@@ -14,6 +14,7 @@ import { extractMintedTokenIdFromReceipt } from "../lib/tx"
 import { formatWriteContractError } from "../lib/walletError"
 import { SeatMapPicker } from "../components/SeatMapPicker"
 import { SessionPicker } from "../components/SessionPicker"
+import { Breadcrumb } from "../components/marketplace/Breadcrumb"
 
 type PayMethod = "mon" | "usdc"
 
@@ -73,6 +74,23 @@ export function RoutePurchasePage() {
   const navigate = useNavigate()
   const { authenticated } = usePrivy()
   const { isConnected, address } = useAccount()
+
+  // Breadcrumb derived from location.state:
+  // - `fromOperator` (set by OperatorDetailPage's RouteCard) → two-level "All operators › OperatorName"
+  // - document.referrer ending in /routes → "All routes"
+  // - direct deep-link (SMS / QR) → no breadcrumb (a back arrow to "nowhere" is confusing)
+  const location = useLocation() as {
+    state: { fromOperator?: { slug: string; name: string } } | null
+  }
+  const fromOperator = location.state?.fromOperator
+  const breadcrumbItems = fromOperator
+    ? [
+        { label: "All operators", to: "/operators" },
+        { label: fromOperator.name, to: `/operators/${fromOperator.slug}` },
+      ]
+    : typeof document !== "undefined" && document.referrer.endsWith("/routes")
+      ? [{ label: "All routes", to: "/routes" }]
+      : []
 
   const routeIdBig = useMemo(() => parseRouteIdParam(routeIdParam), [routeIdParam])
   const { shareRoute, shareState, shareUrl, clearShareUrl } = useShareRoute()
@@ -626,15 +644,20 @@ export function RoutePurchasePage() {
 
   return (
     <div className="mx-auto max-w-md">
-      {/* Back */}
-      <Link to="/routes"
-        className="inline-flex items-center gap-1.5 font-headline text-sm font-medium text-on-surface-variant hover:text-white transition-colors">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M19 12H5M12 19l-7-7 7-7" />
-        </svg>
-        Routes
-      </Link>
+      {/* Contextual breadcrumb when we know where the user came from; otherwise
+          the deep-link fallback back-arrow to /routes. See breadcrumbItems above. */}
+      {breadcrumbItems.length > 0 ? (
+        <Breadcrumb items={breadcrumbItems} />
+      ) : (
+        <Link to="/routes"
+          className="inline-flex items-center gap-1.5 font-headline text-sm font-medium text-on-surface-variant hover:text-white transition-colors">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+          Routes
+        </Link>
+      )}
 
       {/* Route heading */}
       <div className="mt-5">

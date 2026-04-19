@@ -447,6 +447,43 @@ ON CONFLICT (slug) DO NOTHING;
 `;
 
 /**
+ * Phase 2 marketplace fields — operator-public metadata rendered on the
+ * rider-facing directory and detail pages. All three nullable; legacy
+ * operator rows (including the seeded chainpass-transit row) start with
+ * null values until an admin fills them in via the operator admin form.
+ *
+ * region        : free-text string, 1-80 chars. Rider-readable region
+ *                 (e.g. "Lagos, Nigeria"). Not normalized — operators type
+ *                 what reads best.
+ * description   : 1-500 chars. Shown as the About-tab description paragraph.
+ * website_url   : must start http(s). Rendered as an external link.
+ *
+ * Idempotent: ADD COLUMN IF NOT EXISTS + duplicate_object-guarded CHECKs,
+ * so re-running this block on a partially-migrated DB is a no-op.
+ */
+export const OPERATORS_MIGRATE_MARKETPLACE_FIELDS_SQL = `
+ALTER TABLE operators ADD COLUMN IF NOT EXISTS region        TEXT;
+ALTER TABLE operators ADD COLUMN IF NOT EXISTS description   TEXT;
+ALTER TABLE operators ADD COLUMN IF NOT EXISTS website_url   TEXT;
+
+DO $$
+BEGIN
+  BEGIN
+    ALTER TABLE operators ADD CONSTRAINT operators_region_len
+      CHECK (region IS NULL OR char_length(region) BETWEEN 1 AND 80);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE operators ADD CONSTRAINT operators_description_len
+      CHECK (description IS NULL OR char_length(description) BETWEEN 1 AND 500);
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+  BEGIN
+    ALTER TABLE operators ADD CONSTRAINT operators_website_url_fmt
+      CHECK (website_url IS NULL OR website_url ~ '^https?://[^\\s]+$');
+  EXCEPTION WHEN duplicate_object THEN NULL; END;
+END$$;
+`;
+
+/**
  * Attach every route_labels row to an operator.
  *
  * Runs in three phases inside one SQL block so partial-failure states converge

@@ -9,9 +9,9 @@ import { chainPassTicketAbi, erc20Abi, monadTestnet } from "@chainpass/shared"
 import { fetchRouteLabels, updateRouteLabel, deleteRouteLabel, fetchRouteStats } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
-import { shortenNumericId } from "../lib/passDisplay"
 import { formatNgn, MON_USD_PRICE, useExchangeRates } from "../lib/prices"
 import { useFavouriteRoutes } from "../hooks/useFavouriteRoutes"
+import { RouteCard } from "../components/routes/RouteCard"
 
 const _publicClient = createPublicClient({ chain: monadTestnet, transport: http() })
 
@@ -22,6 +22,8 @@ type RouteRow = {
   category: string
   schedule?: string | null
   shortCode?: string | null
+  operatorSlug: string
+  operatorName: string
 }
 
 function RouteCardSkeleton() {
@@ -151,100 +153,6 @@ function WalletBalanceWidget() {
           </p>
         </div>
       </div>
-    </div>
-  )
-}
-
-/** Heart / favourite toggle button */
-function FavouriteButton({
-  routeId,
-  isFav,
-  onToggle,
-}: {
-  routeId: string
-  isFav: boolean
-  onToggle: (id: string) => void
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={isFav ? "Remove from favourites" : "Add to favourites"}
-      onClick={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        onToggle(routeId)
-      }}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all ${
-        isFav
-          ? "bg-rose-500/15 text-rose-400"
-          : "bg-transparent text-on-surface-variant/30 hover:bg-rose-500/10 hover:text-rose-400/60"
-      }`}
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24"
-        fill={isFav ? "currentColor" : "none"}
-        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-        aria-hidden>
-        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-      </svg>
-    </button>
-  )
-}
-
-/** Returns "train" for rail/metro routes, "bus" for everything else */
-function transportType(category: string, name: string): "train" | "bus" {
-  const haystack = `${category} ${name}`.toLowerCase()
-  if (/train|rail|metro|lrt|brt rail|blue line|red line|green line/.test(haystack)) return "train"
-  return "bus"
-}
-
-function TransportIcon({ category, name, className }: { category: string; name: string; className?: string }) {
-  const type = transportType(category, name)
-  if (type === "train") {
-    return (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-        className={className} aria-hidden>
-        <rect x="4" y="3" width="16" height="13" rx="3" />
-        <path d="M8 16l-2 4M16 16l2 4M8 20h8" />
-        <circle cx="9" cy="13" r="1" />
-        <circle cx="15" cy="13" r="1" />
-        <line x1="4" y1="8" x2="20" y2="8" />
-      </svg>
-    )
-  }
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-      className={className} aria-hidden>
-      <rect x="1" y="6" width="22" height="13" rx="2" />
-      <path d="M6 6V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2" />
-      <circle cx="7" cy="19" r="1.5" />
-      <circle cx="17" cy="19" r="1.5" />
-      <line x1="12" y1="6" x2="12" y2="19" />
-    </svg>
-  )
-}
-
-/** Format mint price in MON + NGN equivalent */
-function FareBadge({
-  priceWei,
-  ngnForMon,
-}: {
-  priceWei: bigint | undefined
-  ngnForMon: (mon: number) => number
-}) {
-  if (priceWei === undefined) return null
-  const mon = Number(formatEther(priceWei))
-  if (mon <= 0) return null
-  const ngn = ngnForMon(mon)
-  return (
-    <div className="mt-1.5 flex items-center gap-1.5">
-      <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-primary">
-        {mon.toLocaleString(undefined, { maximumFractionDigits: 4 })} MON
-      </span>
-      <span className="text-[10px] text-on-surface-variant/50">
-        ≈ {formatNgn(ngn, { compact: true })}
-      </span>
     </div>
   )
 }
@@ -577,6 +485,8 @@ export function RoutesPage() {
           category: row.category || "General",
           schedule: row.schedule ?? null,
           shortCode: row.shortCode ?? null,
+          operatorSlug: row.operatorSlug,
+          operatorName: row.operatorName,
         })
       }
     }
@@ -694,6 +604,15 @@ export function RoutesPage() {
         <h1 className="mt-1.5 font-headline text-3xl font-bold tracking-tight text-white sm:text-4xl">
           Choose a route
         </h1>
+        <p className="mt-1 text-xs text-on-surface-variant">
+          All routes across every operator on ChainPass.
+        </p>
+        <Link
+          to="/operators"
+          className="mt-2 inline-block text-xs text-primary hover:underline"
+        >
+          ← Back to operators
+        </Link>
         <p className="mt-2 text-sm leading-relaxed text-on-surface-variant">
           Pick a route and pay with MON or USDC on Monad testnet. Fares are enforced on-chain.
         </p>
@@ -859,160 +778,24 @@ export function RoutesPage() {
             <ul className="space-y-2.5">
               {list.map((r) => {
                 const fav = isFavourite(r.routeId)
+                const priceWei = routePriceMap.get(r.routeId) ?? (typeof globalPriceWei === "bigint" ? globalPriceWei : undefined)
                 return (
                   <li key={r.routeId}>
-                    {/*
-                      Card layout: outer group div handles hover/border.
-                      Link covers the info area (flex-1).
-                      Right panel (heart + buy) sits outside the Link as a proper flex sibling
-                      — avoids invalid button-inside-anchor HTML and gives clear spacing.
-                    */}
-                    <div className="group flex items-stretch overflow-hidden rounded-2xl border border-outline-variant/15 bg-surface-container transition-all hover:border-primary/25 hover:bg-surface-container-high hover:shadow-[0_4px_24px_rgba(110,84,255,0.1)]">
-
-                      {/* Left accent bar */}
-                      <div className="w-0.5 shrink-0 rounded-r-full bg-primary/0 transition-all group-hover:bg-primary/60" aria-hidden />
-
-                      {/* Main clickable area */}
-                      <Link
-                        to={`/routes/${r.routeId}`}
-                        className="flex flex-1 items-center gap-4 min-w-0 px-4 py-4"
-                      >
-                        {/* Transport icon — bus or train based on category/name */}
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 transition-colors group-hover:bg-primary/20">
-                          <TransportIcon category={r.category} name={r.name} className="text-primary" />
-                        </div>
-
-                        {/* Route info */}
-                        <div className="min-w-0 flex-1">
-                          <p className="flex items-center gap-2 font-headline text-sm font-semibold leading-snug text-white">
-                            <span className="truncate">{r.name}</span>
-                            {r.shortCode && (
-                              <span
-                                className="shrink-0 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-widest text-primary"
-                                title="Route short code"
-                              >
-                                {r.shortCode}
-                              </span>
-                            )}
-                          </p>
-                          {r.detail && (
-                            <p className="mt-0.5 text-xs text-on-surface-variant">{r.detail}</p>
-                          )}
-                          {r.schedule && (
-                            <p className="mt-0.5 flex items-center gap-1 text-[10px] text-on-surface-variant/60">
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                                <circle cx="12" cy="12" r="10" />
-                                <polyline points="12 6 12 12 16 14" />
-                              </svg>
-                              {r.schedule}
-                            </p>
-                          )}
-                          {/* Fare badge — per-route price if set, else global */}
-                          {!rateLoading && (
-                            <FareBadge
-                              priceWei={routePriceMap.get(r.routeId) ?? (typeof globalPriceWei === "bigint" ? globalPriceWei : undefined)}
-                              ngnForMon={ngnForMon}
-                            />
-                          )}
-                          <p className="mt-1 font-mono text-[10px] text-on-surface-variant/60"
-                            title={`Route ID ${r.routeId}`}>
-                            ID {shortenNumericId(r.routeId, 6, 6)}
-                          </p>
-                        </div>
-                      </Link>
-
-                      {/* Right action panel — heart + operator actions + buy */}
-                      <div className="flex shrink-0 items-center gap-1 border-l border-outline-variant/10 pl-2 pr-3">
-                        <FavouriteButton
-                          routeId={r.routeId}
-                          isFav={fav}
-                          onToggle={toggle}
-                        />
-
-                        {/* Operator-only edit/delete buttons */}
-                        {isOperator && (
-                          <>
-                            <div className="w-px h-5 bg-outline-variant/20 mx-0.5" aria-hidden />
-                            <button
-                              type="button"
-                              aria-label="Edit route"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingRoute(r) }}
-                              className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/40 hover:bg-primary/10 hover:text-primary transition-colors"
-                            >
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                              </svg>
-                            </button>
-                            <button
-                              type="button"
-                              aria-label="Delete route"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeletingRoute(r) }}
-                              className="flex h-8 w-8 items-center justify-center rounded-full text-on-surface-variant/40 hover:bg-error/10 hover:text-error transition-colors"
-                            >
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                                <polyline points="3 6 5 6 21 6"/>
-                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                                <path d="M10 11v6"/><path d="M14 11v6"/>
-                              </svg>
-                            </button>
-                          </>
-                        )}
-
-                        <div className="w-px h-5 bg-outline-variant/20 mx-1" aria-hidden />
-                        <Link
-                          to={`/routes/${r.routeId}`}
-                          tabIndex={-1}
-                          aria-hidden
-                          className="flex items-center gap-1 text-on-surface-variant transition-colors group-hover:text-primary"
-                        >
-                          <span className="font-headline text-xs font-semibold">Buy</span>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                            className="transition-transform group-hover:translate-x-0.5" aria-hidden>
-                            <path d="M5 12h14M12 5l7 7-7 7" />
-                          </svg>
-                        </Link>
-                        <div className="relative flex flex-col items-end gap-1">
-                          <button
-                            type="button"
-                            aria-label={`Share ${r.name}`}
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleShare(r.routeId, r.name) }}
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-on-surface-variant/40 transition-colors hover:text-primary"
-                          >
-                            {shareRouteId === r.routeId && shareState === "copied" ? (
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary" aria-hidden>
-                                <polyline points="20 6 9 17 4 12"/>
-                              </svg>
-                            ) : (
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-                              </svg>
-                            )}
-                          </button>
-                          {/* Manual copy fallback when clipboard is blocked */}
-                          {shareRouteId === r.routeId && shareState === "error" && shareUrl && (
-                            <div className="absolute right-0 top-9 z-20 flex w-64 items-center gap-2 rounded-xl border border-outline-variant/30 bg-surface-container-highest px-3 py-2 shadow-lg">
-                              <input
-                                readOnly
-                                value={shareUrl}
-                                onFocus={(e) => e.target.select()}
-                                className="min-w-0 flex-1 bg-transparent font-mono text-[10px] text-on-surface-variant outline-none"
-                              />
-                              <button type="button" onClick={(e) => { e.stopPropagation(); clearShareUrl(); setShareRouteId(null) }}
-                                className="shrink-0 text-on-surface-variant/50 hover:text-on-surface-variant">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                                </svg>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                    </div>
+                    <RouteCard
+                      route={r}
+                      favourite={{ isFavourite: fav, onToggle: () => toggle(r.routeId) }}
+                      fare={{ priceWei, ngnForMon, rateLoading }}
+                      operatorActions={isOperator ? {
+                        onEdit: () => setEditingRoute(r),
+                        onDelete: () => setDeletingRoute(r),
+                      } : undefined}
+                      share={{
+                        onShare: () => { void handleShare(r.routeId, r.name) },
+                        state: shareRouteId === r.routeId ? shareState : "idle",
+                        shareUrl: shareRouteId === r.routeId ? shareUrl : null,
+                        onClearUrl: () => { clearShareUrl(); setShareRouteId(null) },
+                      }}
+                    />
                   </li>
                 )
               })}

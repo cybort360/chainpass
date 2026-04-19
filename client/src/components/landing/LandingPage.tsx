@@ -19,7 +19,7 @@ export function LandingPage() {
 
   useEffect(() => {
     if (ready && authenticated) {
-      navigate('/routes', { replace: true })
+      navigate('/operators', { replace: true })
     }
   }, [ready, authenticated, navigate])
 

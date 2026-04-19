@@ -14,7 +14,7 @@ export function Footer() {
           <div className="text-xl font-bold text-primary font-headline">ChainPass</div>
           <p className="text-slate-500 font-body text-sm">© 2026 ChainPass. All rights reserved.</p>
           <Link
-            to="/routes"
+            to="/operators"
             className="text-primary/70 hover:text-primary transition-colors font-body text-sm"
           >
             Buy a ticket →

@@ -53,6 +53,10 @@ export type ApiRouteLabel = {
   seatsPerCoach?: number | null
   /** Bus only: total seat count */
   totalSeats?: number | null
+  /** Slug of the operator that owns this route. Always present (operator_id is NOT NULL). */
+  operatorSlug: string
+  /** Display name of the operator that owns this route. Always present. */
+  operatorName: string
 }
 
 /** True only for interstate trains — the only route type with seat classes */
@@ -210,6 +214,71 @@ export async function deleteRouteLabel(routeId: string): Promise<DeleteRouteLabe
     return { ok: false, status: res.status, error: typeof data.error === "string" ? data.error : `request failed (${res.status})` }
   } catch (e) {
     return { ok: false, status: 0, error: e instanceof Error ? e.message : "network error" }
+  }
+}
+
+// ─── Marketplace: public operator directory ─────────────────────────────────
+// Backed by route_labels.operator_id (NOT NULL) joined with the operators
+// table. `contactEmail` is deliberately omitted from the response to keep
+// operator inboxes out of the public surface (anti-phishing posture).
+
+export type ApiOperator = {
+  id: number
+  slug: string
+  name: string
+  adminWallet: string | null
+  treasuryWallet: string | null
+  status: "active" | "pending" | "suspended"
+  logoUrl: string | null
+  region: string | null
+  description: string | null
+  websiteUrl: string | null
+  createdAt: string
+  routeCount: number
+  primaryCategory: string | null
+}
+
+export type ApiOperatorDetail = ApiOperator & {
+  schedule: {
+    firstDeparture: string | null
+    lastDeparture: string | null
+    routesWithSessions: number
+  }
+}
+
+/** Fetch the public operator directory (only operators with ≥1 route). */
+export async function fetchOperators(): Promise<ApiOperator[] | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/operators`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { operators?: ApiOperator[] }
+    return data.operators ?? []
+  } catch {
+    return null
+  }
+}
+
+/** Fetch one operator by slug. Returns null on 404 / network error. */
+export async function fetchOperator(slug: string): Promise<ApiOperatorDetail | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/operators/${encodeURIComponent(slug)}`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { operator?: ApiOperatorDetail }
+    return data.operator ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Fetch the routes owned by one operator by slug. Returns null on 404 / network error. */
+export async function fetchOperatorRoutes(slug: string): Promise<ApiRouteLabel[] | null> {
+  try {
+    const res = await fetch(`${env.apiUrl}/api/v1/operators/${encodeURIComponent(slug)}/routes`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { routes?: ApiRouteLabel[] }
+    return data.routes ?? []
+  } catch {
+    return null
   }
 }
 

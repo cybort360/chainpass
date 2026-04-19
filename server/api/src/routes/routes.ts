@@ -79,13 +79,18 @@ export function createRoutesRouter(): Router {
         seats_per_coach: number | null;
         total_seats: number | null;
         coach_classes: unknown | null;
+        operator_slug: string;
+        operator_name: string;
       }>(
-        `SELECT route_id, name, detail, category, schedule, short_code,
-                schedule_mode, operating_start, operating_end,
-                vehicle_type, is_interstate, coaches, seats_per_coach, total_seats,
-                coach_classes
-         FROM route_labels
-         ORDER BY category, route_id::numeric`,
+        `SELECT rl.route_id, rl.name, rl.detail, rl.category, rl.schedule, rl.short_code,
+                rl.schedule_mode, rl.operating_start, rl.operating_end,
+                rl.vehicle_type, rl.is_interstate, rl.coaches, rl.seats_per_coach, rl.total_seats,
+                rl.coach_classes,
+                o.slug AS operator_slug,
+                o.name AS operator_name
+         FROM route_labels rl
+         JOIN operators o ON o.id = rl.operator_id
+         ORDER BY rl.category, rl.route_id::numeric`,
       );
       res.json({
         routes: rows.map((row) => ({
@@ -106,6 +111,8 @@ export function createRoutesRouter(): Router {
           seatsPerCoach: row.seats_per_coach,
           totalSeats: row.total_seats,
           coachClasses: row.coach_classes ?? null,
+          operatorSlug: row.operator_slug,
+          operatorName: row.operator_name,
         })),
       });
     } catch (err) {
