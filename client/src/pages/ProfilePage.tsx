@@ -217,7 +217,7 @@ export function ProfilePage() {
       } else {
         const active = api?.active ?? []
         if (!api) {
-          setErr("Could not load passes. Set VITE_CHAINPASS_CONTRACT_ADDRESS or run the API.")
+          setErr("Could not load passes. Set VITE_HOPPR_CONTRACT_ADDRESS or run the API.")
           setData(null)
         } else {
           setErr(null)

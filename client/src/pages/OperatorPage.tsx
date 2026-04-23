@@ -1099,7 +1099,7 @@ export function OperatorPage() {
     ])
 
     if (!s && !contract) {
-      setErr("Set VITE_CHAINPASS_CONTRACT_ADDRESS for on-chain totals, or run the API with DATABASE_URL + indexer.")
+      setErr("Set VITE_HOPPR_CONTRACT_ADDRESS for on-chain totals, or run the API with DATABASE_URL + indexer.")
     } else {
       setErr(null)
     }
@@ -1824,7 +1824,7 @@ export function OperatorPage() {
                 <p className="pl-4">--rpc-url $RPC_URL --broadcast</p>
               </div>
               <p className="text-xs text-amber-200/60">
-                Then update <code className="font-mono">VITE_CHAINPASS_CONTRACT_ADDRESS</code> in{" "}
+                Then update <code className="font-mono">VITE_HOPPR_CONTRACT_ADDRESS</code> in{" "}
                 <code className="font-mono">client/.env</code> with the new address and restart.
               </p>
             </div>

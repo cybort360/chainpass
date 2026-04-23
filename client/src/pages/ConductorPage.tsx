@@ -527,7 +527,7 @@ export function ConductorPage() {
   if (!contractAddress) {
     return (
       <div className="mx-auto max-w-md rounded-2xl border border-outline-variant/20 bg-surface-container p-8 text-center text-sm text-on-surface-variant">
-        Set <code className="font-mono text-primary">VITE_CHAINPASS_CONTRACT_ADDRESS</code> in env.
+        Set <code className="font-mono text-primary">VITE_HOPPR_CONTRACT_ADDRESS</code> in env.
       </div>
     )
   }

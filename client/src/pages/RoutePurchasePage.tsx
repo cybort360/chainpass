@@ -608,7 +608,7 @@ export function RoutePurchasePage() {
         <div className="rounded-2xl border border-outline-variant/20 bg-surface-container p-8 text-center">
           <p className="font-headline text-sm font-semibold text-white">Contract not configured</p>
           <p className="mt-2 text-xs text-on-surface-variant">
-            Set <code className="font-mono text-primary">VITE_CHAINPASS_CONTRACT_ADDRESS</code> in{" "}
+            Set <code className="font-mono text-primary">VITE_HOPPR_CONTRACT_ADDRESS</code> in{" "}
             <code className="font-mono">client/.env</code>.
           </p>
           <Link to="/routes" className="mt-5 inline-block font-headline text-sm font-semibold text-primary hover:underline">

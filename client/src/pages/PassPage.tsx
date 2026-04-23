@@ -254,7 +254,7 @@ export function PassPage() {
   if (!contractAddress) {
     return (
       <div className="mx-auto max-w-sm rounded-2xl bg-surface-container p-8 text-center text-sm text-on-surface-variant">
-        Configure <code className="font-mono text-primary">VITE_CHAINPASS_CONTRACT_ADDRESS</code>.
+        Configure <code className="font-mono text-primary">VITE_HOPPR_CONTRACT_ADDRESS</code>.
       </div>
     )
   }
