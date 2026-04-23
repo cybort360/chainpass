@@ -264,9 +264,9 @@ describe("HTTP API", () => {
       queryMock.mockResolvedValue({
         rows: [
           { route_id: "1", name: "Route A", detail: "Line 1", category: "North",
-            operator_slug: "chainpass-transit", operator_name: "ChainPass Transit" },
+            operator_slug: "hoppr-transit", operator_name: "Hoppr Transit" },
           { route_id: "2", name: "Route B", detail: null, category: "South",
-            operator_slug: "chainpass-transit", operator_name: "ChainPass Transit" },
+            operator_slug: "hoppr-transit", operator_name: "Hoppr Transit" },
         ],
       });
 
@@ -298,7 +298,7 @@ describe("HTTP API", () => {
             vehicle_type: null, is_interstate: null,
             coaches: null, seats_per_coach: null, total_seats: null,
             coach_classes: null,
-            operator_slug: "chainpass-transit", operator_name: "ChainPass Transit",
+            operator_slug: "hoppr-transit", operator_name: "Hoppr Transit",
           },
         ],
         rowCount: 1,
@@ -306,8 +306,8 @@ describe("HTTP API", () => {
       const res = await request(app).get("/api/v1/routes").expect(200);
       expect(res.body.routes[0]).toMatchObject({
         routeId: "1",
-        operatorSlug: "chainpass-transit",
-        operatorName: "ChainPass Transit",
+        operatorSlug: "hoppr-transit",
+        operatorName: "Hoppr Transit",
       });
     });
 
@@ -725,8 +725,8 @@ describe("HTTP API", () => {
           },
           {
             id: 1,
-            slug: "chainpass-transit",
-            name: "ChainPass Transit",
+            slug: "hoppr-transit",
+            name: "Hoppr Transit",
             admin_wallet: null,
             treasury_wallet: null,
             status: "active",
@@ -755,7 +755,7 @@ describe("HTTP API", () => {
       });
       expect(res.body.operators[0].createdAt).toBe("2026-04-01T00:00:00.000Z");
       expect(res.body.operators[0]).not.toHaveProperty("contactEmail");
-      expect(res.body.operators[1].slug).toBe("chainpass-transit");
+      expect(res.body.operators[1].slug).toBe("hoppr-transit");
 
       // Sanity: the SQL actually filters suspended rows and orders busiest-first.
       // Without these pins, the order assertion above would only prove that the
@@ -772,8 +772,8 @@ describe("HTTP API", () => {
         rows: [
           {
             id: 1,
-            slug: "chainpass-transit",
-            name: "ChainPass Transit",
+            slug: "hoppr-transit",
+            name: "Hoppr Transit",
             admin_wallet: null,
             treasury_wallet: null,
             status: "active",
@@ -790,9 +790,9 @@ describe("HTTP API", () => {
       });
 
       const res = await request(app).get("/api/v1/operators").expect(200);
-      const op = res.body.operators.find((o: { slug: string }) => o.slug === "chainpass-transit");
+      const op = res.body.operators.find((o: { slug: string }) => o.slug === "hoppr-transit");
       expect(op).toMatchObject({
-        slug: "chainpass-transit",
+        slug: "hoppr-transit",
         region: "Lagos, NG",
         description: "A test operator",
         websiteUrl: "https://example.com",
@@ -842,7 +842,7 @@ describe("HTTP API", () => {
 
     it("returns 404 when DATABASE_URL is unset", async () => {
       const res = await request(app)
-        .get("/api/v1/operators/chainpass-transit")
+        .get("/api/v1/operators/hoppr-transit")
         .expect(404);
       expect(res.body.error).toBe("not found");
     });
@@ -863,8 +863,8 @@ describe("HTTP API", () => {
           rows: [
             {
               id: 1,
-              slug: "chainpass-transit",
-              name: "ChainPass Transit",
+              slug: "hoppr-transit",
+              name: "Hoppr Transit",
               admin_wallet: null,
               treasury_wallet: null,
               status: "active",
@@ -884,12 +884,12 @@ describe("HTTP API", () => {
           rowCount: 1,
         });
       const res = await request(app)
-        .get("/api/v1/operators/chainpass-transit")
+        .get("/api/v1/operators/hoppr-transit")
         .expect(200);
       expect(res.body.operator).toMatchObject({
         id: 1,
-        slug: "chainpass-transit",
-        name: "ChainPass Transit",
+        slug: "hoppr-transit",
+        name: "Hoppr Transit",
         status: "active",
         region: null,
         description: null,
@@ -912,8 +912,8 @@ describe("HTTP API", () => {
           rows: [
             {
               id: 1,
-              slug: "chainpass-transit",
-              name: "ChainPass Transit",
+              slug: "hoppr-transit",
+              name: "Hoppr Transit",
               admin_wallet: null,
               treasury_wallet: null,
               status: "active",
@@ -935,10 +935,10 @@ describe("HTTP API", () => {
           rowCount: 1,
         });
       const res = await request(app)
-        .get("/api/v1/operators/chainpass-transit")
+        .get("/api/v1/operators/hoppr-transit")
         .expect(200);
       expect(res.body.operator).toMatchObject({
-        slug: "chainpass-transit",
+        slug: "hoppr-transit",
         region: "Lagos, NG",
         description: "A test operator",
         websiteUrl: "https://example.com",
@@ -970,7 +970,7 @@ describe("HTTP API", () => {
       queryMock.mockRejectedValueOnce(new Error("some db error"));
 
       const res = await request(app)
-        .get("/api/v1/operators/chainpass-transit")
+        .get("/api/v1/operators/hoppr-transit")
         .expect(500);
       expect(res.body).toEqual({ error: "failed to read operator" });
       expect(errSpy).toHaveBeenCalledWith("[operators]", expect.any(Error));
@@ -988,7 +988,7 @@ describe("HTTP API", () => {
 
     it("returns 404 when DATABASE_URL is unset", async () => {
       const res = await request(app)
-        .get("/api/v1/operators/chainpass-transit/routes")
+        .get("/api/v1/operators/hoppr-transit/routes")
         .expect(404);
       expect(res.body.error).toBe("not found");
     });
@@ -1040,7 +1040,7 @@ describe("HTTP API", () => {
           rowCount: 1,
         });
       const res = await request(app)
-        .get("/api/v1/operators/chainpass-transit/routes")
+        .get("/api/v1/operators/hoppr-transit/routes")
         .expect(200);
       expect(res.body.routes).toHaveLength(1);
       expect(res.body.routes[0]).toMatchObject({
@@ -1060,7 +1060,7 @@ describe("HTTP API", () => {
       queryMock
         .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1 })
         .mockResolvedValueOnce({ rows: [], rowCount: 0 });
-      await request(app).get("/api/v1/operators/chainpass-transit/routes").expect(200);
+      await request(app).get("/api/v1/operators/hoppr-transit/routes").expect(200);
       const opSql = String(queryMock.mock.calls[0]?.[0] ?? "");
       const routesSql = String(queryMock.mock.calls[1]?.[0] ?? "");
       expect(opSql).toMatch(/SELECT\s+id\s+FROM\s+operators/i);
@@ -1074,7 +1074,7 @@ describe("HTTP API", () => {
       const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       queryMock.mockRejectedValueOnce(new Error("some db error"));
       const res = await request(app)
-        .get("/api/v1/operators/chainpass-transit/routes")
+        .get("/api/v1/operators/hoppr-transit/routes")
         .expect(500);
       expect(res.body).toEqual({ error: "failed to read routes" });
       expect(errSpy).toHaveBeenCalledWith("[operators slug routes]", expect.any(Error));
@@ -1101,7 +1101,7 @@ describe("HTTP API", () => {
       expect(
         sqlCalls.some(
           (s) =>
-            /INSERT INTO operators[\s\S]*chainpass-transit[\s\S]*ON CONFLICT[\s\S]*DO NOTHING/i.test(
+            /INSERT INTO operators[\s\S]*hoppr-transit[\s\S]*ON CONFLICT[\s\S]*DO NOTHING/i.test(
               s,
             ),
         ),
