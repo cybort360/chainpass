@@ -1,4 +1,4 @@
-import { CHAINPASS_SHARED_VERSION, chainPassTicketAbi, monadTestnet } from "@hoppr/shared";
+import { HOPPR_SHARED_VERSION, chainPassTicketAbi, monadTestnet } from "@hoppr/shared";
 import { createPublicClient, http } from "viem";
 import { getContractEvents } from "viem/actions";
 import { getIndexerConfig } from "./config.js";
@@ -11,7 +11,7 @@ loadRootEnv();
 const cfg = getIndexerConfig();
 
 console.log(
-  `[chainpass-indexer] Node.js + TypeScript (viem + pg). shared=${CHAINPASS_SHARED_VERSION}`,
+  `[chainpass-indexer] Node.js + TypeScript (viem + pg). shared=${HOPPR_SHARED_VERSION}`,
 );
 console.log(
   `[chainpass-indexer] RPC=${cfg.rpcUrl} DATABASE_URL=${cfg.databaseUrl ? "set" : "missing"}`,

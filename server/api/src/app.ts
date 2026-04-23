@@ -1,4 +1,4 @@
-import { CHAINPASS_SHARED_VERSION } from "@hoppr/shared";
+import { HOPPR_SHARED_VERSION } from "@hoppr/shared";
 import cors from "cors";
 import express, { type Express } from "express";
 import morgan from "morgan";
@@ -45,7 +45,7 @@ export function createApp(): Express {
       service: "chainpass-api",
       stack: "express",
       runtime: "node",
-      shared: CHAINPASS_SHARED_VERSION,
+      shared: HOPPR_SHARED_VERSION,
       databaseConfigured: !!process.env.DATABASE_URL,
       databaseConnected,
       databaseError,
