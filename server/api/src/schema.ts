@@ -371,14 +371,14 @@ CREATE INDEX IF NOT EXISTS idx_route_sessions_route_id ON route_sessions(route_i
  * Phase 1 — multi-tenant foundation.
  *
  * Represents one transit operator on the marketplace (ABC Transport, GIGM, etc.).
- * The first row is a default "ChainPass Transit" operator that every pre-existing
+ * The first row is a default "Hoppr Transit" operator that every pre-existing
  * route_labels row is retrofitted onto (see OPERATORS_SEED_DEFAULT_SQL and
  * ROUTE_LABELS_MIGRATE_OPERATOR_ID_SQL).
  *
  * slug: URL-safe identifier chosen at signup. Lowercase alphanumeric + dashes,
  *   1-40 chars. Public endpoints key on slug, not id, so operator URLs are
  *   stable across DB reseeds.
- * admin_wallet / treasury_wallet: nullable for the seed row (ChainPass Transit
+ * admin_wallet / treasury_wallet: nullable for the seed row (Hoppr Transit
  *   predates the wallet-on-signup flow). Required for operators created via
  *   the onboarding endpoint (enforced in application code, not DB, so the seed
  *   row can exist without a wallet).
@@ -442,14 +442,14 @@ CREATE INDEX IF NOT EXISTS idx_operators_status ON operators(status);
  */
 export const OPERATORS_SEED_DEFAULT_SQL = `
 INSERT INTO operators (slug, name, status)
-VALUES ('chainpass-transit', 'ChainPass Transit', 'active')
+VALUES ('hoppr-transit', 'Hoppr Transit', 'active')
 ON CONFLICT (slug) DO NOTHING;
 `;
 
 /**
  * Phase 2 marketplace fields — operator-public metadata rendered on the
  * rider-facing directory and detail pages. All three nullable; legacy
- * operator rows (including the seeded chainpass-transit row) start with
+ * operator rows (including the seeded hoppr-transit row) start with
  * null values until an admin fills them in via the operator admin form.
  *
  * region        : free-text string, 1-80 chars. Rider-readable region
@@ -510,7 +510,7 @@ export const ROUTE_LABELS_MIGRATE_OPERATOR_ID_SQL = `
 ALTER TABLE route_labels ADD COLUMN IF NOT EXISTS operator_id INTEGER;
 
 UPDATE route_labels
-SET operator_id = (SELECT id FROM operators WHERE slug = 'chainpass-transit')
+SET operator_id = (SELECT id FROM operators WHERE slug = 'hoppr-transit')
 WHERE operator_id IS NULL;
 
 DO $$

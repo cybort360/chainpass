@@ -1,4 +1,4 @@
-# ChainPass for Transit Operators
+# Hoppr for Transit Operators
 
 **Audience:** Head of Operations / COO / MD at private intercity operators (ABC, GIGM, Chisco, GIG, Libra, etc.)
 **Format:** First-meeting document. Hand this over, walk through it in 20 minutes.
@@ -30,7 +30,7 @@ And the things you can't easily solve today:
 
 ---
 
-## What ChainPass gives you
+## What Hoppr gives you
 
 ### 1. Lower per-ticket cost
 
@@ -71,7 +71,7 @@ A ₦30,000 Android phone running our scanner app. Works offline at the park, sy
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ 1.  Your ops team creates schedules in the ChainPass dashboard. │
+│ 1.  Your ops team creates schedules in the Hoppr dashboard. │
 │     "Lagos → PH, 08:00, 60 seats, ₦8,500, refundable till       │
 │      2 hours before departure."                                 │
 ├─────────────────────────────────────────────────────────────────┤
@@ -145,7 +145,7 @@ Post-pilot pricing remains 1.5% per ticket sold. White-label (your own branded a
 **"Is this legal in Nigeria?"**
 Yes. We operate as a payments and ticketing platform. Card processing is handled by our licensed partner (Yellow Card). We're not asking you or your passengers to hold or trade cryptocurrency — the blockchain is backend plumbing, like how your bank uses SWIFT.
 
-**"What if ChainPass goes down?"**
+**"What if Hoppr goes down?"**
 Your data and your tickets are on a public blockchain, not locked in our database. If we disappeared tomorrow, your issued tickets are still valid, and any developer could build you a new scanner. You're not locked in.
 
 **"What if CBN changes crypto rules again?"**
@@ -175,7 +175,7 @@ Honest answer: we're a new company. You're betting on us staying around. We miti
 ---
 
 **Contact**
-ChainPass Transit
+Hoppr Transit
 [contact email]
 [contact phone]
 [website]

@@ -1,11 +1,11 @@
 # Server (Node.js + TypeScript)
 
-This folder implements the **ChainPass backend**: an **Express API** for signed QR payloads and operator reads, plus an optional **viem + PostgreSQL indexer** that ingests **`ChainPassTicket`** contract events (`TicketMinted`, `TicketBurned`). **Lifetime** mint and burn **counts** are also available **on-chain** as **`totalMinted()`** and **`totalBurned()`** — no DB required for those two values. **Ticket fares** are enforced **only on-chain** (`purchaseTicket`, **`mintPriceWei`** / **`routeMintPriceWei`**); this server does not store or validate prices. Shared ABI and Monad testnet chain config live in **`@chainpass/shared`** (see repo root `shared/`).
+This folder implements the **Hoppr backend**: an **Express API** for signed QR payloads and operator reads, plus an optional **viem + PostgreSQL indexer** that ingests **`ChainPassTicket`** contract events (`TicketMinted`, `TicketBurned`). **Lifetime** mint and burn **counts** are also available **on-chain** as **`totalMinted()`** and **`totalBurned()`** — no DB required for those two values. **Ticket fares** are enforced **only on-chain** (`purchaseTicket`, **`mintPriceWei`** / **`routeMintPriceWei`**); this server does not store or validate prices. Shared ABI and Monad testnet chain config live in **`@hoppr/shared`** (see repo root `shared/`).
 
 | Package | Role | Stack |
 |---------|------|--------|
-| **`api/`** | HTTP: health, QR signing, operator events + stats from DB | [Express](https://expressjs.com/), `pg`, `viem`, `@chainpass/shared` |
-| **`indexer/`** | Worker: RPC → decode logs → upsert `ticket_events` | `viem`, `pg`, `@chainpass/shared` — **no HTTP** |
+| **`api/`** | HTTP: health, QR signing, operator events + stats from DB | [Express](https://expressjs.com/), `pg`, `viem`, `@hoppr/shared` |
+| **`indexer/`** | Worker: RPC → decode logs → upsert `ticket_events` | `viem`, `pg`, `@hoppr/shared` — **no HTTP** |
 
 Both packages load `.env` from the monorepo root when present (`load-env.ts`).
 
@@ -19,7 +19,7 @@ The backend has two parts: an **API** that signs short-lived QR payloads and ser
 
 ### API (`server/api`)
 
-- **`GET /health`** — Liveness JSON: `ok`, `service`, `stack`, `runtime`, `shared` (version from `@chainpass/shared`).
+- **`GET /health`** — Liveness JSON: `ok`, `service`, `stack`, `runtime`, `shared` (version from `@hoppr/shared`).
 - **`POST /api/v1/qr/payload`** — Body JSON: **`tokenId`** (number or string, parsed as integer), **`holder`** (checksummed `0x` address via `viem` `isAddress`). Returns **`{ tokenId, holder, exp, signature }`** where **`exp`** is Unix seconds and **`signature`** is **HMAC-SHA256** (hex) over the canonical string **`tokenId|holderLowercase|exp`**, keyed by **`QR_SIGNING_SECRET`**. TTL from **`QR_TTL_SECONDS`** (default **30**; must be **1–3600** or the server returns **500**). The validator should pass **`holder`** from this payload as **`expectedHolder`** in **`burnTicket`** so it matches **`ownerOf(tokenId)`** on-chain.
 - **`POST /api/v1/qr/verify`** — Body JSON: **`tokenId`**, **`holder`**, **`exp`**, **`signature`** (same shape as **`/payload`**). Recomputes the HMAC and checks **`exp`** (Unix seconds). Responds **`200`** with **`{ valid: true }` or `{ valid: false }`**; **400** for malformed input (e.g. missing fields, invalid address, non-integer **`exp`**); **500** if **`QR_SIGNING_SECRET`** is unset. Clients can call **`/verify`** for optional server-side confirmation before submitting the burn on-chain; it is not required if the client already trusts the signed payload.
 - **`GET /api/v1/operator/events`** — Reads up to **500** rows from **`ticket_events`**, newest first. Returns **`{ events: [...] }`**. **503** if **`DATABASE_URL`** is unset; **500** on query failure. Empty or partial history if the indexer was offline or **`INDEXER_FROM_BLOCK`** was set wrong after a **new contract deploy**.
@@ -31,7 +31,7 @@ The backend has two parts: an **API** that signs short-lived QR payloads and ser
 
 - On startup, runs idempotent **`INIT_SQL`**: creates **`ticket_events`** and index on **`block_number`**, and **`route_labels`** (same DDL as the API), if missing.
 - Requires **`DATABASE_URL`** and a valid **`TICKET_CONTRACT_ADDRESS`** (`0x` + 40 hex); exits if either is missing.
-- Uses **`chainPassTicketAbi`** from **`@chainpass/shared`** and **`monadTestnet`** (chain id **10143**, default RPC **`RPC_URL`** or `https://testnet-rpc.monad.xyz`).
+- Uses **`chainPassTicketAbi`** from **`@hoppr/shared`** and **`monadTestnet`** (chain id **10143**, default RPC **`RPC_URL`** or `https://testnet-rpc.monad.xyz`).
 - Fetches **`TicketMinted`** and **`TicketBurned`** via viem **`getContractEvents`**, in ranges of at most **`INDEXER_BLOCK_CHUNK`** blocks (default **100**; Monad public RPC limits **`eth_getLogs`** to a **100-block** range, so larger env values are clamped), until caught up to chain head; then sleeps **`INDEXER_POLL_MS`** (default **4000**, minimum **500** enforced) and repeats.
 - **Cursor**: if **`ticket_events` is empty**, starts from **`INDEXER_FROM_BLOCK`** (default **0**). Otherwise continues from **`max(block_number) + 1`**. Inserts use **`ON CONFLICT (tx_hash, log_index) DO NOTHING`** for idempotency.
 
@@ -61,7 +61,7 @@ The backend has two parts: an **API** that signs short-lived QR payloads and ser
 The API runs **`CREATE TABLE IF NOT EXISTS`** for **`route_labels`** on startup (when **`DATABASE_URL`** is set). Seed human-readable rows from [`config/nigeria-routes.json`](../config/nigeria-routes.json) (idempotent):
 
 ```bash
-pnpm --filter @chainpass/api run seed:route-labels
+pnpm --filter @hoppr/api run seed:route-labels
 ```
 
 (Run from repo root with **`DATABASE_URL`** set.)
@@ -96,7 +96,7 @@ From repo root:
 docker compose -f tooling/docker-compose.yml up -d
 ```
 
-Default URL: `postgresql://postgres:postgres@localhost:5432/chainpass` (see `.env.example`).
+Default URL: `postgresql://postgres:postgres@localhost:5432/hoppr` (see `.env.example`).
 
 ---
 
@@ -111,8 +111,8 @@ pnpm -r run build
 **Run order**
 
 1. **Postgres** — ensure **`DATABASE_URL`** is set.
-2. **Indexer** — `pnpm --filter @chainpass/indexer dev` (or `pnpm --filter @chainpass/indexer start` after build). Set **`TICKET_CONTRACT_ADDRESS`** to your deployed contract.
-3. **API** — `pnpm --filter @chainpass/api dev`. Set **`QR_SIGNING_SECRET`** for QR; set **`DATABASE_URL`** for operator events.
+2. **Indexer** — `pnpm --filter @hoppr/indexer dev` (or `pnpm --filter @hoppr/indexer start` after build). Set **`TICKET_CONTRACT_ADDRESS`** to your deployed contract.
+3. **API** — `pnpm --filter @hoppr/api dev`. Set **`QR_SIGNING_SECRET`** for QR; set **`DATABASE_URL`** for operator events.
 
 ---
 
@@ -129,11 +129,11 @@ pnpm test
 Per package:
 
 ```bash
-pnpm --filter @chainpass/api test
-pnpm --filter @chainpass/indexer test
+pnpm --filter @hoppr/api test
+pnpm --filter @hoppr/indexer test
 ```
 
-Watch mode: `pnpm --filter @chainpass/api test:watch`.
+Watch mode: `pnpm --filter @hoppr/api test:watch`.
 
 ---
 

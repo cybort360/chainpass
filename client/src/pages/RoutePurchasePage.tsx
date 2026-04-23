@@ -4,7 +4,7 @@ import { useShareRoute } from "../hooks/useShareRoute"
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom"
 import { formatEther, formatUnits } from "viem"
 import { useAccount, usePublicClient, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
-import { chainPassTicketAbi, erc20Abi } from "@chainpass/shared"
+import { chainPassTicketAbi, erc20Abi } from "@hoppr/shared"
 import { fetchRouteLabels, fetchRouteRating, fetchTrips, fetchRouteCapacity, claimSeat, linkTokenToTrip, reserveSeat, releaseSeat, routeHasClasses, routeHasSeats, type ApiTrip, type RouteCapacity, type RouteRating, type RouteSession, type SeatBucket } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
@@ -608,7 +608,7 @@ export function RoutePurchasePage() {
         <div className="rounded-2xl border border-outline-variant/20 bg-surface-container p-8 text-center">
           <p className="font-headline text-sm font-semibold text-white">Contract not configured</p>
           <p className="mt-2 text-xs text-on-surface-variant">
-            Set <code className="font-mono text-primary">VITE_CHAINPASS_CONTRACT_ADDRESS</code> in{" "}
+            Set <code className="font-mono text-primary">VITE_HOPPR_CONTRACT_ADDRESS</code> in{" "}
             <code className="font-mono">client/.env</code>.
           </p>
           <Link to="/routes" className="mt-5 inline-block font-headline text-sm font-semibold text-primary hover:underline">
@@ -1168,7 +1168,7 @@ export function RoutePurchasePage() {
                   <div className="flex items-center gap-2 rounded-xl bg-primary/8 px-4 py-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 font-headline text-[10px] font-bold text-primary">1</span>
                     <p className="text-xs text-on-surface-variant">
-                      Allow ChainPass to spend{" "}
+                      Allow Hoppr to spend{" "}
                       <span className="font-semibold text-white">{usdcDisplay} USDC</span>
                     </p>
                   </div>

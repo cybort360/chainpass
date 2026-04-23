@@ -6,7 +6,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom"
 import { createPublicClient, formatEther, formatUnits, http } from "viem"
 import type { Address } from "viem"
 import { useAccount, useReadContract, useSwitchChain } from "wagmi"
-import { erc20Abi, monadTestnet } from "@chainpass/shared"
+import { erc20Abi, monadTestnet } from "@hoppr/shared"
 import { env } from "../lib/env"
 import { initAnalytics, trackPageView } from "../lib/analytics"
 import { formatNgn, MON_USD_PRICE, useExchangeRates } from "../lib/prices"
@@ -416,7 +416,7 @@ export function AppLayout() {
               </svg>
             </div>
             <span className="font-headline text-base font-bold tracking-tight text-white sm:text-lg">
-              ChainPass
+              Hoppr
             </span>
           </Link>
 

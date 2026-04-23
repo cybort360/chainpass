@@ -1,5 +1,5 @@
 import type { PublicClient } from "viem"
-import { chainPassTicketAbi } from "@chainpass/shared"
+import { chainPassTicketAbi } from "@hoppr/shared"
 import type { RiderPassEventRow } from "./api"
 
 const MAX_TOKENS = 200

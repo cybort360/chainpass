@@ -56,7 +56,7 @@ export function Header() {
             href="#"
             className="shrink-0 font-headline text-xl font-bold tracking-tighter text-white sm:text-2xl"
           >
-            ChainPass
+            Hoppr
           </a>
 
           <div className="hidden min-w-0 flex-1 items-center justify-center gap-x-5 md:flex md:gap-x-8 lg:gap-x-10">

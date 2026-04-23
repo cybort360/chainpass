@@ -26,13 +26,13 @@ import { Link } from "react-router-dom"
 import { isAddress } from "viem"
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from "html5-qrcode"
-import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
+import { chainPassTicketAbi, monadTestnet } from "@hoppr/shared"
 import { getContractAddress } from "../lib/contract"
 import { verifyQrPayload, fetchTripForToken, fetchTripsByStatus, fetchTripManifest, type QrPayload, type ApiTrip } from "../lib/api"
 import { formatWriteContractError } from "../lib/walletError"
 
 // ── IndexedDB offline manifest helpers ────────────────────────────────────
-const IDB_NAME  = "chainpass-conductor"
+const IDB_NAME  = "hoppr-conductor"
 const IDB_STORE = "manifests"
 
 async function idbOpen(): Promise<IDBDatabase> {
@@ -527,7 +527,7 @@ export function ConductorPage() {
   if (!contractAddress) {
     return (
       <div className="mx-auto max-w-md rounded-2xl border border-outline-variant/20 bg-surface-container p-8 text-center text-sm text-on-surface-variant">
-        Set <code className="font-mono text-primary">VITE_CHAINPASS_CONTRACT_ADDRESS</code> in env.
+        Set <code className="font-mono text-primary">VITE_HOPPR_CONTRACT_ADDRESS</code> in env.
       </div>
     )
   }

@@ -62,7 +62,7 @@ forge install OpenZeppelin/openzeppelin-contracts
 
 Use the [wagmi](https://wagmi.sh/react/getting-started) v3 library for making smart contracts from Frontend.
 
-For wallet connection, open **`wallet-integration/`** — **ChainPass** uses **Privy** + `@privy-io/wagmi` on **Vite**; other greenfield apps may still use RainbowKit per upstream monskills.
+For wallet connection, open **`wallet-integration/`** — **Hoppr** uses **Privy** + `@privy-io/wagmi` on **Vite**; other greenfield apps may still use RainbowKit per upstream monskills.
 
 ## Use useSendTransactionSync whereever it can be used
 

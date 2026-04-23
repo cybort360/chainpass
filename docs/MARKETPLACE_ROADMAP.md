@@ -1,6 +1,6 @@
-# ChainPass Transit Marketplace — Build Roadmap
+# Hoppr Transit Marketplace — Build Roadmap
 
-**Owner:** ChainPass
+**Owner:** Hoppr
 **Target:** Multi-operator intercity transit marketplace (Nigeria-first)
 **Customer tiers:** Private intercity (ABC, GIGM, Chisco, GIG, Libra), concessioned urban (BRT), rail (NRC — later)
 **Timeline:** ~12–14 weeks to pilot-ready with a small team (1 full-stack, 1 contract, 1 design, 0.5 BD)
@@ -38,7 +38,7 @@ Nigerian institutional transit operators. Three tiers, different sales motions.
 └─────────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────▼───────────────────────────────────┐
-│ ChainPass API (Express/Postgres)                                │
+│ Hoppr API (Express/Postgres)                                │
 │   Operator CRUD, schedule CRUD, reservation holds,              │
 │   paymaster policy, on-ramp webhooks, indexer                   │
 └─────────────────────────────┬───────────────────────────────────┘
@@ -71,7 +71,7 @@ Each phase has a goal, a checklist, and an exit criterion. At the end of every p
 - [ ] Yellow Card (or fallback: Onramp Money) accepts Nigerian cards and delivers USDC to a Monad address; decline rate <15% on a 10-card test
 - [ ] Privy (or Dynamic) SDK supports Monad; email + passkey flow tested end-to-end on a burner phone
 - [ ] Legal memo drafted: MSB-equivalent licensing for Nigeria; CBN stance on crypto acquiring; SEC stance on NFT tickets
-- [ ] Merchant-of-Record decision: does the card receipt say "CHAINPASS" or "YELLOWCARD"? Confirmed with provider.
+- [ ] Merchant-of-Record decision: does the card receipt say "HOPPR" or "YELLOWCARD"? Confirmed with provider.
 - [ ] Refund policy template approved (e.g. 100% up to T-24h, 50% T-24h to T-2h, 0% after T-2h; per-operator override)
 - [ ] KYC tier policy approved (tiered by daily spend limits)
 - [ ] FX spread policy approved (what we charge on top-up, what we pass through, what we keep)
@@ -86,7 +86,7 @@ Each phase has a goal, a checklist, and an exit criterion. At the end of every p
 
 - [ ] Migration: `operators` table (`id`, `slug`, `name`, `admin_wallet`, `treasury_wallet`, `status`, `logo_url`, `contact_email`, `created_at`)
 - [ ] Migration: add `operator_id` FK to `route_labels`, `burners`, `schedules`, `mints` (nullable → backfill → NOT NULL)
-- [ ] Backfill: insert "ChainPass Transit" as operator #1; attach all current rows
+- [ ] Backfill: insert "Hoppr Transit" as operator #1; attach all current rows
 - [ ] API middleware: every authenticated endpoint scoped by caller's operator (`/routes`, `/burners`, `/schedules`)
 - [ ] API: `GET /operators` (public directory), `GET /operators/:slug` (public detail)
 - [ ] Client: new operator-picker screen behind a feature flag; single-operator UX unchanged until toggled

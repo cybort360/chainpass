@@ -1,7 +1,7 @@
 import { useCallback } from "react"
 import type { QrPayload } from "../lib/api"
 
-const storageKey = (tokenId: string) => `chainpass.qr.${tokenId}`
+const storageKey = (tokenId: string) => `hoppr.qr.${tokenId}`
 
 export function useOfflineQr(tokenId: string | undefined) {
   const persist = useCallback(

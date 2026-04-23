@@ -5,7 +5,7 @@ import { formatEther, formatUnits } from "viem"
 import { useAccount, useReadContract, useReadContracts } from "wagmi"
 import { useQuery } from "@tanstack/react-query"
 import { createPublicClient, http } from "viem"
-import { chainPassTicketAbi, erc20Abi, monadTestnet } from "@chainpass/shared"
+import { chainPassTicketAbi, erc20Abi, monadTestnet } from "@hoppr/shared"
 import { fetchRouteLabels, updateRouteLabel, deleteRouteLabel, fetchRouteStats } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
 import { env } from "../lib/env"
@@ -605,7 +605,7 @@ export function RoutesPage() {
           Choose a route
         </h1>
         <p className="mt-1 text-xs text-on-surface-variant">
-          All routes across every operator on ChainPass.
+          All routes across every operator on Hoppr.
         </p>
         <Link
           to="/operators"

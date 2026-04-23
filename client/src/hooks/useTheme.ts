@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 
 export type Theme = "dark" | "light"
-const STORAGE_KEY = "chainpass_theme"
+const STORAGE_KEY = "hoppr_theme"
 
 function applyTheme(theme: Theme) {
   document.documentElement.setAttribute("data-theme", theme)

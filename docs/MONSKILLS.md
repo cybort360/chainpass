@@ -1,4 +1,4 @@
-# Monskills — What ChainPass Uses
+# Monskills — What Hoppr Uses
 
 This project has the **[monskills](https://github.com/therealharpaljadeja/monskills)** pack installed under `.agents/skills/monskill/`. It is a set of **markdown skills for AI agents** (and humans) building on Monad—not a runtime dependency of the app.
 
@@ -9,13 +9,13 @@ This project has the **[monskills](https://github.com/therealharpaljadeja/monski
 
 ## Skills inventory
 
-| Skill (path) | What it covers | Use for ChainPass? |
+| Skill (path) | What it covers | Use for Hoppr? |
 |--------------|----------------|-------------------|
 | **`SKILL.md`** (root) | Router: which skill to open for which task | Yes — start here when delegating to an agent. |
 | **`scaffold/`** | End-to-end checklist: architecture, onchain vs offchain, OpenZeppelin, Foundry, wagmi, deploy order | **Yes** — aligns with Foundry + deploy-before-frontend; optional **shadcn** for UI. |
 | **`why-monad/`** | Chain value prop: TPS, block time, finality, 128KB contract limit, `eth_sendRawTransactionSync`, low $ cost, ecosystem links | **Yes** — hackathon pitch and README “Why Monad”; link to [Monad docs](https://docs.monad.xyz/tooling-and-infra/) for tooling questions. |
 | **`addresses/`** | Canonical mainnet/testnet addresses (WMON, Multicall3, Permit2, Safe, EntryPoint, bridged assets, etc.); **verify with explorer / `cast code`** | **Yes** — when integrating with Multicall3, testnet WMON/faucets, or any **ecosystem** contract; **never** guess addresses. |
-| **`wallet-integration/`** | **Privy** + `@privy-io/wagmi` + wagmi + viem on **Vite**; `monadTestnet` from `@chainpass/shared` | **Yes** — matches **`client/`** (`PrivyProvider` → React Query → `WagmiProvider`, see `client/src/providers/AppProviders.tsx`). |
+| **`wallet-integration/`** | **Privy** + `@privy-io/wagmi` + wagmi + viem on **Vite**; `monadTestnet` from `@hoppr/shared` | **Yes** — matches **`client/`** (`PrivyProvider` → React Query → `WagmiProvider`, see `client/src/providers/AppProviders.tsx`). |
 | **`wallet/`** | Agent keystore at `~/.monskills/keystore`, Safe multisig flows, `propose.mjs`, Foundry `cast wallet` | **Optional** — useful if an **automated agent** deploys from a managed wallet; human/CI deploy can use plain Foundry + private key in env instead. |
 | **`vercel-deploy/`** | Deploy tarball via claimable endpoint; `deploy.sh`; `vercel.json` framework hints | **Optional** — deploy **`client/`** manually or via any host; Vercel skill applies if you choose that path (`"framework": "nextjs"` for Next). |
 
@@ -30,7 +30,7 @@ This project has the **[monskills](https://github.com/therealharpaljadeja/monski
    - Mainnet: `https://rpc.monad.xyz`  
    - Testnet: `https://testnet-rpc.monad.xyz`  
 
-2. **Wagmi chain:** `import { monadTestnet } from '@chainpass/shared'` (or `wagmi/chains` in other apps) — use **testnet** for hackathon demo.
+2. **Wagmi chain:** `import { monadTestnet } from '@hoppr/shared'` (or `wagmi/chains` in other apps) — use **testnet** for hackathon demo.
 
 3. **Contract practices:** OpenZeppelin via `forge install OpenZeppelin/openzeppelin-contracts` (from `scaffold/`).
 
@@ -46,9 +46,9 @@ This project has the **[monskills](https://github.com/therealharpaljadeja/monski
 
 ## What we adapt for this repo
 
-| Monskills default | ChainPass choice |
+| Monskills default | Hoppr choice |
 |-------------------|------------------|
-| Next.js + RainbowKit (upstream skill) | **ChainPass `client/`** uses **Vite** + **Privy** instead — see `client/src/config/privy.ts`, `client/src/config/wagmi.ts`, `client/src/providers/AppProviders.tsx`. |
+| Next.js + RainbowKit (upstream skill) | **Hoppr `client/`** uses **Vite** + **Privy** instead — see `client/src/config/privy.ts`, `client/src/config/wagmi.ts`, `client/src/providers/AppProviders.tsx`. |
 | WalletConnect project ID in app `.env` | **Not used** — Privy owns wallet/modal UX; set **`VITE_PRIVY_APP_ID`** only. |
 | `next dev` / `.next` output | **`client/`** uses **`vite`** / **`client/dist`** — see root `scripts/vercel-build.mjs`. |
 | `bash deploy.sh web/` | UI lives in **`client/`** — deploy manually or use `vercel-deploy/` if you want the claim flow. |

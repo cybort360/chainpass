@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
-import { monadTestnet, chainPassTicketAbi } from "@chainpass/shared"
+import { monadTestnet, chainPassTicketAbi } from "@hoppr/shared"
 
 import { fetchMyPasses, fetchRouteLabels, fetchSeatAssignment, type MyPassesResponse } from "../lib/api"
 import { getContractAddress } from "../lib/contract"
@@ -217,7 +217,7 @@ export function ProfilePage() {
       } else {
         const active = api?.active ?? []
         if (!api) {
-          setErr("Could not load passes. Set VITE_CHAINPASS_CONTRACT_ADDRESS or run the API.")
+          setErr("Could not load passes. Set VITE_HOPPR_CONTRACT_ADDRESS or run the API.")
           setData(null)
         } else {
           setErr(null)
@@ -273,7 +273,7 @@ export function ProfilePage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `chainpass-history-${new Date().toISOString().slice(0, 10)}.csv`
+    a.download = `hoppr-history-${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }, [historyItems, apiRouteLabels])

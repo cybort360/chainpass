@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { isAddress, keccak256, toBytes } from "viem"
-import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
+import { chainPassTicketAbi, monadTestnet } from "@hoppr/shared"
 import { getContractAddress } from "../lib/contract"
 import { formatWriteContractError } from "../lib/walletError"
 import { fetchAdminRoles } from "../lib/api"
@@ -48,7 +48,7 @@ function AddressInput({
   )
 }
 
-const OPERATOR_NAMES_KEY = 'chainpass_operator_names'
+const OPERATOR_NAMES_KEY = 'hoppr_operator_names'
 function getOperatorNames(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(OPERATOR_NAMES_KEY) ?? '{}') } catch { return {} }
 }

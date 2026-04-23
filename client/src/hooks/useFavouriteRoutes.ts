@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 
-const STORAGE_KEY = "chainpass_favourites"
+const STORAGE_KEY = "hoppr_favourites"
 
 function readStorage(): Set<string> {
   try {

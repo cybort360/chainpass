@@ -41,8 +41,8 @@ function parseBigintEnv(value: string | undefined): bigint | undefined {
 }
 
 export const env = {
-  apiUrl: (raw.VITE_CHAINPASS_API_URL as string | undefined) ?? "http://localhost:3001",
-  contractAddress: optionalAddress(raw.VITE_CHAINPASS_CONTRACT_ADDRESS as string | undefined),
+  apiUrl: (raw.VITE_HOPPR_API_URL as string | undefined) ?? "http://localhost:3001",
+  contractAddress: optionalAddress(raw.VITE_HOPPR_CONTRACT_ADDRESS as string | undefined),
   privyAppId: (raw.VITE_PRIVY_APP_ID as string | undefined) ?? "",
   privyClientId: (raw.VITE_PRIVY_CLIENT_ID as string | undefined) ?? "",
   /** Operator address stored on tickets at mint (demo default). */

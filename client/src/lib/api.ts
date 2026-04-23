@@ -74,7 +74,7 @@ export function routeHasSeats(r: ApiRouteLabel | null | undefined): boolean {
   return false
 }
 
-const ROUTES_CACHE_KEY = "chainpass_routes_cache"
+const ROUTES_CACHE_KEY = "hoppr_routes_cache"
 
 function readRoutesCache(): ApiRouteLabel[] | null {
   try {

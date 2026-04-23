@@ -3,7 +3,7 @@
  * (e.g. after deploying a new ChainPassTicket). Does not touch route_labels.
  *
  * Usage (from repo root or server/indexer, with DATABASE_URL set):
- *   pnpm --filter @chainpass/indexer run db:clear-ticket-events
+ *   pnpm --filter @hoppr/indexer run db:clear-ticket-events
  */
 import pg from "pg";
 import { loadRootEnv } from "../src/load-env.js";

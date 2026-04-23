@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom"
 import { useAccount, useReadContract } from "wagmi"
 import { createPublicClient, webSocket } from "viem"
 import { QRCodeSVG } from "qrcode.react"
-import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
+import { chainPassTicketAbi, monadTestnet } from "@hoppr/shared"
 import { getContractAddress } from "../lib/contract"
 import { resolveRouteDisplay, shortenNumericId } from "../lib/passDisplay"
 import { fetchRouteLabels, requestQrPayload, submitRating, fetchSeatAssignment, type ApiRouteLabel, type QrPayload } from "../lib/api"
@@ -254,7 +254,7 @@ export function PassPage() {
   if (!contractAddress) {
     return (
       <div className="mx-auto max-w-sm rounded-2xl bg-surface-container p-8 text-center text-sm text-on-surface-variant">
-        Configure <code className="font-mono text-primary">VITE_CHAINPASS_CONTRACT_ADDRESS</code>.
+        Configure <code className="font-mono text-primary">VITE_HOPPR_CONTRACT_ADDRESS</code>.
       </div>
     )
   }
@@ -437,7 +437,7 @@ export function PassPage() {
                   </svg>
                 </div>
                 <span className="font-headline text-xs font-bold uppercase tracking-widest text-white/80">
-                  ChainPass Transit
+                  Hoppr Transit
                 </span>
                 {operatorShortCode && (
                   <span

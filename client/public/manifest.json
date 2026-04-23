@@ -1,6 +1,6 @@
 {
-  "name": "ChainPass",
-  "short_name": "ChainPass",
+  "name": "Hoppr",
+  "short_name": "Hoppr",
   "description": "Buy transit tickets, show your pass, board instantly.",
   "start_url": "/routes",
   "display": "standalone",

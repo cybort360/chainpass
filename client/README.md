@@ -1,6 +1,6 @@
-# ChainPass client
+# Hoppr client
 
-React + **Vite** SPA for **ChainPass**: routes, purchase, **My passes** (on-chain reads), QR display, conductor gate tools, and **Operations** (operator stats when the API + indexer are configured).
+React + **Vite** SPA for **Hoppr**: routes, purchase, **My passes** (on-chain reads), QR display, conductor gate tools, and **Operations** (operator stats when the API + indexer are configured).
 
 ## Docs
 
@@ -27,7 +27,7 @@ The monorepo keeps a root [`vercel.json`](../vercel.json) and a duplicate [`clie
 | Setting | Recommendation |
 |---------|----------------|
 | **Root Directory** | **Repository root** (empty). The build must run **`pnpm`** against the workspace **`pnpm-lock.yaml`**. If Root Directory is **`client/`** only, use the copy in **`client/vercel.json`** so install/build still `cd` to the git top-level via **`git rev-parse`**. |
-| **Output** | Static output is **`dist/`** at the repo root after **`scripts/vercel-build.mjs`** (it builds **`@chainpass/shared`** + **`client`**, then mirrors **`client/dist`** → **`dist/`**). |
+| **Output** | Static output is **`dist/`** at the repo root after **`scripts/vercel-build.mjs`** (it builds **`@hoppr/shared`** + **`client`**, then mirrors **`client/dist`** → **`dist/`**). |
 | **Client-side routes** | **`rewrites`** map paths to **`index.html`** so routes like **`/conductor`** work on hard refresh. |
 | **pnpm version** | Locked via root **`packageManager`**; install command uses **npx** so CI does not use a mismatched global pnpm. |
 
@@ -44,4 +44,4 @@ Passenger passes render a **QR** whose value is **`JSON.stringify`** of the sign
 | **Android (Chrome)** | Live camera usually works with the default scanner settings. |
 | **iPhone (Safari)** | Safari’s camera + decoder stack differs from Chrome. The UI uses **iOS-specific** settings (e.g. native **BarcodeDetector** when available, full-viewfinder scan region). If live preview never decodes, use **Upload QR photo** and pick a **sharp screenshot or photo** of the passenger’s pass — that path decodes the same JSON and is the most reliable on iOS. |
 
-**Tips:** Maximize brightness on the passenger phone; hold the whole QR in frame; ensure the API is reachable (**`VITE_CHAINPASS_API_URL`**) so passes can refresh.
+**Tips:** Maximize brightness on the passenger phone; hold the whole QR in frame; ensure the API is reachable (**`VITE_HOPPR_API_URL`**) so passes can refresh.

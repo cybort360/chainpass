@@ -8,14 +8,14 @@ export function PwaInstallBanner() {
   return (
     <div className="fixed bottom-[60px] inset-x-0 z-30 md:hidden px-4 pb-2">
       <div className="flex items-center gap-3 rounded-2xl border border-primary/20 bg-surface-container-low/95 backdrop-blur-md px-4 py-3 shadow-lg">
-        {/* ChainPass icon */}
+        {/* Hoppr icon */}
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 10h18M3 14h18M10 3v18M14 3v18" />
           </svg>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-headline text-xs font-bold text-white">Add ChainPass to home screen</p>
+          <p className="font-headline text-xs font-bold text-white">Add Hoppr to home screen</p>
           <p className="text-[10px] text-on-surface-variant">For faster access to your passes</p>
         </div>
         <button onClick={() => void install()} className="shrink-0 rounded-xl bg-primary px-3 py-1.5 font-headline text-xs font-bold text-white">

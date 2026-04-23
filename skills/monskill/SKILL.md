@@ -40,7 +40,7 @@ This file will guide to the right skill with the latest knowledge about Monad an
 - Propose transactions to Safe Transaction Service with EIP-712 signatures.
 
 ### [Wallet Integration](/wallet-integration/SKILL.md)
-- **ChainPass `client/`:** Privy + `@privy-io/wagmi` + wagmi + viem on **Vite** (`monadTestnet` from `@chainpass/shared`).
+- **Hoppr `client/`:** Privy + `@privy-io/wagmi` + wagmi + viem on **Vite** (`monadTestnet` from `@hoppr/shared`).
 - No app-level WalletConnect/Reown env vars — use **`VITE_PRIVY_APP_ID`** and the Privy dashboard.
 
 ### [Vercel Deploy](/vercel-deploy/SKILL.md)

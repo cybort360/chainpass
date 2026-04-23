@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import { useReadContract } from "wagmi"
-import { chainPassTicketAbi } from "@chainpass/shared"
+import { chainPassTicketAbi } from "@hoppr/shared"
 import { getContractAddress } from "../lib/contract"
 
 export type TierName = "None" | "Bronze" | "Silver" | "Gold" | "Platinum"
