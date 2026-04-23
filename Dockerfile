@@ -1,4 +1,4 @@
-# ChainPass API — monorepo build (@chainpass/shared + @chainpass/api).
+# ChainPass API — monorepo build (@hoppr/shared + @hoppr/api).
 # Build: docker build -t chainpass-api .
 # Run:  docker run --rm -p 3001:3001 -e PORT=3001 -e DATABASE_URL=... -e QR_SIGNING_SECRET=... chainpass-api
 # Render / Railway: set root directory to repo root, Dockerfile path `Dockerfile`, bind `PORT` from env.
@@ -20,7 +20,7 @@ RUN pnpm install --frozen-lockfile
 COPY shared ./shared
 COPY server/api ./server/api
 
-RUN pnpm --filter @chainpass/shared build && pnpm --filter @chainpass/api build
+RUN pnpm --filter @hoppr/shared build && pnpm --filter @hoppr/api build
 
 WORKDIR /app/server/api
 ENV NODE_ENV=production

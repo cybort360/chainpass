@@ -1,5 +1,5 @@
 import type { ConnectedWallet } from "@privy-io/react-auth"
-import { monadTestnet } from "@chainpass/shared"
+import { monadTestnet } from "@hoppr/shared"
 import type { UseSwitchChainReturnType } from "wagmi"
 import { numberToHex } from "viem"
 

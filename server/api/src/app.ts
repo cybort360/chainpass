@@ -1,4 +1,4 @@
-import { CHAINPASS_SHARED_VERSION } from "@chainpass/shared";
+import { CHAINPASS_SHARED_VERSION } from "@hoppr/shared";
 import cors from "cors";
 import express, { type Express } from "express";
 import morgan from "morgan";

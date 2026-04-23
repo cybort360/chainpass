@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { useAccount, usePublicClient, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
-import { monadTestnet, chainPassTicketAbi } from "@chainpass/shared"
+import { monadTestnet, chainPassTicketAbi } from "@hoppr/shared"
 
 import { fetchMyPasses, fetchRouteLabels, fetchSeatAssignment, type MyPassesResponse } from "../lib/api"
 import { getContractAddress } from "../lib/contract"

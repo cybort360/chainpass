@@ -1,5 +1,5 @@
 import type { PublicClient } from "viem"
-import { chainPassTicketAbi } from "@chainpass/shared"
+import { chainPassTicketAbi } from "@hoppr/shared"
 
 /** Lifetime mint/burn counts from the deployed contract (`totalMinted` / `totalBurned`). */
 export async function fetchTicketLifecycleTotals(

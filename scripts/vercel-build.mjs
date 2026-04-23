@@ -25,7 +25,7 @@ function npxPnpm(args) {
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
 
-npxPnpm(['--filter', '@chainpass/shared', 'run', 'build']);
+npxPnpm(['--filter', '@hoppr/shared', 'run', 'build']);
 npxPnpm(['--filter', 'client', 'run', 'build']);
 
 const clientDist = path.join(root, 'client', 'dist');

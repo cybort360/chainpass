@@ -1,6 +1,6 @@
 import { createConfig } from "@privy-io/wagmi"
 import { http } from "wagmi"
-import { monadTestnet } from "@chainpass/shared"
+import { monadTestnet } from "@hoppr/shared"
 import { env } from "../lib/env"
 
 // If VITE_MONAD_RPC_URL is set, route all reads through the dedicated endpoint.

@@ -1,5 +1,5 @@
 {
-  "name": "@chainpass/indexer",
+  "name": "@hoppr/indexer",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@chainpass/shared": "workspace:*",
+    "@hoppr/shared": "workspace:*",
     "dotenv": "^16.6.1",
     "pg": "^8.16.3",
     "viem": "^2.43.3"

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from "wagmi"
 import { isAddress, keccak256, toBytes } from "viem"
-import { chainPassTicketAbi, monadTestnet } from "@chainpass/shared"
+import { chainPassTicketAbi, monadTestnet } from "@hoppr/shared"
 import { getContractAddress } from "../lib/contract"
 import { formatWriteContractError } from "../lib/walletError"
 import { fetchAdminRoles } from "../lib/api"

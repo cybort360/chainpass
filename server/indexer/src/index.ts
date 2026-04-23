@@ -1,4 +1,4 @@
-import { CHAINPASS_SHARED_VERSION, chainPassTicketAbi, monadTestnet } from "@chainpass/shared";
+import { CHAINPASS_SHARED_VERSION, chainPassTicketAbi, monadTestnet } from "@hoppr/shared";
 import { createPublicClient, http } from "viem";
 import { getContractEvents } from "viem/actions";
 import { getIndexerConfig } from "./config.js";

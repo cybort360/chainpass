@@ -1,5 +1,5 @@
 import type { PrivyClientConfig } from "@privy-io/react-auth"
-import { monadTestnet } from "@chainpass/shared"
+import { monadTestnet } from "@hoppr/shared"
 
 export const privyClientConfig: PrivyClientConfig = {
   loginMethods: ["wallet", "google", "email", "apple", "twitter", "discord"],

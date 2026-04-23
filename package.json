@@ -1,21 +1,21 @@
 {
-  "name": "chainpass",
+  "name": "hoppr",
   "private": true,
   "engines": {
     "node": ">=20"
   },
   "packageManager": "pnpm@10.6.5",
   "scripts": {
-    "dev": "pnpm --parallel --filter client --filter @chainpass/api --filter @chainpass/shared run dev",
+    "dev": "pnpm --parallel --filter client --filter @hoppr/api --filter @hoppr/shared run dev",
     "build": "pnpm -r run build",
     "dev:client": "pnpm --filter client dev",
-    "dev:api": "pnpm --filter @chainpass/api dev",
-    "dev:indexer": "pnpm --filter @chainpass/indexer dev",
-    "test": "pnpm --filter @chainpass/api test && pnpm --filter @chainpass/indexer test",
+    "dev:api": "pnpm --filter @hoppr/api dev",
+    "dev:indexer": "pnpm --filter @hoppr/indexer dev",
+    "test": "pnpm --filter @hoppr/api test && pnpm --filter @hoppr/indexer test",
     "keep-alive:render": "node scripts/keep-alive-render.mjs"
   },
   "dependencies": {
-    "@chainpass/shared": "workspace:*",
+    "@hoppr/shared": "workspace:*",
     "viem": "^2.43.3"
   },
   "devDependencies": {

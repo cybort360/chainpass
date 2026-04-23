@@ -1,5 +1,5 @@
 import { decodeEventLog, parseAbiItem, type Log } from "viem"
-import { chainPassTicketAbi } from "@chainpass/shared"
+import { chainPassTicketAbi } from "@hoppr/shared"
 
 /**
  * ERC-721 standard Transfer event. We fall back to this when the custom
