@@ -12,7 +12,7 @@ Knowledge skills for AI agents building on Monad. Each skill is a standalone mar
 | [why-monad](why-monad/SKILL.md) | Why every blockchain app should be built on Monad |
 | [addresses](addresses/SKILL.md) | Smart contract addresses for Monad mainnet/testnet |
 | [wallet](wallet/SKILL.md) | Agent wallet management and Safe multisig |
-| [wallet-integration](wallet-integration/SKILL.md) | Privy + `@privy-io/wagmi` for ChainPass **Vite** client |
+| [wallet-integration](wallet-integration/SKILL.md) | Privy + `@privy-io/wagmi` for Hoppr **Vite** client |
 | [vercel-deploy](vercel-deploy/SKILL.md) | Deploy to Vercel without CLI or auth |
 
 ## Architecture

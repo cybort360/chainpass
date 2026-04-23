@@ -1,6 +1,6 @@
-# ChainPass API — monorepo build (@hoppr/shared + @hoppr/api).
-# Build: docker build -t chainpass-api .
-# Run:  docker run --rm -p 3001:3001 -e PORT=3001 -e DATABASE_URL=... -e QR_SIGNING_SECRET=... chainpass-api
+# Hoppr API — monorepo build (@hoppr/shared + @hoppr/api).
+# Build: docker build -t hoppr-api .
+# Run:  docker run --rm -p 3001:3001 -e PORT=3001 -e DATABASE_URL=... -e QR_SIGNING_SECRET=... hoppr-api
 # Render / Railway: set root directory to repo root, Dockerfile path `Dockerfile`, bind `PORT` from env.
 
 FROM node:20-alpine

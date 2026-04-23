@@ -35,7 +35,7 @@ If any checkpoint comes back RED, we stop and reassess the architecture before s
 
 Hi team,
 
-We're ChainPass, building a multi-operator transit ticketing marketplace on Monad for the Nigerian market. Our architecture depends on ERC-4337 smart wallets with sponsored gas, and we're evaluating Pimlico as our primary paymaster + bundler provider.
+We're Hoppr, building a multi-operator transit ticketing marketplace on Monad for the Nigerian market. Our architecture depends on ERC-4337 smart wallets with sponsored gas, and we're evaluating Pimlico as our primary paymaster + bundler provider.
 
 Before we commit, we need to confirm a few things:
 
@@ -50,7 +50,7 @@ We're in an evaluation sprint — would value a 30-minute call this week with so
 
 Best,
 [Name]
-ChainPass Transit
+Hoppr Transit
 
 ---
 
@@ -63,7 +63,7 @@ ChainPass Transit
 
 Hi team,
 
-ChainPass is building a transit marketplace on Monad and evaluating smart-wallet + paymaster stacks. We're comparing ZeroDev against Pimlico, and want to understand where ZeroDev is strongest for our profile.
+Hoppr is building a transit marketplace on Monad and evaluating smart-wallet + paymaster stacks. We're comparing ZeroDev against Pimlico, and want to understand where ZeroDev is strongest for our profile.
 
 Quick questions:
 
@@ -83,19 +83,19 @@ Best,
 ### 2.3 Yellow Card (on-ramp)
 
 **To:** api@yellowcard.io / bd@yellowcard.io
-**Subject:** NGN card → USDC on Monad — API evaluation for ChainPass Transit
+**Subject:** NGN card → USDC on Monad — API evaluation for Hoppr Transit
 
 ---
 
 Hi team,
 
-ChainPass is building a transit ticketing marketplace for Nigerian institutional operators (ABC Transport, GIGM, Chisco, etc.). Our users will top up with Nigerian debit cards and receive USDC on Monad to purchase tickets.
+Hoppr is building a transit ticketing marketplace for Nigerian institutional operators (ABC Transport, GIGM, Chisco, etc.). Our users will top up with Nigerian debit cards and receive USDC on Monad to purchase tickets.
 
 We need to evaluate your API for:
 
 1. **Chain support.** Do you settle USDC to Monad mainnet today? If not, what's the roadmap?
 2. **Nigerian card decline rate.** What's your current decline rate for cards issued by GTBank, Access, UBA, Zenith, First Bank? We need <15% to proceed.
-3. **Merchant-of-Record.** What appears on the cardholder's bank statement after a top-up? We want to co-brand as "CHAINPASS" if possible.
+3. **Merchant-of-Record.** What appears on the cardholder's bank statement after a top-up? We want to co-brand as "HOPPR" if possible.
 4. **KYC flow.** What KYC is required at what top-up tiers? We want a tiered approach (₦5k/day anonymous, ₦50k/day with BVN, higher with full KYC).
 5. **Webhook reliability.** Top-up confirmation webhooks — what's the retry policy, signature scheme, and p99 latency?
 6. **Chargebacks.** Your policy on card chargebacks — who bears the loss, us or you? What's the dispute timeline?
@@ -106,7 +106,7 @@ For our evaluation sprint, we'd like to run **10 test top-ups** this week with r
 
 Best,
 [Name]
-ChainPass Transit
+Hoppr Transit
 
 ---
 
@@ -318,7 +318,7 @@ Engineering alone doesn't get us to pilot — we need an operator champion in We
 
 Hi [name],
 
-I'm [name] at ChainPass Transit. We've built a ticketing platform that delivers three things to operators like ABC:
+I'm [name] at Hoppr Transit. We've built a ticketing platform that delivers three things to operators like ABC:
 
 1. **1.5% flat per-ticket fee** (vs the 2.5–4% total you're likely paying today across PayStack + your booking platform)
 2. **Instant settlement** — money in your treasury the moment a ticket is sold, no T+2 delay

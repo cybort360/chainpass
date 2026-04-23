@@ -1,9 +1,9 @@
-# ChainPass Contract v2 — Specification
+# Hoppr Contract v2 — Specification
 
 **Target chain:** Monad mainnet
 **Solidity:** ^0.8.24
 **Standards:** ERC-721 (tickets), ERC-2771 (meta-tx), ERC-4337 (account abstraction via EntryPoint)
-**Owner:** ChainPass contract team
+**Owner:** Hoppr contract team
 **Status:** Draft — subject to audit review
 
 ---
@@ -274,7 +274,7 @@ function validatePaymasterUserOp(
 ) external returns (bytes memory context, uint256 validationData);
 ```
 
-The paymaster's verifying key is held by ChainPass's policy server. All signing, rate-limiting, and policy happens off-chain (see `paymaster-policy.md` in Phase 3 docs).
+The paymaster's verifying key is held by Hoppr's policy server. All signing, rate-limiting, and policy happens off-chain (see `paymaster-policy.md` in Phase 3 docs).
 
 On-chain checks:
 - Signature recovers to the authorized off-chain signer
@@ -286,7 +286,7 @@ On-chain checks:
 
 | Role | Who | Powers |
 |---|---|---|
-| `PLATFORM_ADMIN` | ChainPass team multisig | Register/suspend operators, upgrade contracts (if upgradeable), pause system |
+| `PLATFORM_ADMIN` | Hoppr team multisig | Register/suspend operators, upgrade contracts (if upgradeable), pause system |
 | `operators[id].admin` | Operator's chosen admin wallet | Create/update routes + schedules, manage burners, cancel schedules |
 | `burnerOf[id][addr]` | Scanner devices | Mark tickets boarded |
 | `ticket.ownerOf` | Rider | Cancel within window, transfer |
@@ -301,7 +301,7 @@ EIP-712 typed data.
 
 ```
 Domain:
-  name: "ChainPass"
+  name: "Hoppr"
   version: "2"
   chainId: <monad chainId>
   verifyingContract: <TicketNFT address>
