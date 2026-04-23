@@ -1168,7 +1168,7 @@ export function RoutePurchasePage() {
                   <div className="flex items-center gap-2 rounded-xl bg-primary/8 px-4 py-2.5">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/20 font-headline text-[10px] font-bold text-primary">1</span>
                     <p className="text-xs text-on-surface-variant">
-                      Allow ChainPass to spend{" "}
+                      Allow Hoppr to spend{" "}
                       <span className="font-semibold text-white">{usdcDisplay} USDC</span>
                     </p>
                   </div>

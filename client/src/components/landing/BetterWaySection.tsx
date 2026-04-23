@@ -48,7 +48,7 @@ export function BetterWaySection() {
             <span className="text-primary">to move</span>
           </h2>
           <p className="text-xl text-on-surface-variant leading-relaxed">
-            Everything you need, right when you need it. ChainPass strips away the friction of legacy systems.
+            Everything you need, right when you need it. Hoppr strips away the friction of legacy systems.
           </p>
           <ul className="space-y-6">
             {bullets.map((b) => (

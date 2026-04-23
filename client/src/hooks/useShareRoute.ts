@@ -29,7 +29,7 @@ export function useShareRoute() {
     setShareState("idle")
 
     // 1. Native share sheet (mobile / desktop where supported)
-    const shareData = { title: `ChainPass — ${routeName}`, text: `Buy a ticket for ${routeName}`, url }
+    const shareData = { title: `Hoppr — ${routeName}`, text: `Buy a ticket for ${routeName}`, url }
     if (typeof navigator.share === "function" && navigator.canShare?.(shareData)) {
       try {
         await navigator.share(shareData)

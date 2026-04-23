@@ -605,7 +605,7 @@ export function RoutesPage() {
           Choose a route
         </h1>
         <p className="mt-1 text-xs text-on-surface-variant">
-          All routes across every operator on ChainPass.
+          All routes across every operator on Hoppr.
         </p>
         <Link
           to="/operators"

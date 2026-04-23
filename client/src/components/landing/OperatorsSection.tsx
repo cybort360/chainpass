@@ -34,7 +34,7 @@ export function OperatorsSection() {
             Built for <span className="text-primary">operators</span> too
           </h2>
           <p className="mt-5 text-lg leading-relaxed text-on-surface-variant">
-            ChainPass isn’t only a rider app—it’s something your team can run without ripping out the tools you already
+            Hoppr isn’t only a rider app—it’s something your team can run without ripping out the tools you already
             trust.
           </p>
         </header>

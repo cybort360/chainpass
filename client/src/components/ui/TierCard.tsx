@@ -73,7 +73,7 @@ export function TierCard({ data, onClaim, claiming = false }: TierCardProps) {
         <div className="px-5 pb-4">
           <div className="rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-center">
             <p className="text-xs font-semibold text-violet-300">
-              💎 Maximum tier reached — you're a ChainPass legend!
+              💎 Maximum tier reached — you're a Hoppr legend!
             </p>
           </div>
         </div>

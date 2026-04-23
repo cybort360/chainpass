@@ -416,7 +416,7 @@ export function AppLayout() {
               </svg>
             </div>
             <span className="font-headline text-base font-bold tracking-tight text-white sm:text-lg">
-              ChainPass
+              Hoppr
             </span>
           </Link>
 

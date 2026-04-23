@@ -1,5 +1,5 @@
 /**
- * Browser push notifications for ChainPass.
+ * Browser push notifications for Hoppr.
  * Schedules are persisted to localStorage so overdue notifications fire
  * when the user re-opens the tab (even if the previous session was closed).
  */
@@ -53,7 +53,7 @@ function fireNotif(notifId: string, routeName: string, hours: number, tokenId: s
   if (typeof window === "undefined" || !("Notification" in window)) return
   if (Notification.permission !== "granted") return
   try {
-    const n = new Notification("ChainPass — Ticket expiring soon", {
+    const n = new Notification("Hoppr — Ticket expiring soon", {
       body: `Your ${routeName} ticket expires in ~${hours} hours. Board before it expires!`,
       icon: ICON,
       tag: notifId,

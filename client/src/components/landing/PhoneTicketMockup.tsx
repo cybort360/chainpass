@@ -10,7 +10,7 @@ export function PhoneTicketMockup({ className = "" }: Props) {
     <div
       className={["relative mx-auto w-full max-w-[260px] sm:max-w-[280px]", className].filter(Boolean).join(" ")}
       role="img"
-      aria-label="ChainPass digital ticket for LAGOS BRT with QR code, valid status, and journey from Ikorodu Terminal to TBS Marina"
+      aria-label="Hoppr digital ticket for LAGOS BRT with QR code, valid status, and journey from Ikorodu Terminal to TBS Marina"
     >
       <div className="relative aspect-[9/19.5] w-full">
         <div className="absolute inset-0 flex flex-col rounded-[2.75rem] bg-[#1c1c1e] p-[10px] shadow-[0_40px_80px_rgba(0,0,0,0.55)] ring-1 ring-white/[0.07]">

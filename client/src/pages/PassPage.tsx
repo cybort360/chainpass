@@ -437,7 +437,7 @@ export function PassPage() {
                   </svg>
                 </div>
                 <span className="font-headline text-xs font-bold uppercase tracking-widest text-white/80">
-                  ChainPass Transit
+                  Hoppr Transit
                 </span>
                 {operatorShortCode && (
                   <span

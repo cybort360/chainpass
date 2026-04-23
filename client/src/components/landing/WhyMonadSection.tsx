@@ -18,7 +18,7 @@ const pillars = [
     icon: "code",
     title: "EVM-native stack",
     body:
-      "Solidity, Foundry, wagmi, viem, and standard wallets — no exotic VM. ChainPass uses familiar ERC-721 patterns and tooling you already ship with.",
+      "Solidity, Foundry, wagmi, viem, and standard wallets — no exotic VM. Hoppr uses familiar ERC-721 patterns and tooling you already ship with.",
   },
   {
     icon: "payments",
@@ -62,7 +62,7 @@ export function WhyMonadSection() {
           </div>
           <h2 className="font-headline text-4xl font-bold tracking-tight text-white sm:text-5xl">Why Monad</h2>
           <p className="mt-4 max-w-2xl text-lg text-on-surface-variant">
-            ChainPass is built for gate-like validation: many passengers with fresh QR codes and conductors confirming tickets on-chain without long waits.
+            Hoppr is built for gate-like validation: many passengers with fresh QR codes and conductors confirming tickets on-chain without long waits.
             That pattern fits a chain built for throughput, low fees on small-value transactions, and fast finality — with full EVM compatibility so we ship
             standard NFT and wallet flows.
           </p>
