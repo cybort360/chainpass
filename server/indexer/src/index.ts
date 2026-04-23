@@ -11,19 +11,19 @@ loadRootEnv();
 const cfg = getIndexerConfig();
 
 console.log(
-  `[chainpass-indexer] Node.js + TypeScript (viem + pg). shared=${HOPPR_SHARED_VERSION}`,
+  `[hoppr-indexer] Node.js + TypeScript (viem + pg). shared=${HOPPR_SHARED_VERSION}`,
 );
 console.log(
-  `[chainpass-indexer] RPC=${cfg.rpcUrl} DATABASE_URL=${cfg.databaseUrl ? "set" : "missing"}`,
+  `[hoppr-indexer] RPC=${cfg.rpcUrl} DATABASE_URL=${cfg.databaseUrl ? "set" : "missing"}`,
 );
 
 if (!cfg.databaseUrl) {
-  console.error("[chainpass-indexer] DATABASE_URL is required");
+  console.error("[hoppr-indexer] DATABASE_URL is required");
   process.exit(1);
 }
 
 if (!cfg.ticketContractAddress) {
-  console.error("[chainpass-indexer] TICKET_CONTRACT_ADDRESS is required (0x + 40 hex)");
+  console.error("[hoppr-indexer] TICKET_CONTRACT_ADDRESS is required (0x + 40 hex)");
   process.exit(1);
 }
 
@@ -455,7 +455,7 @@ async function processRange(fromBlock: bigint, toBlock: bigint): Promise<void> {
     roleRevokedEvents.length;
   if (total > 0) {
     console.log(
-      `[chainpass-indexer] blocks ${fromBlock}-${toBlock}: mint=${mintEvents.length} burn=${burnEvents.length} opApproved=${operatorApprovedEvents.length} roleGranted=${roleGrantedEvents.length} roleRevoked=${roleRevokedEvents.length}`,
+      `[hoppr-indexer] blocks ${fromBlock}-${toBlock}: mint=${mintEvents.length} burn=${burnEvents.length} opApproved=${operatorApprovedEvents.length} roleGranted=${roleGrantedEvents.length} roleRevoked=${roleRevokedEvents.length}`,
     );
   }
 }
@@ -493,7 +493,7 @@ async function catchUpOnce(): Promise<void> {
       lastProgressLog = now;
       const done = fromBlock - (head - totalBlocks);
       const pct = totalBlocks > 0n ? Number((done * 100n) / totalBlocks) : 100;
-      console.log(`[chainpass-indexer] scanning… block=${fromBlock} / ${head} (${pct}%)`);
+      console.log(`[hoppr-indexer] scanning… block=${fromBlock} / ${head} (${pct}%)`);
     }
   }
 }
@@ -504,7 +504,7 @@ async function backfillPaymentWei(): Promise<void> {
     `SELECT DISTINCT tx_hash FROM ticket_events WHERE event_type = 'mint' AND payment_wei IS NULL LIMIT 500`,
   );
   if (rows.length === 0) return;
-  console.log(`[chainpass-indexer] backfilling payment_wei for ${rows.length} mint tx(s)…`);
+  console.log(`[hoppr-indexer] backfilling payment_wei for ${rows.length} mint tx(s)…`);
   let filled = 0;
   for (const row of rows) {
     try {
@@ -524,12 +524,12 @@ async function backfillPaymentWei(): Promise<void> {
       // Non-fatal: skip this tx
     }
   }
-  console.log(`[chainpass-indexer] backfill complete: ${filled}/${rows.length} updated`);
+  console.log(`[hoppr-indexer] backfill complete: ${filled}/${rows.length} updated`);
 }
 
 async function main(): Promise<void> {
   console.log(
-    `[chainpass-indexer] contract=${cfg.ticketContractAddress} initial fromBlock=${cfg.fromBlock} (empty table uses this; else max(block)+1)`,
+    `[hoppr-indexer] contract=${cfg.ticketContractAddress} initial fromBlock=${cfg.fromBlock} (empty table uses this; else max(block)+1)`,
   );
 
   void backfillPaymentWei().catch(() => {/* non-fatal */});
@@ -546,11 +546,11 @@ async function main(): Promise<void> {
         const head = await getBlockNumberWithTimeout();
         const next = await nextFromBlock();
         console.log(
-          `[chainpass-indexer] heartbeat chainHead=${head} nextFromBlock=${next} pollMs=${cfg.pollMs}`,
+          `[hoppr-indexer] heartbeat chainHead=${head} nextFromBlock=${next} pollMs=${cfg.pollMs}`,
         );
       }
     } catch (err) {
-      console.error("[chainpass-indexer] catch-up error:", err);
+      console.error("[hoppr-indexer] catch-up error:", err);
     }
     await new Promise((r) => setTimeout(r, cfg.pollMs));
   }
@@ -565,6 +565,6 @@ process.on("SIGINT", () => void shutdown());
 process.on("SIGTERM", () => void shutdown());
 
 main().catch((err) => {
-  console.error("[chainpass-indexer] fatal:", err);
+  console.error("[hoppr-indexer] fatal:", err);
   process.exit(1);
 });

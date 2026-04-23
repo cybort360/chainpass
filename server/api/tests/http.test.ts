@@ -37,7 +37,7 @@ describe("HTTP API", () => {
     it("returns ok and metadata", async () => {
       const res = await request(app).get("/health").expect(200);
       expect(res.body.ok).toBe(true);
-      expect(res.body.service).toBe("chainpass-api");
+      expect(res.body.service).toBe("hoppr-api");
       expect(res.body.stack).toBe("express");
       expect(res.body.runtime).toBe("node");
       expect(typeof res.body.shared).toBe("string");
@@ -185,7 +185,7 @@ describe("HTTP API", () => {
     });
 
     it("returns events from Postgres", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       const row = {
         id: 1,
         event_type: "mint",
@@ -211,7 +211,7 @@ describe("HTTP API", () => {
     });
 
     it("returns 500 when the query fails", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock.mockRejectedValue(new Error("connection refused"));
 
       const res = await request(app).get("/api/v1/operator/events").expect(500);
@@ -226,7 +226,7 @@ describe("HTTP API", () => {
     });
 
     it("returns totals and last-24h counts", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock.mockResolvedValue({
         rows: [
           {
@@ -245,7 +245,7 @@ describe("HTTP API", () => {
     });
 
     it("returns 500 when the query fails", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock.mockRejectedValue(new Error("connection refused"));
 
       const res = await request(app).get("/api/v1/operator/stats").expect(500);
@@ -260,7 +260,7 @@ describe("HTTP API", () => {
     });
 
     it("returns route labels from Postgres", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock.mockResolvedValue({
         rows: [
           { route_id: "1", name: "Route A", detail: "Line 1", category: "North",
@@ -322,7 +322,7 @@ describe("HTTP API", () => {
     });
 
     it("returns 200 with empty routes when table is empty", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock.mockResolvedValue({ rows: [] });
 
       const res = await request(app).get("/api/v1/routes").expect(200);
@@ -330,7 +330,7 @@ describe("HTTP API", () => {
     });
 
     it("returns 500 when the query fails", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock.mockRejectedValue(new Error("connection refused"));
 
       const res = await request(app).get("/api/v1/routes").expect(500);
@@ -349,7 +349,7 @@ describe("HTTP API", () => {
     });
 
     it("returns 400 for invalid routeId", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       const res = await request(app)
         .post("/api/v1/routes")
         .send({ routeId: "not-a-number", name: "A", category: "North" })
@@ -358,7 +358,7 @@ describe("HTTP API", () => {
     });
 
     it("returns 400 when name is missing", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       const res = await request(app)
         .post("/api/v1/routes")
         .send({ routeId: "42", category: "North" })
@@ -367,7 +367,7 @@ describe("HTTP API", () => {
     });
 
     it("returns 400 when category is missing", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       const res = await request(app)
         .post("/api/v1/routes")
         .send({ routeId: "42", name: "Line" })
@@ -376,7 +376,7 @@ describe("HTTP API", () => {
     });
 
     it("inserts a new route_labels row and returns it", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
 
       const res = await request(app)
@@ -409,7 +409,7 @@ describe("HTTP API", () => {
     });
 
     it("returns 409 when route ID already exists", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       const dup = Object.assign(new Error("duplicate key"), { code: "23505" });
       queryMock.mockRejectedValueOnce(dup);
 
@@ -421,7 +421,7 @@ describe("HTTP API", () => {
     });
 
     it("returns 500 when insert fails", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock.mockRejectedValue(new Error("connection refused"));
 
       const res = await request(app)
@@ -435,7 +435,7 @@ describe("HTTP API", () => {
 
   describe("POST /api/v1/seats/reserve", () => {
     it("returns 400 when routeId or seatNumber is missing", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       const res = await request(app)
         .post("/api/v1/seats/reserve")
         .send({ routeId: "1" })
@@ -444,7 +444,7 @@ describe("HTTP API", () => {
     });
 
     it("persists holder_address (lowercased) when a valid 0x address is supplied", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       // routeRow lookup → no capacity row (skips overbooking branch)
       // taken seat lookup → none
       // INSERT seat_reservations → 1 row
@@ -472,7 +472,7 @@ describe("HTTP API", () => {
     });
 
     it("stores holder_address = null when the address is malformed", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock
         .mockResolvedValueOnce({ rows: [], rowCount: 0 })
         .mockResolvedValueOnce({ rows: [], rowCount: 0 })
@@ -492,7 +492,7 @@ describe("HTTP API", () => {
     });
 
     it("stores holder_address = null when the address is omitted entirely (backwards compat)", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock
         .mockResolvedValueOnce({ rows: [], rowCount: 0 })
         .mockResolvedValueOnce({ rows: [], rowCount: 0 })
@@ -520,7 +520,7 @@ describe("HTTP API", () => {
     // bucket and continue to behave as before.
     describe("per-departure bucket", () => {
       it("persists sessionId + serviceDate on reserve when provided", async () => {
-        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
         queryMock
           .mockResolvedValueOnce({ rows: [], rowCount: 0 })
           .mockResolvedValueOnce({ rows: [], rowCount: 0 })
@@ -549,7 +549,7 @@ describe("HTTP API", () => {
       });
 
       it("falls back to sentinel bucket (session=0, date='1970-01-01') when not provided", async () => {
-        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
         queryMock
           .mockResolvedValueOnce({ rows: [], rowCount: 0 })
           .mockResolvedValueOnce({ rows: [], rowCount: 0 })
@@ -570,7 +570,7 @@ describe("HTTP API", () => {
       });
 
       it("scopes the 'taken' check to the bucket (same seat different session = not taken)", async () => {
-        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
         queryMock
           .mockResolvedValueOnce({ rows: [], rowCount: 0 })   // route_labels
           .mockResolvedValueOnce({ rows: [], rowCount: 0 })   // taken — scoped, empty
@@ -596,7 +596,7 @@ describe("HTTP API", () => {
       });
 
       it("rejects malformed sessionId / serviceDate by folding to sentinel", async () => {
-        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+        process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
         queryMock
           .mockResolvedValueOnce({ rows: [], rowCount: 0 })
           .mockResolvedValueOnce({ rows: [], rowCount: 0 })
@@ -641,7 +641,7 @@ describe("HTTP API", () => {
     });
 
     it("returns active and used rows from Postgres", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       const holder = "0x742d35Cc6634C0532925a3b844Bc454e4438f44e";
       const holderLower = holder.toLowerCase();
       const burnRow = {
@@ -688,7 +688,7 @@ describe("HTTP API", () => {
     });
 
     it("returns 500 when the first query fails", async () => {
-      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/chainpass";
+      process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/hoppr";
       queryMock.mockRejectedValue(new Error("connection refused"));
 
       const res = await request(app)

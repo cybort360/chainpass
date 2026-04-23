@@ -42,7 +42,7 @@ export function createApp(): Express {
     }
     res.json({
       ok: true,
-      service: "chainpass-api",
+      service: "hoppr-api",
       stack: "express",
       runtime: "node",
       shared: HOPPR_SHARED_VERSION,

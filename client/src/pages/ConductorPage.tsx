@@ -32,7 +32,7 @@ import { verifyQrPayload, fetchTripForToken, fetchTripsByStatus, fetchTripManife
 import { formatWriteContractError } from "../lib/walletError"
 
 // ── IndexedDB offline manifest helpers ────────────────────────────────────
-const IDB_NAME  = "chainpass-conductor"
+const IDB_NAME  = "hoppr-conductor"
 const IDB_STORE = "manifests"
 
 async function idbOpen(): Promise<IDBDatabase> {

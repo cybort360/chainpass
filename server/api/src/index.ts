@@ -11,7 +11,7 @@ async function main(): Promise<void> {
 
   app.listen(port, () => {
     console.log(
-      `[chainpass-api] Express on Node.js → http://localhost:${port} (health: /health)`,
+      `[hoppr-api] Express on Node.js → http://localhost:${port} (health: /health)`,
     );
   });
 }
