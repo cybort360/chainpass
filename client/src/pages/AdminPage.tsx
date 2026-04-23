@@ -48,7 +48,7 @@ function AddressInput({
   )
 }
 
-const OPERATOR_NAMES_KEY = 'chainpass_operator_names'
+const OPERATOR_NAMES_KEY = 'hoppr_operator_names'
 function getOperatorNames(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(OPERATOR_NAMES_KEY) ?? '{}') } catch { return {} }
 }

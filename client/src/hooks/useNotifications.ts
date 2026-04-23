@@ -7,8 +7,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 export type NotifPermission = "default" | "granted" | "denied" | "unsupported"
 
-const SHOWN_KEY = "chainpass_notif_shown"
-const SCHEDULE_KEY = "chainpass_notif_schedule"
+const SHOWN_KEY = "hoppr_notif_shown"
+const SCHEDULE_KEY = "hoppr_notif_schedule"
 const ICON = "/logo.svg"
 
 type ScheduledNotif = {
