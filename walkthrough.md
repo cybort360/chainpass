@@ -1,4 +1,4 @@
-# ChainPass — full project walkthrough
+# Hoppr — full project walkthrough
 
 Use this doc to **understand the system**, **run everything locally**, **run automated tests**, and **deploy to production**. Deeper product detail lives in [`PRD.md`](./PRD.md); env keys are summarized in [`.env.example`](./.env.example).
 
@@ -6,7 +6,7 @@ Use this doc to **understand the system**, **run everything locally**, **run aut
 
 ## 1. What you’re testing (mental model)
 
-ChainPass is **on-chain transit ticketing on Monad**:
+Hoppr is **on-chain transit ticketing on Monad**:
 
 | Piece | Role |
 |--------|------|
@@ -55,8 +55,8 @@ flowchart LR
 ### 3.1 Clone and install
 
 ```bash
-git clone <repo-url> chainpass
-cd chainpass
+git clone <repo-url> hoppr
+cd hoppr
 pnpm install
 ```
 
@@ -71,8 +71,8 @@ Edit **`.env` at the repo root** (API, indexer, and client tooling load from her
 | Variable | Purpose |
 |----------|---------|
 | `VITE_PRIVY_APP_ID` (in **`client/.env`**) | From [Privy Dashboard](https://dashboard.privy.io) — add **`http://localhost:5173`** and any LAN/production origins. |
-| `VITE_CHAINPASS_API_URL` (in **`client/.env`**) | Local: `http://localhost:3001` |
-| `VITE_CHAINPASS_CONTRACT_ADDRESS` (in **`client/.env`**) | Deployed `ChainPassTicket` address (see §5), same as **`TICKET_CONTRACT_ADDRESS`** at root |
+| `VITE_HOPPR_API_URL` (in **`client/.env`**) | Local: `http://localhost:3001` |
+| `VITE_HOPPR_CONTRACT_ADDRESS` (in **`client/.env`**) | Deployed `ChainPassTicket` address (see §5), same as **`TICKET_CONTRACT_ADDRESS`** at root |
 | `TICKET_CONTRACT_ADDRESS` | Same as above (indexer) |
 | `QR_SIGNING_SECRET` | Long random string (QR HMAC) |
 | `DATABASE_URL` | Postgres URL (see §4) |
@@ -95,10 +95,10 @@ cd ..
 
 ### 3.4 Shared package
 
-The client and servers import **`@chainpass/shared`**. After clone, `pnpm install` builds workspaces; if you change `shared/`, rebuild:
+The client and servers import **`@hoppr/shared`**. After clone, `pnpm install` builds workspaces; if you change `shared/`, rebuild:
 
 ```bash
-pnpm --filter @chainpass/shared run build
+pnpm --filter @hoppr/shared run build
 ```
 
 ---
@@ -113,12 +113,12 @@ docker compose -f tooling/docker-compose.yml up -d
 
 Default URL (matches `.env.example`):
 
-`postgresql://postgres:postgres@localhost:5432/chainpass`
+`postgresql://postgres:postgres@localhost:5432/hoppr`
 
 **Seed route labels** (optional, for `GET /api/v1/routes`):
 
 ```bash
-pnpm --filter @chainpass/api run seed:route-labels
+pnpm --filter @hoppr/api run seed:route-labels
 ```
 
 ---
@@ -139,9 +139,9 @@ forge script script/DeployChainPass.s.sol:DeployChainPass \
 Copy the logged **`ChainPassTicket`** address into **root `.env`**:
 
 - `TICKET_CONTRACT_ADDRESS`
-- `VITE_CHAINPASS_CONTRACT_ADDRESS` in **`client/.env`**
+- `VITE_HOPPR_CONTRACT_ADDRESS` in **`client/.env`**
 
-Set **`INDEXER_FROM_BLOCK`** to the **deployment block** of that address (or the block logged by the deploy script). If you **redeploy** a new contract, counters and indexed events apply only from the new address — update env vars and clear old rows, e.g. **`pnpm --filter @chainpass/indexer run db:clear-ticket-events`**, then set **`INDEXER_FROM_BLOCK`** to the new deployment block.
+Set **`INDEXER_FROM_BLOCK`** to the **deployment block** of that address (or the block logged by the deploy script). If you **redeploy** a new contract, counters and indexed events apply only from the new address — update env vars and clear old rows, e.g. **`pnpm --filter @hoppr/indexer run db:clear-ticket-events`**, then set **`INDEXER_FROM_BLOCK`** to the new deployment block.
 
 Get testnet MON from the [Monad testnet faucet](https://docs.monad.xyz) as needed.
 
@@ -251,8 +251,8 @@ There is no single “Deploy” button for the whole monorepo: you deploy **thre
 Mirror the root [`.env.example`](./.env.example) in each platform’s secret UI:
 
 - **Postgres:** `DATABASE_URL` (often `?sslmode=require` on managed DBs).
-- **Chain:** `RPC_URL`, `TICKET_CONTRACT_ADDRESS`; mirror contract address as **`VITE_CHAINPASS_CONTRACT_ADDRESS`** on the client host.
-- **Client (`client/.env` → host env):** `VITE_PRIVY_APP_ID`, `VITE_CHAINPASS_API_URL` = **public HTTPS base URL of your API** (no trailing slash).
+- **Chain:** `RPC_URL`, `TICKET_CONTRACT_ADDRESS`; mirror contract address as **`VITE_HOPPR_CONTRACT_ADDRESS`** on the client host.
+- **Client (`client/.env` → host env):** `VITE_PRIVY_APP_ID`, `VITE_HOPPR_API_URL` = **public HTTPS base URL of your API** (no trailing slash).
 - **API:** `PORT`, `QR_SIGNING_SECRET`, `QR_TTL_SECONDS`, `DATABASE_URL`.
 - **Indexer:** same `DATABASE_URL`, `TICKET_CONTRACT_ADDRESS`, `INDEXER_*` tuning.
 - **Privy:** same **`VITE_PRIVY_APP_ID`**; in the dashboard add **every production origin** (e.g. `https://your-app.vercel.app`) under allowed origins.
@@ -273,8 +273,8 @@ The API [`server/api/src/app.ts`](./server/api/src/app.ts) allowlists **localhos
 **Build commands** (adjust for your host):
 
 - Client: `pnpm --filter client build` → static output **`client/dist`** (see root **`scripts/vercel-build.mjs`** for Vercel).
-- API: `pnpm --filter @chainpass/api build` → run compiled `dist` with `node` (see `server/api/package.json`).
-- Indexer: `pnpm --filter @chainpass/indexer build` → run worker `start`.
+- API: `pnpm --filter @hoppr/api build` → run compiled `dist` with `node` (see `server/api/package.json`).
+- Indexer: `pnpm --filter @hoppr/indexer build` → run worker `start`.
 
 Set each service’s **environment variables** in the host dashboard; do not commit secrets.
 

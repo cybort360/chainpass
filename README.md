@@ -1,4 +1,4 @@
-# ChainPass
+# Hoppr
 
 On-chain transit ticketing on **Monad**: NFT tickets, short-lived QR codes, scan-to-verify, burn on use. See [`PRD.md`](./PRD.md) for product scope.
 
@@ -23,11 +23,11 @@ Details and deploy env vars: [`contracts/README.md`](./contracts/README.md).
 
 The **indexer** (`server/indexer`) plus **PostgreSQL** are still the right layer for a **scrollable event feed** (`TicketMinted` / `TicketBurned` rows) and **time-bucketed** aggregates (e.g. **last 24 hours** in `/api/v1/operator/stats`). If you skip the indexer, you can still show headline totals via **wagmi/viem** against the deployed contract; you lose the DB-backed feed and rolling windows unless you add another approach (e.g. `eth_getLogs`).
 
-**Redeploying the contract:** Treat it as a **new deployment** — update **`TICKET_CONTRACT_ADDRESS`**, mirror **`VITE_CHAINPASS_CONTRACT_ADDRESS`** in **`client/.env`**, set **`INDEXER_FROM_BLOCK`** to the new deployment block, and reset or re-backfill **`ticket_events`** so Postgres does not mix old and new addresses.
+**Redeploying the contract:** Treat it as a **new deployment** — update **`TICKET_CONTRACT_ADDRESS`**, mirror **`VITE_HOPPR_CONTRACT_ADDRESS`** in **`client/.env`**, set **`INDEXER_FROM_BLOCK`** to the new deployment block, and reset or re-backfill **`ticket_events`** so Postgres does not mix old and new addresses.
 
 ### Why Monad (for this app)
 
-ChainPass is built for **gate-like validation**: many passengers can show a fresh QR and conductors can confirm tickets **on-chain** without long waits. **Monad** fits that story because of **high throughput**, **low fees** on small-value txs, **fast finality** (~800ms target) for a snappy “scan → burn” demo, and **full EVM compatibility** so we use standard **ERC-721**, **Foundry**, **Privy**, **wagmi/viem** without a custom VM. The network also supports **`eth_sendRawTransactionSync`**-style flows where the stack exposes them, which helps keep **purchase / burn** feedback tight in the UI. See [Monad documentation](https://docs.monad.xyz/) for the latest network details.
+Hoppr is built for **gate-like validation**: many passengers can show a fresh QR and conductors can confirm tickets **on-chain** without long waits. **Monad** fits that story because of **high throughput**, **low fees** on small-value txs, **fast finality** (~800ms target) for a snappy “scan → burn” demo, and **full EVM compatibility** so we use standard **ERC-721**, **Foundry**, **Privy**, **wagmi/viem** without a custom VM. The network also supports **`eth_sendRawTransactionSync`**-style flows where the stack exposes them, which helps keep **purchase / burn** feedback tight in the UI. See [Monad documentation](https://docs.monad.xyz/) for the latest network details.
 
 ### Canonical addresses & verification
 
@@ -75,8 +75,8 @@ Official testnet metadata (RPC, explorers, canonical contracts) is listed in [Mo
 ### 2. Clone and install JavaScript dependencies
 
 ```bash
-git clone <your-repo-url> chainpass
-cd chainpass
+git clone <your-repo-url> hoppr
+cd hoppr
 pnpm install
 ```
 
@@ -164,7 +164,7 @@ Use this before tagging a release or wiring **Vercel / Railway / Fly** (or simil
 |------|----------------|
 | **Postgres** | **`DATABASE_URL`** (e.g. Supabase) with **`?sslmode=require`** if required. API + indexer + `seed:route-labels` use the same DB. |
 | **Chain** | **`RPC_URL`**, **`TICKET_CONTRACT_ADDRESS`** (deployed `ChainPassTicket` on Monad testnet/mainnet as applicable). |
-| **Client (`VITE_*` in `client/.env`)** | **`VITE_PRIVY_APP_ID`** — from [Privy Dashboard](https://dashboard.privy.io); add **allowed origins** (local, LAN, production). **`VITE_CHAINPASS_CONTRACT_ADDRESS`** — same as **`TICKET_CONTRACT_ADDRESS`**. **`VITE_CHAINPASS_API_URL`** — public HTTPS URL of your API (no trailing slash). |
+| **Client (`VITE_*` in `client/.env`)** | **`VITE_PRIVY_APP_ID`** — from [Privy Dashboard](https://dashboard.privy.io); add **allowed origins** (local, LAN, production). **`VITE_HOPPR_CONTRACT_ADDRESS`** — same as **`TICKET_CONTRACT_ADDRESS`**. **`VITE_HOPPR_API_URL`** — public HTTPS URL of your API (no trailing slash). |
 | **API** | **`PORT`**, **`QR_SIGNING_SECRET`**, **`QR_TTL_SECONDS`**. |
 | **Indexer** | **`INDEXER_FROM_BLOCK`**, **`INDEXER_POLL_MS`**, **`INDEXER_BLOCK_CHUNK`** as needed. After a **new contract deploy**, clear **`ticket_events`** and set **`INDEXER_FROM_BLOCK`** to the new deployment block (see **`walkthrough.md`**). |
 | **Privy** | Wallet UX and optional WalletConnect-style flows are handled **inside Privy** (no app-level Reown/WalletConnect project ID). Configure **login methods** and **allowed origins** in the dashboard; client config is in [`client/src/config/privy.ts`](./client/src/config/privy.ts). |
@@ -179,7 +179,7 @@ The app is a **pnpm workspace** with a root **`pnpm-lock.yaml`**. Deploy the **G
 |--------|--------|
 | **Root Directory** | Leave **empty** (repository root). If you instead set Root Directory to **`client`**, Vercel only reads **`client/vercel.json`** — this repo duplicates the full **`vercel.json`** into **`client/vercel.json`** so either layout gets the same **install / build / output / SPA rewrites**. |
 | **Install / pnpm** | Root config runs **npx** with the **pnpm** version pinned in root **`packageManager`**, plus a small lockfile normalize script — avoids “incompatible lockfile” when the builder’s default pnpm differs. |
-| **Build** | **`scripts/vercel-build.mjs`** builds **`@chainpass/shared`** and **`client`**, then copies **`client/dist`** → root **`dist/`** for Vercel’s output directory. |
+| **Build** | **`scripts/vercel-build.mjs`** builds **`@hoppr/shared`** and **`client`**, then copies **`client/dist`** → root **`dist/`** for Vercel’s output directory. |
 | **Deep links** | **`rewrites`** send unknown paths to **`index.html`** so React Router routes (e.g. `/conductor`) work on refresh. |
 
 Conductor **QR scanning** (camera vs **Upload QR photo**) is documented in [`client/README.md`](./client/README.md).

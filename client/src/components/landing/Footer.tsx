@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom"
 
 const externalLinks = [
-  { href: "https://github.com/cybort360/chainpass", label: "GitHub" },
+  { href: "https://github.com/cybort360/hoppr", label: "GitHub" },
   { href: "https://faucet.monad.xyz/", label: "Get testnet MON" },
   { href: "https://docs.monad.xyz/", label: "Monad Docs" },
 ]

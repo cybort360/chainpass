@@ -1,4 +1,4 @@
-# ChainPass contracts (Foundry)
+# Hoppr contracts (Foundry)
 
 
 From the **repo root** or `contracts/`:
@@ -79,8 +79,8 @@ forge script script/DeployChainPass.s.sol:DeployChainPass \
   --broadcast
 ```
 
-On success, copy the logged `ChainPassTicket:` address into the root `.env` as `TICKET_CONTRACT_ADDRESS` for the indexer and mirror **`VITE_CHAINPASS_CONTRACT_ADDRESS`** in **`client/.env`**.
+On success, copy the logged `ChainPassTicket:` address into the root `.env` as `TICKET_CONTRACT_ADDRESS` for the indexer and mirror **`VITE_HOPPR_CONTRACT_ADDRESS`** in **`client/.env`**.
 
-**New deployment:** This repo does **not** use an upgradeable proxy — each deploy is a **new** contract with **fresh** `totalMinted` / `totalBurned` and a **new** address. Update **`INDEXER_FROM_BLOCK`** to the new deployment block and avoid mixing **`ticket_events`** rows from a previous address (see root **`walkthrough.md`** and **`pnpm --filter @chainpass/indexer run db:clear-ticket-events`**).
+**New deployment:** This repo does **not** use an upgradeable proxy — each deploy is a **new** contract with **fresh** `totalMinted` / `totalBurned` and a **new** address. Update **`INDEXER_FROM_BLOCK`** to the new deployment block and avoid mixing **`ticket_events`** rows from a previous address (see root **`walkthrough.md`** and **`pnpm --filter @hoppr/indexer run db:clear-ticket-events`**).
 
 **Funding:** Deployer needs testnet MON for gas (use the Monad testnet faucet).

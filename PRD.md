@@ -1,15 +1,15 @@
-# ChainPass — Product Requirements Document (PRD)
+# Hoppr — Product Requirements Document (PRD)
 
 **Version:** 0.5 (hackathon draft)  
 **Last updated:** 2026-03-27  
-**Source context:** `ChainPass_Hackathon_Proposal.docx`  
+**Source context:** `Hoppr_Hackathon_Proposal.docx`  
 **Chain:** Monad (EVM)
 
 ---
 
 ## 1. Executive summary
 
-**ChainPass** is an on-chain public transit ticketing product: passengers buy route-specific tickets in a mobile-first web app, receive an NFT-backed ticket, and present a **short-lived QR code** at entry. Validators scan the QR, confirm state on Monad, and **burn** the ticket to enforce **single use** (no separate “used” flag — **burn** is the only consumption). On Monad testnet, **native MON** can flow to a configured **treasury** on purchase. **Loyalty / points** are **out of scope** for this MVP.
+**Hoppr** is an on-chain public transit ticketing product: passengers buy route-specific tickets in a mobile-first web app, receive an NFT-backed ticket, and present a **short-lived QR code** at entry. Validators scan the QR, confirm state on Monad, and **burn** the ticket to enforce **single use** (no separate “used” flag — **burn** is the only consumption). On Monad testnet, **native MON** can flow to a configured **treasury** on purchase. **Loyalty / points** are **out of scope** for this MVP.
 
 This PRD refines the hackathon proposal into testable requirements, a realistic **MVP** versus **stretch** split, and a repo layout with **three top-level pillars**: **`contracts/`** (on-chain), **`server/`** (**Node.js + TypeScript** — API and indexer), and **`client/`** (Vite + React + TypeScript), plus optional **`shared/`** for generated ABIs and types. **Primary UI focus:** **`client/`** (transit-first layout, passenger vs conductor access) — see **§7.4**.
 
@@ -158,7 +158,7 @@ This section turns personas into **concrete UI scope** for **`client/`**. It doe
 | **`client/`** | **Yes** | **New work:** routing, wallet, route config, buy flow, pass + QR, conductor scan + burn, operator views, copy/design. |
 | **Config** | **Add in repo** | **Static route list** (e.g. `config/` or `client/src/config/`) — not a new backend service. |
 
-Optional client-only env: **`VITE_CHAINPASS_API_URL`** (and related **`VITE_*`** in `client/.env`) pointing at the ChainPass API — does not change server code.
+Optional client-only env: **`VITE_HOPPR_API_URL`** (and related **`VITE_*`** in `client/.env`) pointing at the Hoppr API — does not change server code.
 
 ---
 
@@ -275,7 +275,7 @@ The server is **Node.js + TypeScript** (not Deno/Bun for this project). A thin *
 The repo uses **three clearly separated roots** — **contracts**, **server**, **client** — so ownership and deploys are obvious. **`shared/`** holds TypeScript-only artifacts (generated ABIs, chain helpers) used by **server** and **client**, not by Foundry.
 
 ```text
-chainpass/
+hoppr/
 ├── README.md
 ├── PRD.md
 ├── package.json                 # pnpm workspaces root (client, server/*, shared)
@@ -333,7 +333,7 @@ packages:
 
 ## 14. Agent skills (Monad)
 
-The **monskills** pack lives under `.agents/skills/monskill/`. It routes agents to topics (scaffold, why Monad, addresses, wallet, wallet-integration, Vercel deploy). **ChainPass-specific mapping** — what to use, what to adapt for this repo — is documented in **`docs/MONSKILLS.md`**.
+The **monskills** pack lives under `.agents/skills/monskill/`. It routes agents to topics (scaffold, why Monad, addresses, wallet, wallet-integration, Vercel deploy). **Hoppr-specific mapping** — what to use, what to adapt for this repo — is documented in **`docs/MONSKILLS.md`**.
 
 Install / refresh:
 
